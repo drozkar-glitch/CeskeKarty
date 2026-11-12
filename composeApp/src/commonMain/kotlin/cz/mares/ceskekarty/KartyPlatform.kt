@@ -26,15 +26,50 @@ expect suspend fun provedSitovyDotaz(
 
 expect fun nactiArchKaretBitmap(): ImageBitmap?
 
+fun dekodujArchKaretBajty(): ByteArray {
+    val celkovaDelka = BOHEMIAN_DECK_B64_CHUNKS.sumOf { it.length }
+    if (celkovaDelka == 0) return ByteArray(0)
+
+    val tabulka = IntArray(256) { -1 }
+    val abeceda = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    for (i in abeceda.indices) {
+        tabulka[abeceda[i].code] = i
+    }
+
+    val odhad = (celkovaDelka * 3) / 4 + 4
+    val vystup = ByteArray(odhad)
+    var outPos = 0
+    var buffer = 0
+    var bity = 0
+
+    for (blok in BOHEMIAN_DECK_B64_CHUNKS) {
+        for (i in blok.indices) {
+            val c = blok[i].code
+            if (c == '='.code) {
+                return if (outPos == vystup.size) vystup else vystup.copyOf(outPos)
+            }
+            val hodnota = if (c in 0..255) tabulka[c] else -1
+            if (hodnota < 0) continue
+            buffer = ((buffer shl 6) or hodnota) and 0xFFFF
+            bity += 6
+            if (bity >= 8) {
+                bity -= 8
+                vystup[outPos++] = ((buffer ushr bity) and 0xFF).toByte()
+            }
+        }
+    }
+    return if (outPos == vystup.size) vystup else vystup.copyOf(outPos)
+}
+
 private var kesovanyArchKaret: ImageBitmap? = null
-private var pokusONacteniArchuProbehl: Boolean = false
 
 fun ziskejArchJednohlavychKaret(): ImageBitmap? {
-    if (!pokusONacteniArchuProbehl) {
-        pokusONacteniArchuProbehl = true
-        kesovanyArchKaret = nactiArchKaretBitmap()
+    kesovanyArchKaret?.let { return it }
+    val nacteny = nactiArchKaretBitmap()
+    if (nacteny != null) {
+        kesovanyArchKaret = nacteny
     }
-    return kesovanyArchKaret
+    return nacteny
 }
 
 const val STARTOVNI_TEREZIANY = 1000

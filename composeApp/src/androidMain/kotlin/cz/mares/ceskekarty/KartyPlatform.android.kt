@@ -132,10 +132,12 @@ actual suspend fun provedSitovyDotaz(
 }
 
 actual fun nactiArchKaretBitmap(): ImageBitmap? {
-    val ctx = ziskejAndroidKontext() ?: return null
     return try {
-        ctx.assets.open("bohemian_deck.jpg").use { vstup ->
-            BitmapFactory.decodeStream(vstup)?.asImageBitmap()
+        val bajty = dekodujArchKaretBajty()
+        if (bajty.isNotEmpty()) {
+            BitmapFactory.decodeByteArray(bajty, 0, bajty.size)?.asImageBitmap()
+        } else {
+            null
         }
     } catch (_: Throwable) {
         null

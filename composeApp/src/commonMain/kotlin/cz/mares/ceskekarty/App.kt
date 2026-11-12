@@ -1384,8 +1384,8 @@ private fun PravidlaObrazovka(onZpet: () -> Unit) {
             text = "Každý nový hráč dostává do začátku měšec s 1000 tereziány. Jednou denně si na hlavní obrazovce můžeš vyzvednout denní odměnu +100 tereziánů. Klesne-li tvůj měšec pod 100 tereziánů, tlačítko Císařská podpora ti ho zdarma dorovná na 200 tereziánů, případně si můžeš kdykoliv přivydělat v tréninku s boty. Díky 4místnému PINu si celý svůj účet i měšec obnovíš po přeinstalaci nebo v novém telefonu."
         )
         BlokPravidel(
-            nadpis = "Volený Mariáš (3 hráči)",
-            text = "Forhont volí trumf ze 7 karet (nebo naslepo z talonu) a po dobrání odkládá 2 karty mimo es a desítek. Hra automaticky zvýrazňuje povolené tahy a hlídá povinnost přiznat a přebít barvu i povinnost trumfovat bez barvy. Hlášené páry svršek a král automaticky připisují 20 nebo 40 bodů. V Betlu a Durchu nejsou trumfy a desítka klesá mezi devítku a spodka."
+            nadpis = "Volený Mariáš — kompletní česká pravidla",
+            text = "Forhont volí trumf ze 7 karet (nebo naslepo z talonu) a po dobrání odkládá 2 karty mimo es a desítek. Kromě Hry, Betlu a Durchu lze hlásit Stovku (100), Sedmu i Dvě sedmy (9. štych vedlejší sedmičkou a 10. štych trumfovou sedmičkou) — včetně falešné sedmy jako blafu. Nehlášená trumfová sedma v 10. štychu platí jako tichá sedma (při přebití v posledním štychu jako zabitá tichá sedma) a uhraná stovka z obyčejné hry jako tichá stovka. Červené trumfy platí dvojnásobně, hlášky 20/40 platí straně s alespoň jedním štychem a flekovat lze v celé řadě Flek (2×), Re (4×), Tutti (8×), Boty (16×) až Kalhoty (32×) zvlášť na hru i na sedmu."
         )
         BlokPravidel(
             nadpis = "Prší (2 až 4 hráči)",
@@ -1398,6 +1398,10 @@ private fun PravidlaObrazovka(onZpet: () -> Unit) {
         BlokPravidel(
             nadpis = "Živé online stoly bez botů",
             text = "Karty při každém rozdání míchá server. Zelená ikona u přezdívky hlídá živé spojení — při výpadku delším než 60 sekund se stůl čistě uzavře bez zásahu botů a přítomným hráčům se žádné tereziány neodečtou."
+        )
+        BlokPravidel(
+            nadpis = "Původ a licence karetního obrazu",
+            text = "Jednohlavé mariášové karty vycházejí z tradičního českého (pražského) obrazu: dílo „Bohemian pattern“, autor skenu Countakeshi, zdroj Wikimedia Commons, použito a upraveno pod licencí Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0, https://creativecommons.org/licenses/by-sa/4.0/)."
         )
     }
 }

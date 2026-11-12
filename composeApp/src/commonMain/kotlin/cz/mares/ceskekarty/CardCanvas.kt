@@ -243,18 +243,16 @@ fun KartaLiceComposable(
                 val sloupec = sloupecArchuProHodnotu(karta.hodnota)
                 val sirkaBunky = archBitmap.width / 8
                 val vyskaBunky = archBitmap.height / 4
-                val orezX = (sirkaBunky * 0.008f).roundToInt().coerceAtLeast(1)
-                val orezY = (vyskaBunky * 0.008f).roundToInt().coerceAtLeast(1)
 
                 drawImage(
                     image = archBitmap,
                     srcOffset = IntOffset(
-                        x = sloupec * sirkaBunky + orezX,
-                        y = radek * vyskaBunky + orezY
+                        x = sloupec * sirkaBunky + 1,
+                        y = radek * vyskaBunky + 1
                     ),
                     srcSize = IntSize(
-                        width = (sirkaBunky - orezX * 2).coerceAtLeast(1),
-                        height = (vyskaBunky - orezY * 2).coerceAtLeast(1)
+                        width = (sirkaBunky - 2).coerceAtLeast(1),
+                        height = (vyskaBunky - 2).coerceAtLeast(1)
                     ),
                     dstOffset = IntOffset.Zero,
                     dstSize = IntSize(
@@ -264,7 +262,6 @@ fun KartaLiceComposable(
                     filterQuality = FilterQuality.High
                 )
             } else {
-                // Záložní čisté vykreslení, pokud by se arch ještě nenačetl
                 val pad = size.width * 0.07f
                 drawRect(
                     color = BarvaInkoustu,
@@ -283,18 +280,20 @@ fun KartaLiceComposable(
         if (!stitekNavic.isNullOrEmpty()) {
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 3.dp)
+                    .align(Alignment.TopStart)
+                    .padding(start = 3.dp, top = 3.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(Color(0xEB134E27))
+                    .background(Color(0xEB104422))
                     .border(0.8.dp, Color(0xFFFFD54F), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                    .padding(horizontal = 3.dp, vertical = 1.dp)
             ) {
                 Text(
                     text = stitekNavic,
                     color = Color(0xFFFFF59D),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    fontSize = 7.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }

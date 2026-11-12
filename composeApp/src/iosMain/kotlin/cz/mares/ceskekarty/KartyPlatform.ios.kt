@@ -110,30 +110,9 @@ actual suspend fun provedSitovyDotaz(
     uloha.resume()
 }
 
-private fun najdiCestuKArchuIos(): String? {
-    val hlavni = NSBundle.mainBundle
-    hlavni.pathForResource("bohemian_deck", ofType = "jpg")?.let { return it }
-
-    val spravce = NSFileManager.defaultManager
-    val vRamci = hlavni.bundlePath + "/Frameworks/ComposeApp.framework/bohemian_deck.jpg"
-    if (spravce.fileExistsAtPath(vRamci)) return vRamci
-
-    for (polozka in NSBundle.allFrameworks) {
-        val svazek = polozka as? NSBundle ?: continue
-        svazek.pathForResource("bohemian_deck", ofType = "jpg")?.let { return it }
-    }
-    for (polozka in NSBundle.allBundles) {
-        val svazek = polozka as? NSBundle ?: continue
-        svazek.pathForResource("bohemian_deck", ofType = "jpg")?.let { return it }
-    }
-    return null
-}
-
 actual fun nactiArchKaretBitmap(): ImageBitmap? {
     return try {
-        val cesta = najdiCestuKArchuIos() ?: return null
-        val data = NSData.dataWithContentsOfFile(cesta) ?: return null
-        val bajty = nsDataNaBajty(data)
+        val bajty = dekodujArchKaretBajty()
         if (bajty.isEmpty()) return null
         Image.makeFromEncoded(bajty).toComposeImageBitmap()
     } catch (_: Throwable) {

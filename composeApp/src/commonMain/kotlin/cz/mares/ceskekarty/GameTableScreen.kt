@@ -725,7 +725,7 @@ private fun HorniListaStolu(
             .clip(RoundedCornerShape(11.dp))
             .background(Color(0xB8062011))
             .border(1.dp, Color(0x66D4AF37), RoundedCornerShape(11.dp))
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .padding(horizontal = 7.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -733,7 +733,7 @@ private fun HorniListaStolu(
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFF1D5836))
                 .clickable { onKlikZpet() }
-                .padding(horizontal = 9.dp, vertical = 5.dp)
+                .padding(horizontal = 8.dp, vertical = 5.dp)
         ) {
             Text(
                 text = "← Odchod",
@@ -748,7 +748,7 @@ private fun HorniListaStolu(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 6.dp),
+                .padding(horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val stitekRezimu = when {
@@ -760,7 +760,7 @@ private fun HorniListaStolu(
                 else -> "TRÉNINK"
             }
             Text(
-                text = "${typHry.nazev} • $stitekRezimu",
+                text = typHry.nazev,
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.ExtraBold,
@@ -771,9 +771,19 @@ private fun HorniListaStolu(
             if (jeOnline && onlineStul != null && onlineStul.stavMistnosti == StavMistnosti.HRAJE_SE) {
                 val zbyvaTahu = max(0L, (LIMIT_ODPOJENI_MS - (tikSekundyMs - onlineStul.zacatekTahuMs)) / 1000L)
                 Text(
-                    text = "Tah: ${zbyvaTahu}s",
+                    text = "$stitekRezimu • Tah: ${zbyvaTahu}s",
                     color = if (zbyvaTahu <= 15L) Color(0xFFFF8A65) else Color(0xFFA5D6A7),
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            } else {
+                Text(
+                    text = stitekRezimu,
+                    color = Color(0xFFA5D6A7),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     softWrap = false
                 )
@@ -786,11 +796,11 @@ private fun HorniListaStolu(
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFF144227))
                 .border(0.8.dp, Color(0x55E6C15A), RoundedCornerShape(8.dp))
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .padding(horizontal = 7.dp, vertical = 4.dp)
         ) {
             when (typHry) {
                 TypHry.PRSI -> if (stavPrsi != null) {
-                    IkonaBarvyKarty(stavPrsi.aktualniPlatnaBarva, velikost = 15.dp)
+                    IkonaBarvyKarty(stavPrsi.aktualniPlatnaBarva, velikost = 14.dp)
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = stavPrsi.aktualniPlatnaBarva.ceskyNazev,
@@ -815,7 +825,7 @@ private fun HorniListaStolu(
 
                 TypHry.MARIAS -> if (stavMarias != null) {
                     if (stavMarias.trumf != null && !stavMarias.jeBetlNeboDurch) {
-                        IkonaBarvyKarty(stavMarias.trumf, velikost = 15.dp)
+                        IkonaBarvyKarty(stavMarias.trumf, velikost = 14.dp)
                         Spacer(modifier = Modifier.width(4.dp))
                         val nasobkyText = if (stavMarias.zavazek.hlasiSedmu) {
                             "${stavMarias.nasobekFlekHra}×/7:${stavMarias.nasobekFlekSedma}×"
@@ -1538,7 +1548,9 @@ private fun SpodniRukaHrace(
         TypHry.MARIAS -> {
             val s = stavMarias
             ruka = s?.ruceHracu?.getOrNull(lokalniIndex) ?: emptyList()
+            val voliTrumf = s != null && s.faze == FazeMariase.VOLBA_TRUMFU && s.naTahu == lokalniIndex
             val odkladaTalon = s != null && s.faze == FazeMariase.ODKLADANI_TALONU && s.naTahu == lokalniIndex
+            val flekuje = s != null && s.faze == FazeMariase.FLEKOVANI && s.naTahu == lokalniIndex
             val hrajeStych = s != null && s.faze == FazeMariase.SEHRAVKA && s.naTahu == lokalniIndex
             povolene = when {
                 odkladaTalon && s != null -> MariasEngine.zjistiKartyPovoleneDoTalonu(s, planovanyZavazek)
@@ -1547,7 +1559,9 @@ private fun SpodniRukaHrace(
             }
             aktivniKontrola = odkladaTalon || hrajeStych
             popisPovinnosti = when {
+                voliTrumf -> "Prohlédni si svých 7 karet a nahoře zvol trumf"
                 odkladaTalon -> "Zvol 2 povolené karty do talonu"
+                flekuje -> "Prohlédni si list a nahoře zvol Dobrý nebo Flek"
                 !hrajeStych -> "Sleduj stůl"
                 s?.aktualniStych?.isEmpty() == true -> "Vynášíš do štychu"
                 else -> {
@@ -1621,7 +1635,7 @@ private fun SpodniRukaHrace(
             } else {
                 sirkaKarty.value
             }
-            val minRozestupDp = -(kartaSirkaDp - 25f)
+            val minRozestupDp = -(kartaSirkaDp - 30f)
             val maxRozestupDp = 7f
             val rozestupDp = if (pocetVRuce <= 1) {
                 0f
