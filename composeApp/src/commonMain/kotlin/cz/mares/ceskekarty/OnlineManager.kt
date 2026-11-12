@@ -115,7 +115,7 @@ data class ZaznamZebricku(
 )
 
 sealed class VysledekRegistraceNicku {
-    data object Uspech : VysledekRegistraceNicku()
+    data class Uspech(val zprava: String = "") : VysledekRegistraceNicku()
     data class Chyba(val zprava: String) : VysledekRegistraceNicku()
 }
 
@@ -346,7 +346,7 @@ object OnlineManager {
         return posledni
     }
 
-    suspend fun overAUlozPrezdivku(kandidat: String): VysledekRegistraceNicku {
+    suspend fun overAUlozPrezdivku(kandidat: String, pin: String = ""): VysledekRegistraceNicku {
         val cista = kandidat.trim()
             .replace("/", "")
             .replace(".", "")
@@ -361,39 +361,91 @@ object OnlineManager {
             return VysledekRegistraceNicku.Chyba("Přezdívka může mít nejvýše 18 znaků.")
         }
 
+        val cistyPin = pin.trim()
+        if (cistyPin.length != 4 || !cistyPin.all { it.isDigit() }) {
+            return VysledekRegistraceNicku.Chyba("Zadej prosím přesně 4 číslice PIN kódu.")
+        }
+
+        val zadanyOtisk = vypoctiOtiskPinu(cista, cistyPin)
         val mojeId = ziskejUnikatniIdZarizeni()
         val kodovana = urlKodujKomponentu(cista)
-        val url = "$FIREBASE_DB_ZAKLAD/high_scores/$ZEBRICEK_GAME_ID/$kodovana.json"
+        val urlHs = "$FIREBASE_DB_ZAKLAD/high_scores/$ZEBRICEK_GAME_ID/$kodovana.json"
+        val urlUcet = "$FIREBASE_DB_ZAKLAD/card_accounts/$kodovana.json"
 
-        val kontrola = dotazSOpakovanim("GET", url, pokusy = 2)
-        if (kontrola.uspesne && kontrola.telo.isNotBlank() && kontrola.telo.trim() != "null") {
-            val prvek = parsujJsonText(kontrola.telo)
-            if (prvek is JsonPrvek.Objekt) {
-                val vlastnik = prvek.retezec("deviceId", "")
-                if (vlastnik.isNotEmpty() && vlastnik != mojeId) {
-                    return VysledekRegistraceNicku.Chyba("Tato přezdívka je již obsazena jiným hráčem.")
+        val odpovedUcet = dotazSOpakovanim("GET", urlUcet, pokusy = 2)
+        val odpovedHs = dotazSOpakovanim("GET", urlHs, pokusy = 2)
+
+        val ucetObj = if (odpovedUcet.uspesne && odpovedUcet.telo.isNotBlank() && odpovedUcet.telo.trim() != "null") {
+            parsujJsonText(odpovedUcet.telo) as? JsonPrvek.Objekt
+        } else null
+
+        val hsPrvek = if (odpovedHs.uspesne && odpovedHs.telo.isNotBlank() && odpovedHs.telo.trim() != "null") {
+            parsujJsonText(odpovedHs.telo)
+        } else JsonPrvek.Prazdno
+
+        val hsSkore = when (hsPrvek) {
+            is JsonPrvek.Objekt -> hsPrvek.cisloInt("score", 0)
+            is JsonPrvek.Cislo -> hsPrvek.hodnota.toInt()
+            else -> 0
+        }
+        val hsDeviceId = (hsPrvek as? JsonPrvek.Objekt)?.retezec("deviceId", "") ?: ""
+
+        if (ucetObj != null) {
+            val ulozenyOtisk = ucetObj.retezec("pinHash", "")
+            if (ulozenyOtisk.isNotEmpty()) {
+                if (ulozenyOtisk != zadanyOtisk) {
+                    return VysledekRegistraceNicku.Chyba("Přezdívka již existuje — zadaný PIN nesouhlasí.")
                 }
-                val existujiciSkore = prvek.cisloInt("score", 0)
-                if (existujiciSkore > 0) {
-                    ulozLokalniElo(existujiciSkore)
+                val puvodniDeviceId = ucetObj.retezec("deviceId", "").ifEmpty {
+                    hsDeviceId.ifEmpty { mojeId }
                 }
-            } else if (prvek is JsonPrvek.Cislo) {
+                val ucetSkore = ucetObj.cisloInt("score", 1000)
+                val obnoveneElo = (if (hsSkore > 0) hsSkore else ucetSkore).coerceIn(100, 9999)
+
+                ulozObnoveneIdZarizeni(puvodniDeviceId)
+                ulozPrezdivkuTrvale(cista)
+                ulozPinOtiskTrvale(zadanyOtisk)
+                ulozLokalniElo(obnoveneElo)
+
+                val nyni = ziskejAktualniCasMs()
+                val teloUcet = """{"nick":${jsonEscape(cista)},"pinHash":${jsonEscape(zadanyOtisk)},"deviceId":${jsonEscape(puvodniDeviceId)},"score":$obnoveneElo,"updatedAt":$nyni}"""
+                val teloHs = """{"score":$obnoveneElo,"deviceId":${jsonEscape(puvodniDeviceId)},"updatedAt":$nyni}"""
+                dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
+                dotazSOpakovanim("PUT", urlHs, teloHs, pokusy = 2)
+
+                return VysledekRegistraceNicku.Uspech("Účet $cista (ELO $obnoveneElo) byl úspěšně obnoven!")
+            }
+        }
+
+        if (hsPrvek is JsonPrvek.Objekt || hsPrvek is JsonPrvek.Cislo) {
+            if (hsDeviceId.isNotEmpty() && hsDeviceId != mojeId) {
+                return VysledekRegistraceNicku.Chyba("Tato přezdívka je již obsazena jiným hráčem.")
+            }
+            if (hsPrvek is JsonPrvek.Cislo) {
                 return VysledekRegistraceNicku.Chyba("Tato přezdívka je již obsazena v žebříčku.")
             }
         }
 
-        val startElo = nactiLokalniElo().coerceAtLeast(1000)
+        val startElo = (if (hsSkore > 0) hsSkore else nactiLokalniElo()).coerceAtLeast(1000)
         val nyni = ziskejAktualniCasMs()
-        val telo = """{"score":$startElo,"deviceId":${jsonEscape(mojeId)},"updatedAt":$nyni}"""
-        val zapis = dotazSOpakovanim("PUT", url, telo, pokusy = 2)
-        if (!zapis.uspesne) {
-            ulozPrezdivkuTrvale(cista)
-            return VysledekRegistraceNicku.Uspech
-        }
+        val teloUcet = """{"nick":${jsonEscape(cista)},"pinHash":${jsonEscape(zadanyOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$startElo,"updatedAt":$nyni}"""
+        val teloHs = """{"score":$startElo,"deviceId":${jsonEscape(mojeId)},"updatedAt":$nyni}"""
+
+        dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
+        dotazSOpakovanim("PUT", urlHs, teloHs, pokusy = 2)
 
         ulozPrezdivkuTrvale(cista)
+        ulozPinOtiskTrvale(zadanyOtisk)
         ulozLokalniElo(startElo)
-        return VysledekRegistraceNicku.Uspech
+        return VysledekRegistraceNicku.Uspech("Přezdívka $cista byla uložena a zabezpečena PINem.")
+    }
+
+    suspend fun doplnPinKeStavajiciPrezdivce(pin: String): VysledekRegistraceNicku {
+        val aktualniNick = nactiUlozenouPrezdivku()
+        if (aktualniNick.isEmpty()) {
+            return VysledekRegistraceNicku.Chyba("Nejprve si zvol přezdívku.")
+        }
+        return overAUlozPrezdivku(aktualniNick, pin)
     }
 
     suspend fun odesliAktualniEloDoZebricku(noveElo: Int) {
@@ -404,10 +456,18 @@ object OnlineManager {
 
         val mojeId = ziskejUnikatniIdZarizeni()
         val kodovana = urlKodujKomponentu(nick)
-        val url = "$FIREBASE_DB_ZAKLAD/high_scores/$ZEBRICEK_GAME_ID/$kodovana.json"
         val nyni = ziskejAktualniCasMs()
-        val telo = """{"score":$cisteElo,"deviceId":${jsonEscape(mojeId)},"updatedAt":$nyni}"""
-        dotazSOpakovanim("PUT", url, telo, pokusy = 2)
+
+        val urlHs = "$FIREBASE_DB_ZAKLAD/high_scores/$ZEBRICEK_GAME_ID/$kodovana.json"
+        val teloHs = """{"score":$cisteElo,"deviceId":${jsonEscape(mojeId)},"updatedAt":$nyni}"""
+        dotazSOpakovanim("PUT", urlHs, teloHs, pokusy = 2)
+
+        val pinOtisk = nactiUlozenyPinOtisk()
+        if (pinOtisk.isNotEmpty()) {
+            val urlUcet = "$FIREBASE_DB_ZAKLAD/card_accounts/$kodovana.json"
+            val teloUcet = """{"nick":${jsonEscape(nick)},"pinHash":${jsonEscape(pinOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$cisteElo,"updatedAt":$nyni}"""
+            dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
+        }
     }
 
     suspend fun nactiZebricek(includeZeroScores: Boolean = false): List<ZaznamZebricku> {

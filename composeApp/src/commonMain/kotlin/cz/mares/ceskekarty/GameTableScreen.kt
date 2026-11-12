@@ -35,12 +35,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import kotlin.math.abs
 import kotlin.math.max
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -104,7 +107,6 @@ fun GameTableScreen(
         )
     }
 
-    // Výběr 2 karet do talonu a závazku v Mariáši
     var vybraneKartyDoTalonu by remember { mutableStateOf<List<Karta>>(emptyList()) }
     var planovanyZavazekMariase by remember { mutableStateOf(ZavazekMariase.HRA) }
     var zapoctenaVerzeVysledku by remember { mutableStateOf(-1) }
@@ -117,7 +119,6 @@ fun GameTableScreen(
         }
     }
 
-    // Hodiny 1 s pro živý odpočet spojení a limitu tahu
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000L)
@@ -125,7 +126,6 @@ fun GameTableScreen(
         }
     }
 
-    // Online tep spojení (každé 4 s) — živá zelená ikona u přezdívky
     LaunchedEffect(jeOnlineRezim, onlineStul?.roomId) {
         val rid = onlineStul?.roomId ?: return@LaunchedEffect
         while (jeOnlineRezim) {
@@ -134,7 +134,6 @@ fun GameTableScreen(
         }
     }
 
-    // Synchronizace živého stolu a kontrola 60s výpadku (žádný bot do živé hry!)
     LaunchedEffect(jeOnlineRezim, onlineStul?.roomId) {
         val rid = onlineStul?.roomId ?: return@LaunchedEffect
         while (jeOnlineRezim) {
@@ -156,7 +155,6 @@ fun GameTableScreen(
                     }
                 }
 
-                // Hlídání 60s výpadku spojení nebo 60s nečinnosti na tahu v živé hře
                 if (cerstvy.stavMistnosti == StavMistnosti.HRAJE_SE) {
                     val nyni = ziskejAktualniCasMs()
                     val jeHraHotova = when (cerstvy.typHry) {
@@ -181,7 +179,6 @@ fun GameTableScreen(
                             val ukonceny = OnlineManager.ukonciStulProVypadek(cerstvy, jmenoVinika)
                             onlineStul = ukonceny
 
-                            // V turnaji posuneme přítomného hráče kontumačně dál
                             if (cerstvy.turnajId.isNotEmpty() && odpojenyHrac?.deviceId != mojeDeviceId) {
                                 val pritomny = cerstvy.hraci.firstOrNull { it.deviceId != odpojenyHrac?.deviceId }
                                 if (pritomny != null) {
@@ -201,7 +198,6 @@ fun GameTableScreen(
         }
     }
 
-    // Automatické tahy botů VÝHRADNĚ v offline tréninku / offline poháru
     val aktualniCisloTahu = when (aktivniTypHry) {
         TypHry.PRSI -> stavPrsi?.cisloTahu ?: 0
         TypHry.SEDMA -> stavSedma?.cisloTahu ?: 0
@@ -245,7 +241,6 @@ fun GameTableScreen(
         }
     }
 
-    // Automatické vyhodnocení partie a zápis ELO / turnaje
     val vysledekPartie: VysledekPartie? = when (aktivniTypHry) {
         TypHry.PRSI -> stavPrsi?.takeIf { it.jeKonec }?.let { PrsiEngine.vyhodnotVysledek(it) }
         TypHry.SEDMA -> stavSedma?.takeIf { it.jeKonec }?.let { SedmaEngine.vyhodnotVysledek(it) }
@@ -298,331 +293,319 @@ fun GameTableScreen(
         }
     }
 
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xFF0F4C2C), Color(0xFF0A331D), Color(0xFF062112))
-                )
-            )
-    ) {
-        val naSirku = maxWidth > maxHeight
-        val sirkaKartyRuky = if (naSirku) 64.dp else 70.dp
-        val sirkaKartyStolu = if (naSirku) 58.dp else 66.dp
+    ZelenyKaretniStulBox(zobrazitStredovyKruh = true) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val naSirku = maxWidth > maxHeight
+            val sirkaKartyRuky = if (naSirku) 68.dp else 78.dp
+            val sirkaKartyStolu = if (naSirku) 62.dp else 74.dp
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            // 1. Horní lišta stolu + soupeři se zelenou ikonou připojení
-            Column(modifier = Modifier.fillMaxWidth()) {
-                HorniListaStolu(
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    HorniListaStolu(
+                        typHry = aktivniTypHry,
+                        jeOnline = jeOnlineRezim,
+                        onlineStul = onlineStul,
+                        offlineKonfig = offlineKonfig,
+                        cisloOfflineRozdani = cisloOfflineRozdani,
+                        stavPrsi = stavPrsi,
+                        stavSedma = stavSedma,
+                        stavMarias = stavMarias,
+                        tikSekundyMs = tikSekundyMs,
+                        onKlikZpet = {
+                            if (jeOnlineRezim && onlineStul?.stavMistnosti == StavMistnosti.HRAJE_SE && vysledekPartie == null) {
+                                potvrditOdchod = true
+                            } else {
+                                onOpustitStul()
+                            }
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    PruhySouperu(
+                        typHry = aktivniTypHry,
+                        lokalniIndex = lokalniIndex,
+                        onlineStul = onlineStul,
+                        stavPrsi = stavPrsi,
+                        stavSedma = stavSedma,
+                        stavMarias = stavMarias,
+                        nyniMs = tikSekundyMs
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    when (aktivniTypHry) {
+                        TypHry.PRSI -> stavPrsi?.let { s ->
+                            StredStoluPrsi(
+                                stav = s,
+                                lokalniIndex = lokalniIndex,
+                                sirkaKarty = sirkaKartyStolu,
+                                onLiznoutNeboStat = {
+                                    val novy = PrsiEngine.lizniNeboStuj(s, lokalniIndex)
+                                    stavPrsi = novy
+                                    if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                                },
+                                onZvolitBarvuSvrskem = { barva ->
+                                    val novy = PrsiEngine.potvrdVolbuBarvySvrskem(s, barva)
+                                    stavPrsi = novy
+                                    if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                                }
+                            )
+                        }
+
+                        TypHry.SEDMA -> stavSedma?.let { s ->
+                            StredStoluSedma(
+                                stav = s,
+                                lokalniIndex = lokalniIndex,
+                                sirkaKarty = sirkaKartyStolu,
+                                onPustitStych = {
+                                    val novy = SedmaEngine.pustStych(s, lokalniIndex)
+                                    stavSedma = novy
+                                    if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                                }
+                            )
+                        }
+
+                        TypHry.MARIAS -> stavMarias?.let { s ->
+                            StredStoluMarias(
+                                stav = s,
+                                lokalniIndex = lokalniIndex,
+                                sirkaKarty = sirkaKartyStolu,
+                                vybraneDoTalonu = vybraneKartyDoTalonu,
+                                planovanyZavazek = planovanyZavazekMariase,
+                                onZmenaPlanovanehoZavazku = { novyZav ->
+                                    planovanyZavazekMariase = novyZav
+                                    val povolene = MariasEngine.zjistiKartyPovoleneDoTalonu(s, novyZav)
+                                    vybraneKartyDoTalonu = vybraneKartyDoTalonu.filter { it in povolene }
+                                },
+                                onVolbaTrumfu = { trumf, zTalonu, zavazek ->
+                                    planovanyZavazekMariase = zavazek
+                                    vybraneKartyDoTalonu = emptyList()
+                                    val novy = MariasEngine.zvolTrumfNeboHruBezTrumfu(s, trumf, zTalonu, zavazek)
+                                    stavMarias = novy
+                                    if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                                },
+                                onPotvrditTalon = {
+                                    val novy = MariasEngine.potvrdTalonAZavazek(
+                                        s,
+                                        vybraneKartyDoTalonu,
+                                        planovanyZavazekMariase
+                                    )
+                                    vybraneKartyDoTalonu = emptyList()
+                                    stavMarias = novy
+                                    if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                                },
+                                onOdpovedFleku = { flekHra, flekSedma ->
+                                    val novy = MariasEngine.odpovezNaFlekovani(s, lokalniIndex, flekHra, flekSedma)
+                                    stavMarias = novy
+                                    if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                                }
+                            )
+                        }
+                    }
+                }
+
+                SpodniRukaHrace(
                     typHry = aktivniTypHry,
+                    lokalniIndex = lokalniIndex,
+                    sirkaKarty = sirkaKartyRuky,
+                    stavPrsi = stavPrsi,
+                    stavSedma = stavSedma,
+                    stavMarias = stavMarias,
+                    onlineStul = onlineStul,
+                    nyniMs = tikSekundyMs,
+                    vybraneDoTalonu = vybraneKartyDoTalonu,
+                    planovanyZavazek = planovanyZavazekMariase,
+                    onKlikKartaPrsi = { karta ->
+                        val s = stavPrsi ?: return@SpodniRukaHrace
+                        val novy = PrsiEngine.zahrajKartu(s, lokalniIndex, karta)
+                        stavPrsi = novy
+                        if (jeOnlineRezim && !novy.cekaNaVolbuBarvy) {
+                            publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                        }
+                    },
+                    onKlikKartaSedma = { karta ->
+                        val s = stavSedma ?: return@SpodniRukaHrace
+                        val novy = SedmaEngine.zahrajKartu(s, lokalniIndex, karta)
+                        stavSedma = novy
+                        if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                    },
+                    onKlikKartaMarias = { karta ->
+                        val s = stavMarias ?: return@SpodniRukaHrace
+                        if (s.faze == FazeMariase.ODKLADANI_TALONU && s.naTahu == lokalniIndex) {
+                            vybraneKartyDoTalonu = if (karta in vybraneKartyDoTalonu) {
+                                vybraneKartyDoTalonu - karta
+                            } else if (vybraneKartyDoTalonu.size < 2) {
+                                vybraneKartyDoTalonu + karta
+                            } else {
+                                listOf(vybraneKartyDoTalonu[1], karta)
+                            }
+                        } else if (s.faze == FazeMariase.SEHRAVKA && s.naTahu == lokalniIndex) {
+                            val novy = MariasEngine.zahrajKartu(s, lokalniIndex, karta)
+                            stavMarias = novy
+                            if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                        }
+                    }
+                )
+            }
+
+            if (vysledekPartie != null && onlineStul?.stavMistnosti != StavMistnosti.UKONCENO_VYPADKEM) {
+                PanelVyuctovaniPartie(
+                    vysledek = vysledekPartie,
                     jeOnline = jeOnlineRezim,
                     onlineStul = onlineStul,
                     offlineKonfig = offlineKonfig,
                     cisloOfflineRozdani = cisloOfflineRozdani,
-                    stavPrsi = stavPrsi,
-                    stavSedma = stavSedma,
-                    stavMarias = stavMarias,
-                    tikSekundyMs = tikSekundyMs,
-                    onKlikZpet = {
-                        if (jeOnlineRezim && onlineStul?.stavMistnosti == StavMistnosti.HRAJE_SE && vysledekPartie == null) {
-                            potvrditOdchod = true
+                    soucetBoduOffline = soucetBoduOffline,
+                    mojeDeviceId = mojeDeviceId,
+                    onDalsiRozdani = {
+                        zapoctenaVerzeVysledku = -1
+                        vybraneKartyDoTalonu = emptyList()
+                        planovanyZavazekMariase = ZavazekMariase.HRA
+                        if (!jeOnlineRezim) {
+                            val dalsiKolo = cisloOfflineRozdani + 1
+                            cisloOfflineRozdani = dalsiKolo
+                            val zacinajici = (dalsiKolo - 1) % pocetHracu
+                            when (aktivniTypHry) {
+                                TypHry.PRSI -> stavPrsi = PrsiEngine.novaHra(vychoziJmenaOffline, zacinajiciHrac = zacinajici)
+                                TypHry.SEDMA -> stavSedma = SedmaEngine.novaHra(vychoziJmenaOffline, zacinajiciHrac = zacinajici)
+                                TypHry.MARIAS -> stavMarias = MariasEngine.novaHra(vychoziJmenaOffline, indexForhonta = zacinajici)
+                            }
                         } else {
-                            onOpustitStul()
-                        }
-                    }
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                PruhySouperu(
-                    typHry = aktivniTypHry,
-                    lokalniIndex = lokalniIndex,
-                    onlineStul = onlineStul,
-                    stavPrsi = stavPrsi,
-                    stavSedma = stavSedma,
-                    stavMarias = stavMarias,
-                    nyniMs = tikSekundyMs
-                )
-            }
-
-            // 2. Střed karetního plátna (balíček, štych, volba trumfu/talonu/fleku)
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                when (aktivniTypHry) {
-                    TypHry.PRSI -> stavPrsi?.let { s ->
-                        StredStoluPrsi(
-                            stav = s,
-                            lokalniIndex = lokalniIndex,
-                            sirkaKarty = sirkaKartyStolu,
-                            onLiznoutNeboStat = {
-                                val novy = PrsiEngine.lizniNeboStuj(s, lokalniIndex)
-                                stavPrsi = novy
-                                if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
-                            },
-                            onZvolitBarvuSvrskem = { barva ->
-                                val novy = PrsiEngine.potvrdVolbuBarvySvrskem(s, barva)
-                                stavPrsi = novy
-                                if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                            val stul = onlineStul ?: return@PanelVyuctovaniPartie
+                            val noveSoucty = stul.soucetBoduHracu.mapIndexed { idx, stary ->
+                                stary + (vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.bodyZapasu ?: 0)
                             }
-                        )
-                    }
-
-                    TypHry.SEDMA -> stavSedma?.let { s ->
-                        StredStoluSedma(
-                            stav = s,
-                            lokalniIndex = lokalniIndex,
-                            sirkaKarty = sirkaKartyStolu,
-                            onPustitStych = {
-                                val novy = SedmaEngine.pustStych(s, lokalniIndex)
-                                stavSedma = novy
-                                if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
-                            }
-                        )
-                    }
-
-                    TypHry.MARIAS -> stavMarias?.let { s ->
-                        StredStoluMarias(
-                            stav = s,
-                            lokalniIndex = lokalniIndex,
-                            sirkaKarty = sirkaKartyStolu,
-                            vybraneDoTalonu = vybraneKartyDoTalonu,
-                            planovanyZavazek = planovanyZavazekMariase,
-                            onZmenaPlanovanehoZavazku = { novyZav ->
-                                planovanyZavazekMariase = novyZav
-                                val povolene = MariasEngine.zjistiKartyPovoleneDoTalonu(s, novyZav)
-                                vybraneKartyDoTalonu = vybraneKartyDoTalonu.filter { it in povolene }
-                            },
-                            onVolbaTrumfu = { trumf, zTalonu, zavazek ->
-                                planovanyZavazekMariase = zavazek
-                                vybraneKartyDoTalonu = emptyList()
-                                val novy = MariasEngine.zvolTrumfNeboHruBezTrumfu(s, trumf, zTalonu, zavazek)
-                                stavMarias = novy
-                                if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
-                            },
-                            onPotvrditTalon = {
-                                val novy = MariasEngine.potvrdTalonAZavazek(
-                                    s,
-                                    vybraneKartyDoTalonu,
-                                    planovanyZavazekMariase
+                            val dalsiRozdani = stul.cisloRozdani + 1
+                            val zacinajici = (dalsiRozdani - 1) % stul.maxHracu
+                            scope.launch {
+                                val novyStul = OnlineManager.rozdejASpustStul(
+                                    stul = stul,
+                                    zacinajiciIndex = zacinajici,
+                                    noveCisloRozdani = dalsiRozdani,
+                                    noveSouctyBodu = noveSoucty
                                 )
-                                vybraneKartyDoTalonu = emptyList()
-                                stavMarias = novy
-                                if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
-                            },
-                            onOdpovedFleku = { flekHra, flekSedma ->
-                                val novy = MariasEngine.odpovezNaFlekovani(s, lokalniIndex, flekHra, flekSedma)
-                                stavMarias = novy
-                                if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                                if (novyStul != null) onlineStul = novyStul
                             }
-                        )
+                        }
+                    },
+                    onZpetDoHerny = {
+                        val stul = onlineStul
+                        if (stul != null && stul.hostDeviceId == mojeDeviceId) {
+                            scope.launch { OnlineManager.smazStul(stul.roomId) }
+                        }
+                        onOpustitStul()
                     }
-                }
+                )
             }
 
-            // 3. Spodní lišta s rukou hráče a automatickým zvýrazněním povolených listů
-            SpodniRukaHrace(
-                typHry = aktivniTypHry,
-                lokalniIndex = lokalniIndex,
-                sirkaKarty = sirkaKartyRuky,
-                stavPrsi = stavPrsi,
-                stavSedma = stavSedma,
-                stavMarias = stavMarias,
-                onlineStul = onlineStul,
-                nyniMs = tikSekundyMs,
-                vybraneDoTalonu = vybraneKartyDoTalonu,
-                planovanyZavazek = planovanyZavazekMariase,
-                onKlikKartaPrsi = { karta ->
-                    val s = stavPrsi ?: return@SpodniRukaHrace
-                    val novy = PrsiEngine.zahrajKartu(s, lokalniIndex, karta)
-                    stavPrsi = novy
-                    if (jeOnlineRezim && !novy.cekaNaVolbuBarvy) {
-                        publikujZmenuOnline(novy.doKompaktnihoRetezce())
-                    }
-                },
-                onKlikKartaSedma = { karta ->
-                    val s = stavSedma ?: return@SpodniRukaHrace
-                    val novy = SedmaEngine.zahrajKartu(s, lokalniIndex, karta)
-                    stavSedma = novy
-                    if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
-                },
-                onKlikKartaMarias = { karta ->
-                    val s = stavMarias ?: return@SpodniRukaHrace
-                    if (s.faze == FazeMariase.ODKLADANI_TALONU && s.naTahu == lokalniIndex) {
-                        vybraneKartyDoTalonu = if (karta in vybraneKartyDoTalonu) {
-                            vybraneKartyDoTalonu - karta
-                        } else if (vybraneKartyDoTalonu.size < 2) {
-                            vybraneKartyDoTalonu + karta
-                        } else {
-                            listOf(vybraneKartyDoTalonu[1], karta)
-                        }
-                    } else if (s.faze == FazeMariase.SEHRAVKA && s.naTahu == lokalniIndex) {
-                        val novy = MariasEngine.zahrajKartu(s, lokalniIndex, karta)
-                        stavMarias = novy
-                        if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
-                    }
-                }
-            )
-        }
-
-        // Překryv: Automatické vyúčtování výsledků partie
-        if (vysledekPartie != null && onlineStul?.stavMistnosti != StavMistnosti.UKONCENO_VYPADKEM) {
-            PanelVyuctovaniPartie(
-                vysledek = vysledekPartie,
-                jeOnline = jeOnlineRezim,
-                onlineStul = onlineStul,
-                offlineKonfig = offlineKonfig,
-                cisloOfflineRozdani = cisloOfflineRozdani,
-                soucetBoduOffline = soucetBoduOffline,
-                mojeDeviceId = mojeDeviceId,
-                onDalsiRozdani = {
-                    zapoctenaVerzeVysledku = -1
-                    vybraneKartyDoTalonu = emptyList()
-                    planovanyZavazekMariase = ZavazekMariase.HRA
-                    if (!jeOnlineRezim) {
-                        val dalsiKolo = cisloOfflineRozdani + 1
-                        cisloOfflineRozdani = dalsiKolo
-                        val zacinajici = (dalsiKolo - 1) % pocetHracu
-                        when (aktivniTypHry) {
-                            TypHry.PRSI -> stavPrsi = PrsiEngine.novaHra(vychoziJmenaOffline, zacinajiciHrac = zacinajici)
-                            TypHry.SEDMA -> stavSedma = SedmaEngine.novaHra(vychoziJmenaOffline, zacinajiciHrac = zacinajici)
-                            TypHry.MARIAS -> stavMarias = MariasEngine.novaHra(vychoziJmenaOffline, indexForhonta = zacinajici)
-                        }
-                    } else {
-                        val stul = onlineStul ?: return@PanelVyuctovaniPartie
-                        val noveSoucty = stul.soucetBoduHracu.mapIndexed { idx, stary ->
-                            stary + (vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.bodyZapasu ?: 0)
-                        }
-                        val dalsiRozdani = stul.cisloRozdani + 1
-                        val zacinajici = (dalsiRozdani - 1) % stul.maxHracu
-                        scope.launch {
-                            val novyStul = OnlineManager.rozdejASpustStul(
-                                stul = stul,
-                                zacinajiciIndex = zacinajici,
-                                noveCisloRozdani = dalsiRozdani,
-                                noveSouctyBodu = noveSoucty
-                            )
-                            if (novyStul != null) onlineStul = novyStul
-                        }
-                    }
-                },
-                onZpetDoHerny = {
-                    val stul = onlineStul
-                    if (stul != null && stul.hostDeviceId == mojeDeviceId) {
-                        scope.launch { OnlineManager.smazStul(stul.roomId) }
-                    }
-                    onOpustitStul()
-                }
-            )
-        }
-
-        // Překryv: Čisté ukončení živé hry po minutovém výpadku hráče (bez bota)
-        if (onlineStul?.stavMistnosti == StavMistnosti.UKONCENO_VYPADKEM) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xD905140C))
-                    .padding(20.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
+            if (onlineStul?.stavMistnosti == StavMistnosti.UKONCENO_VYPADKEM) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color(0xFF123C24))
-                        .border(2.dp, Color(0xFFFFB74D), RoundedCornerShape(18.dp))
+                        .fillMaxSize()
+                        .background(Color(0xD905140C))
                         .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "Živá hra byla ukončena",
-                        color = Color(0xFFFFD54F),
-                        fontSize = 21.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "Hráč ${onlineStul?.ukoncenoKym ?: ""} ztratil spojení nebo neodehrál tah do 60 sekund. Do živé hry boti nezasahují — stůl byl čistě uzavřen bez započtení prohry přítomným hráčům.",
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(18.dp))
-                    Button(
-                        onClick = onOpustitStul,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color(0xFF123C24))
+                            .border(2.dp, Color(0xFFFFB74D), RoundedCornerShape(18.dp))
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text("Zpět do herny", color = Color(0xFF0A2916), fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Živá hra byla ukončena",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 21.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Hráč ${onlineStul?.ukoncenoKym ?: ""} ztratil spojení nebo neodehrál tah do 60 sekund. Do živé hry boti nezasahují — stůl byl čistě uzavřen bez započtení prohry přítomným hráčům.",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(18.dp))
+                        Button(
+                            onClick = onOpustitStul,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
+                        ) {
+                            Text("Zpět do herny", color = Color(0xFF0A2916), fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
-        }
 
-        // Potvrzení odchodu z rozehraného online stolu
-        if (potvrditOdchod) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xCC000000))
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
+            if (potvrditOdchod) {
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF143D25))
-                        .border(1.5.dp, Color(0xFFD4AF37), RoundedCornerShape(16.dp))
-                        .padding(18.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .fillMaxSize()
+                        .background(Color(0xCC000000))
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "Opustit rozehraný stůl?",
-                        color = Color(0xFFFFD54F),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Opuštěním živého stolu se partie ostatním spoluhráčům ukončí.",
-                        color = Color(0xFFE0E0E0),
-                        fontSize = 14.sp,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(
-                            onClick = { potvrditOdchod = false },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E6B47))
-                        ) {
-                            Text("Zůstat u stolu", color = Color.White)
-                        }
-                        Button(
-                            onClick = {
-                                potvrditOdchod = false
-                                val stul = onlineStul
-                                if (stul != null) {
-                                    scope.launch {
-                                        OnlineManager.ukonciStulProVypadek(stul, mojePrezdivka)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF143D25))
+                            .border(1.5.dp, Color(0xFFD4AF37), RoundedCornerShape(16.dp))
+                            .padding(18.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Opustit rozehraný stůl?",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Opuštěním živého stolu se partie ostatním spoluhráčům ukončí.",
+                            color = Color(0xFFE0E0E0),
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Button(
+                                onClick = { potvrditOdchod = false },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E6B47))
+                            ) {
+                                Text("Zůstat u stolu", color = Color.White)
+                            }
+                            Button(
+                                onClick = {
+                                    potvrditOdchod = false
+                                    val stul = onlineStul
+                                    if (stul != null) {
+                                        scope.launch {
+                                            OnlineManager.ukonciStulProVypadek(stul, mojePrezdivka)
+                                            onOpustitStul()
+                                        }
+                                    } else {
                                         onOpustitStul()
                                     }
-                                } else {
-                                    onOpustitStul()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
-                        ) {
-                            Text("Ukončit a odejít", color = Color.White, fontWeight = FontWeight.Bold)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                            ) {
+                                Text("Ukončit a odejít", color = Color.White, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -648,8 +631,8 @@ private fun HorniListaStolu(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0x99072314))
-            .border(1.dp, Color(0x55D4AF37), RoundedCornerShape(12.dp))
+            .background(Color(0xB8062011))
+            .border(1.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -657,7 +640,7 @@ private fun HorniListaStolu(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF1C5232))
+                .background(Color(0xFF1D5836))
                 .clickable { onKlikZpet() }
                 .padding(horizontal = 10.dp, vertical = 5.dp)
         ) {
@@ -689,12 +672,12 @@ private fun HorniListaStolu(
             }
         }
 
-        // Ukazatel trumfu / aktivní barvy / bodů
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF143F26))
+                .background(Color(0xFF144227))
+                .border(0.8.dp, Color(0x55E6C15A), RoundedCornerShape(8.dp))
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
             when (typHry) {
@@ -795,15 +778,14 @@ private fun PruhySouperu(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(if (hracNaTahu) Color(0xCC1E683D) else Color(0x990B2E1B))
+                    .background(if (hracNaTahu) Color(0xD91A5E36) else Color(0xB3072313))
                     .border(
-                        width = if (hracNaTahu) 1.8.dp else 1.dp,
-                        color = if (hracNaTahu) Color(0xFF69F0AE) else Color(0x44FFFFFF),
+                        width = if (hracNaTahu) 2.dp else 1.dp,
+                        color = if (hracNaTahu) Color(0xFF69F0AE) else Color(0x55E6C15A),
                         shape = RoundedCornerShape(10.dp)
                     )
                     .padding(horizontal = 8.dp, vertical = 6.dp)
             ) {
-                // Barevná ikona stavu připojení spoluhráče (zelená / žlutá s odpočtem / červená)
                 val barvaTecky = when (infoSpojeni?.stav) {
                     StavPripojeniHrace.ONLINE_ZELENA, null -> Color(0xFF00E676)
                     StavPripojeniHrace.VYPADEK_ZLUTA -> Color(0xFFFFCA28)
@@ -841,6 +823,10 @@ private fun PruhySouperu(
                         maxLines = 1
                     )
                 }
+                if (pocetKaret > 0) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    KartaRubComposable(sirka = 22.dp)
+                }
             }
         }
     }
@@ -850,7 +836,7 @@ private fun PruhySouperu(
 private fun StredStoluPrsi(
     stav: StavPrsi,
     lokalniIndex: Int,
-    sirkaKarty: androidx.compose.ui.unit.Dp,
+    sirkaKarty: Dp,
     onLiznoutNeboStat: () -> Unit,
     onZvolitBarvuSvrskem: (BarvaKarty) -> Unit
 ) {
@@ -868,15 +854,16 @@ private fun StredStoluPrsi(
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0x88000000))
-                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0x9E061E10))
+                .border(1.dp, Color(0x55E6C15A), RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 5.dp)
         )
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(20.dp)
+            horizontalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             KartaRubComposable(
                 sirka = sirkaKarty,
@@ -886,17 +873,15 @@ private fun StredStoluPrsi(
                 onClick = if (jsemNaTahu && !stav.cekaNaVolbuBarvy) onLiznoutNeboStat else null
             )
 
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                KartaLiceComposable(
-                    karta = stav.vrchniKarta,
-                    sirka = sirkaKarty,
-                    stitekNavic = stav.zvolenaBarvaSvrskem?.ceskyNazev
-                )
-            }
+            KartaLiceComposable(
+                karta = stav.vrchniKarta,
+                sirka = sirkaKarty,
+                stitekNavic = stav.zvolenaBarvaSvrskem?.ceskyNazev
+            )
         }
 
         if (jsemNaTahu && !stav.cekaNaVolbuBarvy) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             val textTlacitka = when {
                 stav.aktivniEsoStoji -> "Stát 1 kolo (potvrdit eso)"
                 stav.aktivniSedmyPocet > 0 -> "Líznout ${stav.aktivniSedmyPocet * 2} karet"
@@ -905,7 +890,7 @@ private fun StredStoluPrsi(
             Button(
                 onClick = onLiznoutNeboStat,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (povolene.isEmpty()) Color(0xFFD4AF37) else Color(0xFF1F5D39)
+                    containerColor = if (povolene.isEmpty()) Color(0xFFD4AF37) else Color(0xFF14492A)
                 )
             ) {
                 Text(
@@ -923,7 +908,7 @@ private fun StredStoluPrsi(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xDD0B2E1A))
+                    .background(Color(0xEB082815))
                     .border(1.5.dp, Color(0xFFD4AF37), RoundedCornerShape(12.dp))
                     .padding(10.dp)
             ) {
@@ -952,7 +937,7 @@ private fun StredStoluPrsi(
 private fun StredStoluSedma(
     stav: StavSedma,
     lokalniIndex: Int,
-    sirkaKarty: androidx.compose.ui.unit.Dp,
+    sirkaKarty: Dp,
     onPustitStych: () -> Unit
 ) {
     Column(
@@ -966,18 +951,19 @@ private fun StredStoluSedma(
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0x88000000))
-                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0x9E061E10))
+                .border(1.dp, Color(0x55E6C15A), RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 5.dp)
         )
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             KartaRubComposable(
-                sirka = sirkaKarty * 0.85f,
+                sirka = sirkaKarty * 0.86f,
                 pocetVBalicku = stav.lizaciBalicek.size,
                 popisek = "TALON"
             )
@@ -985,16 +971,17 @@ private fun StredStoluSedma(
             if (stav.aktualniStych.isEmpty()) {
                 Box(
                     modifier = Modifier
-                        .size(width = sirkaKarty * 1.6f, height = sirkaKarty * 1.4f)
+                        .size(width = sirkaKarty * 1.65f, height = sirkaKarty * 1.48f)
                         .clip(RoundedCornerShape(12.dp))
-                        .border(1.dp, Color(0x55D4AF37), RoundedCornerShape(12.dp)),
+                        .background(Color(0x33000000))
+                        .border(1.2.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("Čeká na výnos", color = Color(0x99FFFFFF), fontSize = 12.sp)
+                    Text("Čeká na výnos", color = Color(0xCCFFF8E1), fontSize = 12.sp)
                 }
             } else {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
                     for (hrana in stav.aktualniStych.takeLast(4)) {
@@ -1003,7 +990,7 @@ private fun StredStoluSedma(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
                                 text = hrana.jmenoHrace,
-                                color = if (bereTato) Color(0xFF69F0AE) else Color(0xFFE0E0E0),
+                                color = if (bereTato) Color(0xFF69F0AE) else Color(0xFFFFF8E1),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -1040,7 +1027,7 @@ private fun StredStoluSedma(
 private fun StredStoluMarias(
     stav: StavMarias,
     lokalniIndex: Int,
-    sirkaKarty: androidx.compose.ui.unit.Dp,
+    sirkaKarty: Dp,
     vybraneDoTalonu: List<Karta>,
     planovanyZavazek: ZavazekMariase,
     onZmenaPlanovanehoZavazku: (ZavazekMariase) -> Unit,
@@ -1059,9 +1046,10 @@ private fun StredStoluMarias(
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0x88000000))
-                .padding(horizontal = 10.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(Color(0x9E061E10))
+                .border(1.dp, Color(0x55E6C15A), RoundedCornerShape(10.dp))
+                .padding(horizontal = 12.dp, vertical = 5.dp)
         )
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -1072,7 +1060,7 @@ private fun StredStoluMarias(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xDD0B2E1A))
+                            .background(Color(0xEB082815))
                             .border(1.5.dp, Color(0xFFD4AF37), RoundedCornerShape(14.dp))
                             .padding(10.dp)
                     ) {
@@ -1133,12 +1121,12 @@ private fun StredStoluMarias(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xDD0B2E1A))
+                            .background(Color(0xEB082815))
                             .border(1.5.dp, Color(0xFFD4AF37), RoundedCornerShape(14.dp))
                             .padding(10.dp)
                     ) {
                         Text(
-                            text = "Kleputím v ruce vyber 2 karty do talonu (${vybraneDoTalonu.size}/2)",
+                            text = "Klepnutím v ruce vyber 2 karty do talonu (${vybraneDoTalonu.size}/2)",
                             color = Color(0xFFFFD54F),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -1204,7 +1192,7 @@ private fun StredStoluMarias(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xDD0B2E1A))
+                            .background(Color(0xEB082815))
                             .border(1.5.dp, Color(0xFFD4AF37), RoundedCornerShape(14.dp))
                             .padding(12.dp)
                     ) {
@@ -1242,26 +1230,28 @@ private fun StredStoluMarias(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "${stav.cisloStychu}. štych • Body Forhont ${stav.bodyKaretForhont + stav.hlaskyForhont} : Obrana ${stav.bodyKaretObrana + stav.hlaskyObrana}",
-                        color = Color(0xFFB9F6CA),
-                        fontSize = 11.sp
+                        color = Color(0xFFFFF59D),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     if (stav.aktualniStych.isEmpty()) {
                         Box(
                             modifier = Modifier
-                                .size(width = sirkaKarty * 1.8f, height = sirkaKarty * 1.4f)
+                                .size(width = sirkaKarty * 1.85f, height = sirkaKarty * 1.48f)
                                 .clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, Color(0x55D4AF37), RoundedCornerShape(12.dp)),
+                                .background(Color(0x33000000))
+                                .border(1.2.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "Vynáší ${stav.jmenaHracu[stav.naTahu]}",
-                                color = Color(0xCCFFFFFF),
+                                color = Color(0xDDFFF8E1),
                                 fontSize = 12.sp
                             )
                         }
                     } else {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             for (hrana in stav.aktualniStych) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
@@ -1285,7 +1275,7 @@ private fun StredStoluMarias(
 private fun SpodniRukaHrace(
     typHry: TypHry,
     lokalniIndex: Int,
-    sirkaKarty: androidx.compose.ui.unit.Dp,
+    sirkaKarty: Dp,
     stavPrsi: StavPrsi?,
     stavSedma: StavSedma?,
     stavMarias: StavMarias?,
@@ -1364,15 +1354,23 @@ private fun SpodniRukaHrace(
         onlineStul.infoPripojeni(it.deviceId, nyniMs)
     }
 
+    val pocetVRuce = ruka.size
+    val stredIdx = (pocetVRuce - 1) / 2f
+    val rozestupVejire = when {
+        pocetVRuce >= 9 -> (-18).dp
+        pocetVRuce >= 6 -> (-10).dp
+        else -> 5.dp
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color(0xAA072213))
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xB8062011))
             .border(
-                width = if (aktivniKontrola) 1.6.dp else 1.dp,
-                color = if (aktivniKontrola) Color(0xFF69F0AE) else Color(0x44D4AF37),
-                shape = RoundedCornerShape(14.dp)
+                width = if (aktivniKontrola) 1.8.dp else 1.dp,
+                color = if (aktivniKontrola) Color(0xFF69F0AE) else Color(0x55E6C15A),
+                shape = RoundedCornerShape(16.dp)
             )
             .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -1396,23 +1394,29 @@ private fun SpodniRukaHrace(
             }
             Text(
                 text = popisPovinnosti,
-                color = if (aktivniKontrola) Color(0xFF69F0AE) else Color(0xFFE0E0E0),
+                color = if (aktivniKontrola) Color(0xFF69F0AE) else Color(0xFFFFF8E1),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
             )
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(top = 8.dp, bottom = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(rozestupVejire, Alignment.CenterHorizontally)
         ) {
-            for (karta in ruka) {
+            ruka.forEachIndexed { idx, karta ->
+                val odchylka = idx - stredIdx
+                val uhelVejire = if (pocetVRuce >= 4) (odchylka * 2.1f).coerceIn(-12f, 12f) else 0f
+                val poklesOblouku = if (pocetVRuce >= 4) abs(odchylka) * 2.6f else 0f
+                val jeVybrana = karta in vybraneDoTalonu
+                val zVrstva = if (jeVybrana) 40f else idx.toFloat()
+
                 val stitek = when (typHry) {
                     TypHry.SEDMA -> {
                         val s = stavSedma
@@ -1434,10 +1438,16 @@ private fun SpodniRukaHrace(
 
                 KartaLiceComposable(
                     karta = karta,
+                    modifier = Modifier
+                        .zIndex(zVrstva)
+                        .graphicsLayer {
+                            rotationZ = uhelVejire
+                            translationY = poklesOblouku
+                        },
                     sirka = sirkaKarty,
                     jePovolena = karta in povolene,
                     aktivniKontrolaTahu = aktivniKontrola,
-                    jeVybrana = karta in vybraneDoTalonu,
+                    jeVybrana = jeVybrana,
                     stitekNavic = stitek,
                     onClick = if (aktivniKontrola && karta in povolene) {
                         {

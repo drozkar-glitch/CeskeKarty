@@ -24,6 +24,7 @@ expect suspend fun provedSitovyDotaz(
 
 private const val KLIC_ID_ZARIZENI = "ck_device_id_v1"
 private const val KLIC_PREZDIVKA = "ck_saved_nick_v1"
+private const val KLIC_PIN_OTISK = "ck_saved_pin_hash_v1"
 private const val KLIC_ELO = "ck_local_elo_v1"
 
 fun ziskejUnikatniIdZarizeni(): String {
@@ -41,10 +42,23 @@ fun ziskejUnikatniIdZarizeni(): String {
     return noveId
 }
 
+fun ulozObnoveneIdZarizeni(obnoveneDeviceId: String) {
+    val ciste = obnoveneDeviceId.trim()
+    if (ciste.startsWith("dev_") && ciste.length >= 8) {
+        ulozTextDoUloziste(KLIC_ID_ZARIZENI, ciste)
+    }
+}
+
 fun nactiUlozenouPrezdivku(): String = nactiTextZUloziste(KLIC_PREZDIVKA, "").trim()
 
 fun ulozPrezdivkuTrvale(prezdivka: String) {
     ulozTextDoUloziste(KLIC_PREZDIVKA, prezdivka.trim())
+}
+
+fun nactiUlozenyPinOtisk(): String = nactiTextZUloziste(KLIC_PIN_OTISK, "").trim()
+
+fun ulozPinOtiskTrvale(otisk: String) {
+    ulozTextDoUloziste(KLIC_PIN_OTISK, otisk.trim())
 }
 
 fun nactiLokalniElo(): Int = nactiTextZUloziste(KLIC_ELO, "1000").toIntOrNull() ?: 1000
@@ -52,4 +66,124 @@ fun nactiLokalniElo(): Int = nactiTextZUloziste(KLIC_ELO, "1000").toIntOrNull() 
 fun ulozLokalniElo(noveElo: Int) {
     val omezene = noveElo.coerceIn(100, 9999)
     ulozTextDoUloziste(KLIC_ELO, omezene.toString())
+}
+
+fun vypoctiOtiskPinu(prezdivka: String, pin: String): String {
+    val normalizovanyNick = prezdivka.trim().lowercase()
+    val cistyPin = pin.trim()
+    return vypoctiSha256Hex("ceske_karty_pin_v1:$normalizovanyNick:$cistyPin")
+}
+
+private val SHA256_K: IntArray = intArrayOf(
+    0x428a2f98L.toInt(), 0x71374491L.toInt(), 0xb5c0fbcfL.toInt(), 0xe9b5dba5L.toInt(),
+    0x3956c25bL.toInt(), 0x59f111f1L.toInt(), 0x923f82a4L.toInt(), 0xab1c5ed5L.toInt(),
+    0xd807aa98L.toInt(), 0x12835b01L.toInt(), 0x243185beL.toInt(), 0x550c7dc3L.toInt(),
+    0x72be5d74L.toInt(), 0x80deb1feL.toInt(), 0x9bdc06a7L.toInt(), 0xc19bf174L.toInt(),
+    0xe49b69c1L.toInt(), 0xefbe4786L.toInt(), 0x0fc19dc6L.toInt(), 0x240ca1ccL.toInt(),
+    0x2de92c6fL.toInt(), 0x4a7484aaL.toInt(), 0x5cb0a9dcL.toInt(), 0x76f988daL.toInt(),
+    0x983e5152L.toInt(), 0xa831c66dL.toInt(), 0xb00327c8L.toInt(), 0xbf597fc7L.toInt(),
+    0xc6e00bf3L.toInt(), 0xd5a79147L.toInt(), 0x06ca6351L.toInt(), 0x14292967L.toInt(),
+    0x27b70a85L.toInt(), 0x2e1b2138L.toInt(), 0x4d2c6dfcL.toInt(), 0x53380d13L.toInt(),
+    0x650a7354L.toInt(), 0x766a0abbL.toInt(), 0x81c2c92eL.toInt(), 0x92722c85L.toInt(),
+    0xa2bfe8a1L.toInt(), 0xa81a664bL.toInt(), 0xc24b8b70L.toInt(), 0xc76c51a3L.toInt(),
+    0xd192e819L.toInt(), 0xd6990624L.toInt(), 0xf40e3585L.toInt(), 0x106aa070L.toInt(),
+    0x19a4c116L.toInt(), 0x1e376c08L.toInt(), 0x2748774cL.toInt(), 0x34b0bcb5L.toInt(),
+    0x391c0cb3L.toInt(), 0x4ed8aa4aL.toInt(), 0x5b9cca4fL.toInt(), 0x682e6ff3L.toInt(),
+    0x748f82eeL.toInt(), 0x78a5636fL.toInt(), 0x84c87814L.toInt(), 0x8cc70208L.toInt(),
+    0x90befffaL.toInt(), 0xa4506cebL.toInt(), 0xbef9a3f7L.toInt(), 0xc67178f2L.toInt()
+)
+
+private fun rotR(x: Int, n: Int): Int = (x ushr n) or (x shl (32 - n))
+
+fun vypoctiSha256Hex(vstup: String): String {
+    val bajty = vstup.encodeToByteArray()
+    val delkaBitu: Long = bajty.size.toLong() * 8L
+    val zbytek = (bajty.size + 1) % 64
+    val nulNavic = if (zbytek <= 56) (56 - zbytek) else (56 + 64 - zbytek)
+    val celkovaDelka = bajty.size + 1 + nulNavic + 8
+
+    val blok = ByteArray(celkovaDelka)
+    for (i in bajty.indices) {
+        blok[i] = bajty[i]
+    }
+    blok[bajty.size] = 0x80.toByte()
+    for (i in 0 until 8) {
+        val posun = (7 - i) * 8
+        blok[celkovaDelka - 8 + i] = ((delkaBitu ushr posun) and 0xFFL).toByte()
+    }
+
+    var h0 = 0x6a09e667L.toInt()
+    var h1 = 0xbb67ae85L.toInt()
+    var h2 = 0x3c6ef372L.toInt()
+    var h3 = 0xa54ff53aL.toInt()
+    var h4 = 0x510e527fL.toInt()
+    var h5 = 0x9b05688cL.toInt()
+    var h6 = 0x1f83d9abL.toInt()
+    var h7 = 0x5be0cd19L.toInt()
+
+    val w = IntArray(64)
+    var offset = 0
+    while (offset < celkovaDelka) {
+        for (i in 0 until 16) {
+            val z = offset + i * 4
+            w[i] = ((blok[z].toInt() and 0xFF) shl 24) or
+                ((blok[z + 1].toInt() and 0xFF) shl 16) or
+                ((blok[z + 2].toInt() and 0xFF) shl 8) or
+                (blok[z + 3].toInt() and 0xFF)
+        }
+        for (i in 16 until 64) {
+            val s0 = rotR(w[i - 15], 7) xor rotR(w[i - 15], 18) xor (w[i - 15] ushr 3)
+            val s1 = rotR(w[i - 2], 17) xor rotR(w[i - 2], 19) xor (w[i - 2] ushr 10)
+            w[i] = w[i - 16] + s0 + w[i - 7] + s1
+        }
+
+        var a = h0
+        var b = h1
+        var c = h2
+        var d = h3
+        var e = h4
+        var f = h5
+        var g = h6
+        var h = h7
+
+        for (i in 0 until 64) {
+            val sum1 = rotR(e, 6) xor rotR(e, 11) xor rotR(e, 25)
+            val ch = (e and f) xor (e.inv() and g)
+            val temp1 = h + sum1 + ch + SHA256_K[i] + w[i]
+            val sum0 = rotR(a, 2) xor rotR(a, 13) xor rotR(a, 22)
+            val maj = (a and b) xor (a and c) xor (b and c)
+            val temp2 = sum0 + maj
+
+            h = g
+            g = f
+            f = e
+            e = d + temp1
+            d = c
+            c = b
+            b = a
+            a = temp1 + temp2
+        }
+
+        h0 += a
+        h1 += b
+        h2 += c
+        h3 += d
+        h4 += e
+        h5 += f
+        h6 += g
+        h7 += h
+
+        offset += 64
+    }
+
+    val slova = intArrayOf(h0, h1, h2, h3, h4, h5, h6, h7)
+    val hexZnaky = "0123456789abcdef"
+    val vystup = StringBuilder(64)
+    for (slovo in slova) {
+        for (k in 7 downTo 0) {
+            val cislice = (slovo ushr (k * 4)) and 0xF
+            vystup.append(hexZnaky[cislice])
+        }
+    }
+    return vystup.toString()
 }
