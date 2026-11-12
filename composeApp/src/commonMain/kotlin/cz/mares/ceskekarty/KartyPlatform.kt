@@ -1,5 +1,6 @@
 package cz.mares.ceskekarty
 
+import androidx.compose.ui.graphics.ImageBitmap
 import kotlin.math.abs
 import kotlin.random.Random
 
@@ -22,6 +23,19 @@ expect suspend fun provedSitovyDotaz(
     cilovaUrl: String,
     jsonTelo: String? = null
 ): SitovaOdpoved
+
+expect fun nactiArchKaretBitmap(): ImageBitmap?
+
+private var kesovanyArchKaret: ImageBitmap? = null
+private var pokusONacteniArchuProbehl: Boolean = false
+
+fun ziskejArchJednohlavychKaret(): ImageBitmap? {
+    if (!pokusONacteniArchuProbehl) {
+        pokusONacteniArchuProbehl = true
+        kesovanyArchKaret = nactiArchKaretBitmap()
+    }
+    return kesovanyArchKaret
+}
 
 const val STARTOVNI_TEREZIANY = 1000
 const val DENNI_ODMENA_TEREZIANY = 100

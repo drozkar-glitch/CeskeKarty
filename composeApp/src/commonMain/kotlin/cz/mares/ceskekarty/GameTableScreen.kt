@@ -57,6 +57,61 @@ data class KonfiguraceOfflineHry(
     val celkemRozdani: Int = 3
 )
 
+private data class UiPolozkaVyuctovani(
+    val popis: String,
+    val hodnotaText: String,
+    val jeZvyraznena: Boolean
+)
+
+private data class UiHracVyuctovani(
+    val indexHrace: Int,
+    val jmenoHrace: String,
+    val jeVitez: Boolean,
+    val bodyZapasu: Int,
+    val zmenaTerezianu: Int
+)
+
+private data class UiVyuctovani(
+    val nadpis: String,
+    val podnadpis: String,
+    val polozky: List<UiPolozkaVyuctovani>,
+    val hraci: List<UiHracVyuctovani>
+)
+
+private fun VysledekPartie.naUiVyuctovani(): UiVyuctovani {
+    return UiVyuctovani(
+        nadpis = nadpis,
+        podnadpis = podnadpis,
+        polozky = polozky.map { UiPolozkaVyuctovani(it.popis, it.hodnotaText, it.jeZvyraznena) },
+        hraci = hraci.map {
+            UiHracVyuctovani(
+                indexHrace = it.indexHrace,
+                jmenoHrace = it.jmenoHrace,
+                jeVitez = it.jeVitez,
+                bodyZapasu = it.bodyZapasu,
+                zmenaTerezianu = it.zmenaElo
+            )
+        }
+    )
+}
+
+private fun VyuctovaniMariase.naUiVyuctovani(): UiVyuctovani {
+    return UiVyuctovani(
+        nadpis = nadpis,
+        podnadpis = podnadpis,
+        polozky = polozky.map { UiPolozkaVyuctovani(it.popis, it.hodnotaText, it.jeZvyraznena) },
+        hraci = hraci.map {
+            UiHracVyuctovani(
+                indexHrace = it.indexHrace,
+                jmenoHrace = it.jmenoHrace,
+                jeVitez = it.jeVitez,
+                bodyZapasu = it.bodyZapasu,
+                zmenaTerezianu = it.zmenaTerezianu
+            )
+        }
+    )
+}
+
 private fun sklonujListy(pocet: Int): String {
     return when {
         pocet == 1 -> "1 list"
@@ -169,6 +224,8 @@ fun GameTableScreen(
                             stavMarias = it
                             if (it.faze != FazeMariase.ODKLADANI_TALONU) {
                                 vybraneKartyDoTalonu = emptyList()
+                            } else {
+                                planovanyZavazekMariase = it.zavazek
                             }
                         }
                     }
@@ -260,10 +317,10 @@ fun GameTableScreen(
         }
     }
 
-    val vysledekPartie: VysledekPartie? = when (aktivniTypHry) {
-        TypHry.PRSI -> stavPrsi?.takeIf { it.jeKonec }?.let { PrsiEngine.vyhodnotVysledek(it) }
-        TypHry.SEDMA -> stavSedma?.takeIf { it.jeKonec }?.let { SedmaEngine.vyhodnotVysledek(it) }
-        TypHry.MARIAS -> stavMarias?.takeIf { it.faze == FazeMariase.KONEC }?.let { MariasEngine.vyhodnotVysledek(it) }
+    val vysledekPartie: UiVyuctovani? = when (aktivniTypHry) {
+        TypHry.PRSI -> stavPrsi?.takeIf { it.jeKonec }?.let { PrsiEngine.vyhodnotVysledek(it).naUiVyuctovani() }
+        TypHry.SEDMA -> stavSedma?.takeIf { it.jeKonec }?.let { SedmaEngine.vyhodnotVysledek(it).naUiVyuctovani() }
+        TypHry.MARIAS -> stavMarias?.takeIf { it.faze == FazeMariase.KONEC }?.let { MariasEngine.vyhodnotMariase(it).naUiVyuctovani() }
     }
 
     val klicDokonceneHry = if (vysledekPartie != null) {
@@ -277,7 +334,7 @@ fun GameTableScreen(
             zapoctenaVerzeVysledku = klicDokonceneHry
             val mojeZmena = vysledekPartie.hraci.firstOrNull { it.indexHrace == lokalniIndex }
             if (mojeZmena != null) {
-                val novyZustatek = (nactiLokalniTereziany() + mojeZmena.zmenaElo).coerceIn(0, 999_999)
+                val novyZustatek = (nactiLokalniTereziany() + mojeZmena.zmenaTerezianu).coerceIn(0, 999_999)
                 aktualniMesecTerezianu = novyZustatek
                 OnlineManager.odesliAktualniTerezianyDoZebricku(novyZustatek)
             }
@@ -760,10 +817,15 @@ private fun HorniListaStolu(
                     if (stavMarias.trumf != null && !stavMarias.jeBetlNeboDurch) {
                         IkonaBarvyKarty(stavMarias.trumf, velikost = 15.dp)
                         Spacer(modifier = Modifier.width(4.dp))
+                        val nasobkyText = if (stavMarias.zavazek.hlasiSedmu) {
+                            "${stavMarias.nasobekFlekHra}×/7:${stavMarias.nasobekFlekSedma}×"
+                        } else {
+                            "${stavMarias.nasobekFlekHra}×"
+                        }
                         Text(
-                            text = "${stavMarias.trumf.ceskyNazev} (${stavMarias.nasobekFlekHra}×)",
+                            text = "${stavMarias.trumf.ceskyNazev} ($nasobkyText)",
                             color = Color(0xFFFFF59D),
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             softWrap = false
@@ -771,8 +833,8 @@ private fun HorniListaStolu(
                     } else {
                         Text(
                             text = when (stavMarias.zavazek) {
-                                ZavazekMariase.BETL -> "Betl"
-                                ZavazekMariase.DURCH -> "Durch"
+                                ZavazekMariase.BETL -> "Betl (${stavMarias.nasobekFlekHra}×)"
+                                ZavazekMariase.DURCH -> "Durch (${stavMarias.nasobekFlekHra}×)"
                                 else -> "Volba"
                             },
                             color = Color(0xFFFFF59D),
@@ -1209,7 +1271,9 @@ private fun StredStoluMarias(
 
             FazeMariase.ODKLADANI_TALONU -> {
                 if (stav.naTahu == lokalniIndex) {
-                    val muzeSedmu = MariasEngine.muzeHlasitSedmu(stav)
+                    val maPravou7 = MariasEngine.maPravouSedmu(stav, vybraneDoTalonu)
+                    val maPrave2Sedmy = MariasEngine.maPraveDveSedmy(stav, vybraneDoTalonu)
+
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
@@ -1226,28 +1290,44 @@ private fun StredStoluMarias(
                         )
                         if (!planovanyZavazek.jeBezTrumfu) {
                             Text(
-                                text = "Esa a desítky jsou automaticky chráněné proti odložení.",
+                                text = "Esa a desítky jsou chráněné proti odložení.",
                                 color = Color(0xFFA5D6A7),
                                 fontSize = 10.sp
                             )
                         }
                         Spacer(modifier = Modifier.height(6.dp))
+
+                        val moznosti = when {
+                            stav.volenoZTalonu -> listOf(ZavazekMariase.HRA)
+                            stav.trumf == null -> listOf(ZavazekMariase.BETL, ZavazekMariase.DURCH)
+                            else -> listOf(
+                                ZavazekMariase.HRA,
+                                ZavazekMariase.HRA_A_SEDMA,
+                                ZavazekMariase.HRA_A_DVE_SEDMY,
+                                ZavazekMariase.STO,
+                                ZavazekMariase.STO_A_SEDMA,
+                                ZavazekMariase.STO_A_DVE_SEDMY,
+                                ZavazekMariase.BETL,
+                                ZavazekMariase.DURCH
+                            )
+                        }
+
                         FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            val moznosti = buildList {
-                                add(ZavazekMariase.HRA)
-                                if (muzeSedmu) add(ZavazekMariase.HRA_A_SEDMA)
-                                if (!stav.volenoZTalonu) {
-                                    add(ZavazekMariase.BETL)
-                                    add(ZavazekMariase.DURCH)
-                                }
-                            }
                             for (moznost in moznosti) {
                                 val aktivni = planovanyZavazek == moznost
+                                val popisek = when (moznost) {
+                                    ZavazekMariase.HRA_A_SEDMA -> if (maPravou7) "Hra + 7" else "Hra + fal. 7"
+                                    ZavazekMariase.HRA_A_DVE_SEDMY -> if (maPrave2Sedmy) "Hra + 2×7" else "Hra + fal. 2×7"
+                                    ZavazekMariase.STO -> "Stovka"
+                                    ZavazekMariase.STO_A_SEDMA -> if (maPravou7) "100 + 7" else "100 + fal. 7"
+                                    ZavazekMariase.STO_A_DVE_SEDMY -> if (maPrave2Sedmy) "100 + 2×7" else "100 + fal. 2×7"
+                                    else -> moznost.nazev
+                                }
                                 MaleAkcniTlacitko(
-                                    text = moznost.nazev,
+                                    text = popisek,
                                     barva = if (aktivni) Color(0xFFD4AF37) else Color(0xFF205536),
                                     barvaTextu = if (aktivni) Color(0xFF072312) else Color.White
                                 ) {
@@ -1255,7 +1335,28 @@ private fun StredStoluMarias(
                                 }
                             }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (planovanyZavazek.hlasiDveSedmy && !maPrave2Sedmy) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Pozor: nemáš obě sedmy — hlásíš falešné dvě sedmy (blaf)!",
+                                color = Color(0xFFFFB74D),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                        } else if (planovanyZavazek.hlasiSedmu && !maPravou7) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Pozor: nemáš trumfovou sedmu — hlásíš falešnou sedmu (blaf)!",
+                                color = Color(0xFFFFB74D),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(7.dp))
                         Button(
                             onClick = onPotvrditTalon,
                             enabled = vybraneDoTalonu.size == 2,
@@ -1264,7 +1365,7 @@ private fun StredStoluMarias(
                             Text(
                                 text = "Odložit talon a hlásit ${planovanyZavazek.nazev}",
                                 color = Color(0xFF05200E),
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.ExtraBold
                             )
                         }
@@ -1280,7 +1381,12 @@ private fun StredStoluMarias(
 
             FazeMariase.FLEKOVANI -> {
                 if (stav.naTahu == lokalniIndex) {
-                    val popisekFleku = if (lokalniIndex == stav.indexForhonta) "Re! (4×)" else "Flek! (${stav.nasobekFlekHra * 2}×)"
+                    val muzeHru = MariasEngine.muzeHracFlekHry(stav, lokalniIndex)
+                    val muzeSedmu = MariasEngine.muzeHracFlekSedmy(stav, lokalniIndex)
+                    val stupenHra = MariasEngine.nazevStupneFleku(stav.nasobekFlekHra * 2)
+                    val stupenSedma = MariasEngine.nazevStupneFleku(stav.nasobekFlekSedma * 2)
+                    val slovoSedma = if (stav.zavazek.hlasiDveSedmy) "2×7" else "sedmu"
+
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -1294,20 +1400,30 @@ private fun StredStoluMarias(
                             onClick = { onOdpovedFleku(false, false) },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
                         ) {
-                            Text("Dobrý (bez fleku)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Dobrý", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
-                        Button(
-                            onClick = { onOdpovedFleku(true, false) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
-                        ) {
-                            Text(popisekFleku, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
-                        }
-                        if (stav.zavazek == ZavazekMariase.HRA_A_SEDMA && lokalniIndex != stav.indexForhonta) {
+                        if (muzeHru) {
                             Button(
-                                onClick = { onOdpovedFleku(true, true) },
+                                onClick = { onOdpovedFleku(true, false) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                            ) {
+                                Text("$stupenHra na hru!", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                            }
+                        }
+                        if (muzeSedmu) {
+                            Button(
+                                onClick = { onOdpovedFleku(false, true) },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFAD1457))
                             ) {
-                                Text("Flek i na 7!", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text("$stupenSedma na $slovoSedma!", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                        if (muzeHru && muzeSedmu) {
+                            Button(
+                                onClick = { onOdpovedFleku(true, true) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
+                            ) {
+                                Text("Zvednout obojí!", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
                             }
                         }
                     }
@@ -1402,7 +1518,7 @@ private fun SpodniRukaHrace(
                     "Aktivní sedma: přebij sedmičkou, nebo lízni ${sklonujKartyAkuzativ((s?.aktivniSedmyPocet ?: 1) * 2)}"
                 s?.aktivniEsoStoji == true -> "Aktivní eso: přebij esem, nebo stůj 1 kolo"
                 povolene.isEmpty() -> "Nemáš vhodnou kartu — klepni na balíček pro líznutí"
-                else -> "Jsi na tahu — zeleně zvýrazněné karty můžeš odehrát"
+                else -> "Jsi na tahu — klepni na zeleně zvýrazněnou kartu"
             }
         }
 
@@ -1490,7 +1606,7 @@ private fun SpodniRukaHrace(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -1598,7 +1714,7 @@ private fun MaleAkcniTlacitko(
                 jemnaHaptika()
                 onClick()
             }
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 9.dp, vertical = 5.dp)
     ) {
         Text(text = text, color = barvaTextu, fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
@@ -1606,7 +1722,7 @@ private fun MaleAkcniTlacitko(
 
 @Composable
 private fun PanelVyuctovaniPartie(
-    vysledek: VysledekPartie,
+    vysledek: UiVyuctovani,
     jeOnline: Boolean,
     onlineStul: OnlineStul?,
     offlineKonfig: KonfiguraceOfflineHry?,
@@ -1685,8 +1801,8 @@ private fun PanelVyuctovaniPartie(
 
             for (h in vysledek.hraci) {
                 Text(
-                    text = "${h.jmenoHrace}: ${formatujTereziany(h.zmenaElo, seZnaminkem = true)}",
-                    color = if (h.zmenaElo >= 0) Color(0xFF69F0AE) else Color(0xFFFF8A80),
+                    text = "${h.jmenoHrace}: ${formatujTereziany(h.zmenaTerezianu, seZnaminkem = true)}",
+                    color = if (h.zmenaTerezianu >= 0) Color(0xFF69F0AE) else Color(0xFFFF8A80),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )

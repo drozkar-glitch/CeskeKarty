@@ -2,10 +2,13 @@
 
 package cz.mares.ceskekarty
 
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import kotlin.coroutines.resume
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.suspendCancellableCoroutine
+import org.jetbrains.skia.Image
 import platform.Foundation.*
 import platform.UIKit.UIImpactFeedbackGenerator
 import platform.darwin.dispatch_async
@@ -40,16 +43,18 @@ private fun retezecNaNsData(text: String): NSData? {
     }
 }
 
-private fun nsDataNaRetezec(data: NSData): String {
+private fun nsDataNaBajty(data: NSData): ByteArray {
     val delka = data.length.toInt()
-    if (delka <= 0) return ""
-    val zdroj = data.bytes ?: return ""
+    if (delka <= 0) return ByteArray(0)
+    val zdroj = data.bytes ?: return ByteArray(0)
     val bajty = ByteArray(delka)
     bajty.usePinned { pripnute ->
         memcpy(pripnute.addressOf(0), zdroj, data.length)
     }
-    return bajty.decodeToString()
+    return bajty
 }
+
+private fun nsDataNaRetezec(data: NSData): String = nsDataNaBajty(data).decodeToString()
 
 actual suspend fun provedSitovyDotaz(
     metoda: String,
@@ -103,4 +108,35 @@ actual suspend fun provedSitovyDotaz(
         uloha.cancel()
     }
     uloha.resume()
+}
+
+private fun najdiCestuKArchuIos(): String? {
+    val hlavni = NSBundle.mainBundle
+    hlavni.pathForResource("bohemian_deck", ofType = "jpg")?.let { return it }
+
+    val spravce = NSFileManager.defaultManager
+    val vRamci = hlavni.bundlePath + "/Frameworks/ComposeApp.framework/bohemian_deck.jpg"
+    if (spravce.fileExistsAtPath(vRamci)) return vRamci
+
+    for (polozka in NSBundle.allFrameworks) {
+        val svazek = polozka as? NSBundle ?: continue
+        svazek.pathForResource("bohemian_deck", ofType = "jpg")?.let { return it }
+    }
+    for (polozka in NSBundle.allBundles) {
+        val svazek = polozka as? NSBundle ?: continue
+        svazek.pathForResource("bohemian_deck", ofType = "jpg")?.let { return it }
+    }
+    return null
+}
+
+actual fun nactiArchKaretBitmap(): ImageBitmap? {
+    return try {
+        val cesta = najdiCestuKArchuIos() ?: return null
+        val data = NSData.dataWithContentsOfFile(cesta) ?: return null
+        val bajty = nsDataNaBajty(data)
+        if (bajty.isEmpty()) return null
+        Image.makeFromEncoded(bajty).toComposeImageBitmap()
+    } catch (_: Throwable) {
+        null
+    }
 }
