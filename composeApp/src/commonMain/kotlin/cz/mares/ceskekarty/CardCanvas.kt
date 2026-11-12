@@ -46,7 +46,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-private val BarvaPapiruKarty = Color(0xFFFAF7EF)
+private val BarvaPapiruKarty = Color(0xFFF9F7F1)
 private val BarvaInkoustu = Color(0xFF231C18)
 private val BarvaRumelka = Color(0xFFD61F2C)
 private val BarvaRumelkaTmava = Color(0xFF9E111B)
@@ -190,8 +190,9 @@ fun KartaLiceComposable(
     onClick: (() -> Unit)? = null
 ) {
     val archBitmap = remember { ziskejArchJednohlavychKaret() }
-    val vyska = sirka * 1.58f
-    val tvar = RoundedCornerShape(7.dp)
+    val vyska = sirka * 1.577f
+    val polomerRohu = (sirka.value * 0.062f).coerceIn(3.5f, 5.2f).dp
+    val tvar = RoundedCornerShape(polomerRohu)
 
     val cilovyPosunY = when {
         jeVybrana -> (-14).dp
@@ -203,12 +204,12 @@ fun KartaLiceComposable(
     val okrajBarva = when {
         jeVybrana -> BarvaVybraneZare
         aktivniKontrolaTahu && jePovolena -> BarvaPovoleneZare
-        else -> Color(0xFFB8B09E)
+        else -> Color(0xFFC4BCAA)
     }
     val okrajTloustka = when {
-        jeVybrana -> 2.8.dp
-        aktivniKontrolaTahu && jePovolena -> 2.4.dp
-        else -> 1.0.dp
+        jeVybrana -> 2.0.dp
+        aktivniKontrolaTahu && jePovolena -> 1.7.dp
+        else -> 0.8.dp
     }
 
     val muzeKliknout = onClick != null && (!aktivniKontrolaTahu || jePovolena)
@@ -218,7 +219,7 @@ fun KartaLiceComposable(
             .offset(y = animovanyPosunY)
             .widthIn(max = sirka)
             .heightIn(max = vyska)
-            .aspectRatio(1f / 1.58f)
+            .aspectRatio(208f / 328f)
             .shadow(
                 elevation = if (jeVybrana || (aktivniKontrolaTahu && jePovolena)) 10.dp else 5.dp,
                 shape = tvar
@@ -247,12 +248,12 @@ fun KartaLiceComposable(
                 drawImage(
                     image = archBitmap,
                     srcOffset = IntOffset(
-                        x = sloupec * sirkaBunky + 1,
-                        y = radek * vyskaBunky + 1
+                        x = sloupec * sirkaBunky,
+                        y = radek * vyskaBunky
                     ),
                     srcSize = IntSize(
-                        width = (sirkaBunky - 2).coerceAtLeast(1),
-                        height = (vyskaBunky - 2).coerceAtLeast(1)
+                        width = sirkaBunky.coerceAtLeast(1),
+                        height = vyskaBunky.coerceAtLeast(1)
                     ),
                     dstOffset = IntOffset.Zero,
                     dstSize = IntSize(
@@ -262,7 +263,7 @@ fun KartaLiceComposable(
                     filterQuality = FilterQuality.High
                 )
             } else {
-                val pad = size.width * 0.07f
+                val pad = size.width * 0.068f
                 drawRect(
                     color = BarvaInkoustu,
                     topLeft = Offset(pad, pad),
@@ -302,7 +303,7 @@ fun KartaLiceComposable(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0x5C06120B))
+                    .background(Color(0x5806120B))
             )
         }
     }
@@ -317,20 +318,21 @@ fun KartaRubComposable(
     zvyseneZvyrazneni: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
-    val vyska = sirka * 1.58f
-    val tvar = RoundedCornerShape(7.dp)
+    val vyska = sirka * 1.577f
+    val polomerRohu = (sirka.value * 0.062f).coerceIn(3.5f, 5.2f).dp
+    val tvar = RoundedCornerShape(polomerRohu)
 
     Box(
         modifier = modifier
             .widthIn(max = sirka)
             .heightIn(max = vyska)
-            .aspectRatio(1f / 1.58f)
+            .aspectRatio(208f / 328f)
             .shadow(5.dp, tvar)
             .clip(tvar)
             .background(BarvaPapiruKarty)
             .border(
-                width = if (zvyseneZvyrazneni) 2.5.dp else 1.1.dp,
-                color = if (zvyseneZvyrazneni) BarvaPovoleneZare else Color(0xFFB8B09E),
+                width = if (zvyseneZvyrazneni) 2.0.dp else 0.9.dp,
+                color = if (zvyseneZvyrazneni) BarvaPovoleneZare else Color(0xFFC4BCAA),
                 shape = tvar
             )
             .then(
@@ -346,7 +348,7 @@ fun KartaRubComposable(
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val pad = size.width * 0.068f
+            val pad = size.width * 0.067f
             val w = size.width - pad * 2f
             val h = size.height - pad * 2f
 
