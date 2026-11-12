@@ -5,7 +5,7 @@ import kotlin.random.Random
 import kotlinx.coroutines.delay
 
 const val FIREBASE_DB_ZAKLAD = "https://mares-games-default-rtdb.europe-west1.firebasedatabase.app"
-private const val KLIC_CLOUDFLARE_URL = "ck_cloudflare_worker_url_v1"
+const val CLOUDFLARE_WORKER_URL = "https://ceske-karty.drozkar.workers.dev"
 private const val ZEBRICEK_GAME_ID = "ceske_karty"
 
 const val LIMIT_ZELENA_MS = 10_000L
@@ -119,7 +119,6 @@ sealed class VysledekRegistraceNicku {
     data class Chyba(val zprava: String) : VysledekRegistraceNicku()
 }
 
-// Lehký nativní JSON parser a serializátor bez externích knihoven
 sealed class JsonPrvek {
     data class Objekt(val polozky: List<Pair<String, JsonPrvek>>) : JsonPrvek() {
         fun pole(klic: String): JsonPrvek? = polozky.firstOrNull { it.first == klic }?.second
@@ -167,7 +166,7 @@ private class JsonCtecka(private val zdroj: String) {
     }
 
     private fun parsujObjekt(): JsonPrvek.Objekt {
-        pozice++ // '{'
+        pozice++
         val seznam = ArrayList<Pair<String, JsonPrvek>>()
         preskocBileZnaky()
         if (pozice < zdroj.length && zdroj[pozice] == '}') {
@@ -196,7 +195,7 @@ private class JsonCtecka(private val zdroj: String) {
     }
 
     private fun parsujPole(): JsonPrvek.Pole {
-        pozice++ // '['
+        pozice++
         val seznam = ArrayList<JsonPrvek>()
         preskocBileZnaky()
         if (pozice < zdroj.length && zdroj[pozice] == ']') {
@@ -330,14 +329,6 @@ fun urlKodujKomponentu(text: String): String {
 
 object OnlineManager {
 
-    fun nactiCloudflareUrl(): String {
-        return nactiTextZUloziste(KLIC_CLOUDFLARE_URL, "").trim().trimEnd('/')
-    }
-
-    fun ulozCloudflareUrl(url: String) {
-        ulozTextDoUloziste(KLIC_CLOUDFLARE_URL, url.trim().trimEnd('/'))
-    }
-
     private suspend fun dotazSOpakovanim(
         metoda: String,
         url: String,
@@ -354,10 +345,6 @@ object OnlineManager {
         }
         return posledni
     }
-
-    // =========================================================================
-    // Unikátní přezdívka přes deviceId a ELO žebříček ve Firebase
-    // =========================================================================
 
     suspend fun overAUlozPrezdivku(kandidat: String): VysledekRegistraceNicku {
         val cista = kandidat.trim()
@@ -400,7 +387,6 @@ object OnlineManager {
         val telo = """{"score":$startElo,"deviceId":${jsonEscape(mojeId)},"updatedAt":$nyni}"""
         val zapis = dotazSOpakovanim("PUT", url, telo, pokusy = 2)
         if (!zapis.uspesne) {
-            // I při dočasném výpadku sítě uložíme lokálně a synchronizujeme při dalším spojení
             ulozPrezdivkuTrvale(cista)
             return VysledekRegistraceNicku.Uspech
         }
@@ -455,10 +441,6 @@ object OnlineManager {
             )
         }
     }
-
-    // =========================================================================
-    // Správa živých stolů (Firebase + volitelný Cloudflare Worker na míchání)
-    // =========================================================================
 
     private fun serializujSeznamHracu(hraci: List<HracUStolu>): String {
         return hraci.joinToString(";") { h ->
@@ -573,7 +555,6 @@ object OnlineManager {
             val obj = hodnota as? JsonPrvek.Objekt ?: continue
             val stul = parsujStulZJsonObjektu(id, obj) ?: continue
 
-            // Automatický úklid opuštěných stolů starších než 20 minut, aby se databáze nikdy neplnila
             val nejnovejsiTep = stul.tepyHracu.maxOfOrNull { it.casMs } ?: stul.vytvorenoMs
             if (nyni - nejnovejsiTep > 20 * 60_000L || stul.stavMistnosti == StavMistnosti.DOHRANO) {
                 smazStul(stul.roomId)
@@ -672,7 +653,6 @@ object OnlineManager {
         val mojeElo = nactiLokalniElo()
         val noviHraci = aktualni.hraci + HracUStolu(mojeId, mujNick, mojeElo)
         val upraveny = aktualni.copy(hraci = noviHraci)
-        val nyni = ziskejAktualniCasMs()
 
         val meta = serializujMetaStolu(upraveny)
         val patchTelo = """{"meta":${jsonEscape(meta)}}"""
@@ -682,7 +662,6 @@ object OnlineManager {
         }
         odesliTepSpojeni(roomId)
 
-        // Jakmile zasedne poslední hráč, stůl se okamžitě rozdá a odstartuje
         if (noviHraci.size == upraveny.maxHracu) {
             val spusteny = rozdejASpustStul(upraveny, zacinajiciIndex = 0)
             if (spusteny != null) return Result.success(spusteny)
@@ -696,27 +675,24 @@ object OnlineManager {
         typHry: TypHry,
         hraci: List<HracUStolu>
     ): List<Karta> {
-        val workerUrl = nactiCloudflareUrl()
-        if (workerUrl.isNotEmpty()) {
-            val idsJson = hraci.joinToString(",") { jsonEscape(it.deviceId) }
-            val req = """{"roomId":${jsonEscape(roomId)},"gameType":${jsonEscape(typHry.idHry)},"playerIds":[$idsJson]}"""
-            val workerRes = provedSitovyDotaz("POST", "$workerUrl/deal", req)
-            if (workerRes.uspesne) {
-                val dealRes = provedSitovyDotaz("GET", "$FIREBASE_DB_ZAKLAD/card_rooms/$roomId/deal.json")
-                if (dealRes.uspesne && dealRes.telo.isNotBlank() && dealRes.telo.trim() != "null") {
-                    val dealObj = parsujJsonText(dealRes.telo) as? JsonPrvek.Objekt
-                    val handsObj = dealObj?.pole("hands") as? JsonPrvek.Objekt
-                    if (dealObj != null && handsObj != null) {
-                        val slozeny = ArrayList<Karta>(32)
-                        for (h in hraci) {
-                            slozeny.addAll(retezecNaKarty(handsObj.retezec(h.deviceId, "")))
-                        }
-                        val top = Karta.zKodu(dealObj.retezec("topCard", ""))
-                        if (top != null) slozeny.add(top)
-                        slozeny.addAll(retezecNaKarty(dealObj.retezec("stock", "")))
-                        if (slozeny.size == 32) {
-                            return slozeny
-                        }
+        val idsJson = hraci.joinToString(",") { jsonEscape(it.deviceId) }
+        val req = """{"roomId":${jsonEscape(roomId)},"gameType":${jsonEscape(typHry.idHry)},"playerIds":[$idsJson]}"""
+        val workerRes = provedSitovyDotaz("POST", "$CLOUDFLARE_WORKER_URL/deal", req)
+        if (workerRes.uspesne) {
+            val dealRes = provedSitovyDotaz("GET", "$FIREBASE_DB_ZAKLAD/card_rooms/$roomId/deal.json")
+            if (dealRes.uspesne && dealRes.telo.isNotBlank() && dealRes.telo.trim() != "null") {
+                val dealObj = parsujJsonText(dealRes.telo) as? JsonPrvek.Objekt
+                val handsObj = dealObj?.pole("hands") as? JsonPrvek.Objekt
+                if (dealObj != null && handsObj != null) {
+                    val slozeny = ArrayList<Karta>(32)
+                    for (h in hraci) {
+                        slozeny.addAll(retezecNaKarty(handsObj.retezec(h.deviceId, "")))
+                    }
+                    val top = Karta.zKodu(dealObj.retezec("topCard", ""))
+                    if (top != null) slozeny.add(top)
+                    slozeny.addAll(retezecNaKarty(dealObj.retezec("stock", "")))
+                    if (slozeny.size == 32) {
+                        return slozeny
                     }
                 }
             }
@@ -788,19 +764,12 @@ object OnlineManager {
         )
     }
 
-    /**
-     * Čisté ukončení živé hry po 60 sekundách výpadku nebo nečinnosti hráče.
-     * Žádný bot nikdy nevstupuje do živého stolu!
-     */
     suspend fun ukonciStulProVypadek(stul: OnlineStul, jmenoOdpojeneho: String): OnlineStul {
-        val workerUrl = nactiCloudflareUrl()
-        if (workerUrl.isNotEmpty()) {
-            provedSitovyDotaz(
-                "POST",
-                "$workerUrl/check-timeout",
-                """{"roomId":${jsonEscape(stul.roomId)}}"""
-            )
-        }
+        provedSitovyDotaz(
+            "POST",
+            "$CLOUDFLARE_WORKER_URL/check-timeout",
+            """{"roomId":${jsonEscape(stul.roomId)}}"""
+        )
         val upraveny = stul.copy(
             stavMistnosti = StavMistnosti.UKONCENO_VYPADKEM,
             ukoncenoKym = jmenoOdpojeneho
@@ -815,10 +784,6 @@ object OnlineManager {
         if (roomId.isBlank()) return
         provedSitovyDotaz("DELETE", "$FIREBASE_DB_ZAKLAD/card_rooms/$roomId.json")
     }
-
-    // =========================================================================
-    // Online Turnaje a vyřazovací pavouk
-    // =========================================================================
 
     private fun serializujZapasy(zapasy: List<ZapasTurnaje>): String {
         return zapasy.joinToString(";") { z ->
@@ -959,7 +924,6 @@ object OnlineManager {
             return ulozTurnaj(turnaj.copy(ucastnici = novi))
         }
 
-        // Turnaj se naplnil -> vygenerujeme stoly a pavouka!
         return if (turnaj.typHry == TypHry.MARIAS) {
             val stul = vytvorStul(
                 nazevStolu = "${turnaj.nazev} (Série 3 rozdání)",

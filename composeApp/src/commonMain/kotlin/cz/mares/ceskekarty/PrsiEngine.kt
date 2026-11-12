@@ -285,7 +285,6 @@ object PrsiEngine {
             return lizniNeboStuj(stav, idx)
         }
 
-        // Bot si šetří svrška na konec a přednostně odhazuje běžné a útočné karty
         val bezSvrsku = povolene.filter { it.hodnota != HodnotaKarty.SVRSEK }
         val vybrana = if (bezSvrsku.isNotEmpty()) {
             bezSvrsku.maxByOrNull { karta ->
@@ -312,18 +311,21 @@ object PrsiEngine {
         val vitez = stav.indexViteze.coerceAtLeast(0)
         val jmenoViteze = stav.jmenaHracu.getOrElse(vitez) { "Vítěz" }
 
-        val trestneBody = stav.ruceHracu.map { ruka ->
-            ruka.sumOf { karta ->
-                when (karta.hodnota) {
+        val trestneBody: List<Int> = stav.ruceHracu.map { ruka ->
+            var soucetRuky = 0
+            for (karta in ruka) {
+                val bodyKarty: Int = when (karta.hodnota) {
                     HodnotaKarty.SVRSEK -> 20
                     HodnotaKarty.R7 -> 15
                     HodnotaKarty.ESO -> 11
                     HodnotaKarty.R10, HodnotaKarty.KRAL -> 10
                     else -> 5
                 }
+                soucetRuky += bodyKarty
             }
+            soucetRuky
         }
-        val celkemOdSouperu = trestneBody.sum()
+        val celkemOdSouperu: Int = trestneBody.fold(0) { acc, hodnota -> acc + hodnota }
 
         val polozky = ArrayList<PolozkaVyuctovani>()
         polozky.add(PolozkaVyuctovani("Vítěz partie", jmenoViteze, jeZvyraznena = true))

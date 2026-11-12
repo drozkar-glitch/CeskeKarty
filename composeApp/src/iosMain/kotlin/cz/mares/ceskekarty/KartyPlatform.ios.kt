@@ -7,23 +7,7 @@ package cz.mares.ceskekarty
 
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
-import platform.Foundation.NSData
-import platform.Foundation.NSDate
-import platform.Foundation.NSHTTPURLResponse
-import platform.Foundation.NSMutableURLRequest
-import platform.Foundation.NSString
-import platform.Foundation.NSURL
-import platform.Foundation.NSURLSession
-import platform.Foundation.NSUTF8StringEncoding
-import platform.Foundation.NSUserDefaults
-import platform.Foundation.create
-import platform.Foundation.dataTaskWithRequest
-import platform.Foundation.dataUsingEncoding
-import platform.Foundation.setHTTPBody
-import platform.Foundation.setHTTPMethod
-import platform.Foundation.setTimeoutInterval
-import platform.Foundation.setValue
-import platform.Foundation.timeIntervalSince1970
+import platform.Foundation.*
 import platform.UIKit.UIImpactFeedbackGenerator
 import platform.UIKit.UIImpactFeedbackStyle
 import platform.darwin.dispatch_async
@@ -62,14 +46,14 @@ actual suspend fun provedSitovyDotaz(
         return@suspendCancellableCoroutine
     }
 
-    val pozadavek = NSMutableURLRequest.requestWithURL(nsUrl)
+    val pozadavek = NSMutableURLRequest(nsUrl)
+    pozadavek.timeoutInterval = 10.0
     pozadavek.setHTTPMethod(metoda.uppercase())
-    pozadavek.setTimeoutInterval(10.0)
     pozadavek.setValue("application/json", forHTTPHeaderField = "Accept")
     pozadavek.setValue("application/json; charset=utf-8", forHTTPHeaderField = "Content-Type")
 
     if (jsonTelo != null && metoda.uppercase() != "GET" && metoda.uppercase() != "DELETE") {
-        val dataTela: NSData? = (jsonTelo as NSString).dataUsingEncoding(NSUTF8StringEncoding)
+        val dataTela: NSData? = NSString.create(string = jsonTelo).dataUsingEncoding(NSUTF8StringEncoding)
         pozadavek.setHTTPBody(dataTela)
     }
 

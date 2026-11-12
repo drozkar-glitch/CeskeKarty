@@ -55,7 +55,7 @@ private enum class ObrazovkaHerny {
     CEKARNA_STOLU,
     TURNAJE,
     ZEBRICEK,
-    PRAVIDLA_NASTAVENI,
+    PRAVIDLA,
     HERNI_STUL
 }
 
@@ -91,7 +91,7 @@ fun App() {
                     onOtevritTurnaje = { aktualniObrazovka = ObrazovkaHerny.TURNAJE },
                     onOtevritTrenink = { aktualniObrazovka = ObrazovkaHerny.TRENINK_VYBER },
                     onOtevritZebricek = { aktualniObrazovka = ObrazovkaHerny.ZEBRICEK },
-                    onOtevritPravidla = { aktualniObrazovka = ObrazovkaHerny.PRAVIDLA_NASTAVENI }
+                    onOtevritPravidla = { aktualniObrazovka = ObrazovkaHerny.PRAVIDLA }
                 )
 
                 ObrazovkaHerny.TRENINK_VYBER -> VyberTreninkuObrazovka(
@@ -159,7 +159,7 @@ fun App() {
                     onZpet = { aktualniObrazovka = ObrazovkaHerny.DOMOV }
                 )
 
-                ObrazovkaHerny.PRAVIDLA_NASTAVENI -> PravidlaANastaveniObrazovka(
+                ObrazovkaHerny.PRAVIDLA -> PravidlaObrazovka(
                     onZpet = { aktualniObrazovka = ObrazovkaHerny.DOMOV }
                 )
 
@@ -206,7 +206,6 @@ private fun DomovskaObrazovka(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Ukázka karet v záhlaví
         Row(
             horizontalArrangement = Arrangement.spacedBy((-14).dp),
             verticalAlignment = Alignment.CenterVertically
@@ -232,7 +231,6 @@ private fun DomovskaObrazovka(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Sekce přezdívky: jakmile je uložena, pole se trvale skryje
         if (ulozenaPrezdivka.isEmpty()) {
             Column(
                 modifier = Modifier
@@ -377,8 +375,8 @@ private fun DomovskaObrazovka(
             }
             Box(modifier = Modifier.weight(1f)) {
                 MenuKartaTlacitko(
-                    nadpis = "Pravidla a server",
-                    popis = "Přehled pravidel a Cloudflare míchání.",
+                    nadpis = "Pravidla her",
+                    popis = "Přehled českých pravidel a bodování.",
                     zvyraznena = false,
                     onClick = onOtevritPravidla
                 )
@@ -557,7 +555,6 @@ private fun OnlineLobbyObrazovka(
     ) {
         ZahlaviPodobrazovky("Živá online herna", onZpet)
 
-        // Panel založení nového stolu
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -883,7 +880,6 @@ private fun TurnajovaSinObrazovka(
     ) {
         ZahlaviPodobrazovky("Turnajová síň", onZpet)
 
-        // Okamžitý offline pohár na 3 rozdání s boty
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -911,7 +907,6 @@ private fun TurnajovaSinObrazovka(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Vypsání online turnaje
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1120,22 +1115,18 @@ private fun ZebricekObrazovka(onZpet: () -> Unit) {
 }
 
 @Composable
-private fun PravidlaANastaveniObrazovka(onZpet: () -> Unit) {
-    val scope = rememberCoroutineScope()
-    var workerUrl by remember { mutableStateOf(OnlineManager.nactiCloudflareUrl()) }
-    var stavTestu by remember { mutableStateOf("") }
-
+private fun PravidlaObrazovka(onZpet: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        ZahlaviPodobrazovky("Pravidla a server", onZpet)
+        ZahlaviPodobrazovky("Pravidla her", onZpet)
 
         BlokPravidel(
             nadpis = "Volený Mariáš (3 hráči)",
-            text = "Forhont volí trumf ze 7 karet (nebo naslepo z talonu) a po dobrání odkládá 2 karty mimo es a desítek. Hra přísně hlídá povinnost přiznat a přebít barvu a bez barvy povinnost trumfovat. Hlášené páry svršek + král automaticky připisují 20 nebo 40 bodů. V Betlu a Durchu nejsou trumfy a desítka klesá mezi devítku a spodka."
+            text = "Forhont volí trumf ze 7 karet (nebo naslepo z talonu) a po dobrání odkládá 2 karty mimo es a desítek. Hra automaticky zvýrazňuje povolené tahy a hlídá povinnost přiznat a přebít barvu i povinnost trumfovat bez barvy. Hlášené páry svršek a král automaticky připisují 20 nebo 40 bodů. V Betlu a Durchu nejsou trumfy a desítka klesá mezi devítku a spodka."
         )
         BlokPravidel(
             nadpis = "Prší (2 až 4 hráči)",
@@ -1146,64 +1137,9 @@ private fun PravidlaANastaveniObrazovka(onZpet: () -> Unit) {
             text = "Štych bere karta stejné hodnoty jako první vynesená nebo libovolná sedmička. Počítají se desítky, esa a poslední štych po 10 bodech. Čtveřice stejných karet ve štychu znamená spálenou a okamžitou výhru."
         )
         BlokPravidel(
-            nadpis = "Online spojení a Cloudflare Worker",
-            text = "Zelená ikona u přezdívky hlídá živý tep spojení každé 4 sekundy. Při výpadku nad 60 sekund se živý stůl čistě uzavře bez bota. Volitelně zde můžeš zadat adresu svého bezplatného skriptu cloudflare/worker.js pro serverové míchání karet."
+            nadpis = "Živé online stoly a turnaje",
+            text = "Karty jsou při každém rozdání bezpečně míchány na serveru. Zelená ikona u přezdívky hlídá živé spojení spoluhráčů — při výpadku delším než 60 sekund se živý stůl čistě uzavře bez zásahu botů a přítomným hráčům se nezapočte prohra."
         )
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xCC0F3921))
-                .border(1.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp))
-                .padding(12.dp)
-        ) {
-            Text("Adresa Cloudflare Workeru (volitelné):", color = Color(0xFFFFD54F), fontSize = 13.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(6.dp))
-            OutlinedTextField(
-                value = workerUrl,
-                onValueChange = { workerUrl = it },
-                singleLine = true,
-                placeholder = { Text("https://ceske-karty.tvuj-ucet.workers.dev", color = Color(0x88FFFFFF), fontSize = 12.sp) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = Color(0xFFD4AF37),
-                    unfocusedBorderColor = Color(0x55FFFFFF)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = {
-                        OnlineManager.ulozCloudflareUrl(workerUrl)
-                        stavTestu = if (workerUrl.isBlank()) {
-                            "Uloženo — používá se přímý režim Firebase."
-                        } else {
-                            "Uloženo! Ověřuji spojení s Workerem…"
-                        }
-                        if (workerUrl.isNotBlank()) {
-                            scope.launch {
-                                val res = provedSitovyDotaz("GET", workerUrl.trim().trimEnd('/'))
-                                stavTestu = if (res.uspesne) {
-                                    "Spojení s Cloudflare Workerem je plně funkční!"
-                                } else {
-                                    "Worker neodpověděl (kód ${res.stavovyKod}) — hra automaticky použije záložní míchání."
-                                }
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
-                ) {
-                    Text("Uložit a otestovat", color = Color(0xFF072312), fontWeight = FontWeight.Bold)
-                }
-            }
-            if (stavTestu.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(stavTestu, color = Color(0xFFB9F6CA), fontSize = 12.sp)
-            }
-        }
     }
 }
 
