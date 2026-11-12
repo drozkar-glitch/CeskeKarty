@@ -68,10 +68,18 @@ fun App() {
         var aktualniObrazovka by remember { mutableStateOf(ObrazovkaHerny.DOMOV) }
         var ulozenaPrezdivka by remember { mutableStateOf(nactiUlozenouPrezdivku()) }
         var ulozenyPinOtisk by remember { mutableStateOf(nactiUlozenyPinOtisk()) }
-        var aktualniElo by remember { mutableStateOf(nactiLokalniElo()) }
+        var aktualniTereziany by remember { mutableStateOf(nactiLokalniTereziany()) }
+        var dostupnaDenniOdmena by remember { mutableStateOf(muzeVyzvednoutDenniOdmenu()) }
 
         var vybranyOfflineKonfig by remember { mutableStateOf<KonfiguraceOfflineHry?>(null) }
         var aktivniOnlineStul by remember { mutableStateOf<OnlineStul?>(null) }
+
+        LaunchedEffect(ulozenaPrezdivka, ulozenyPinOtisk) {
+            if (ulozenaPrezdivka.isNotEmpty() && ulozenyPinOtisk.isNotEmpty()) {
+                aktualniTereziany = OnlineManager.synchronizujUcetPoStartu()
+                dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
+            }
+        }
 
         Box(
             modifier = Modifier
@@ -84,11 +92,13 @@ fun App() {
                     DomovskaObrazovka(
                         ulozenaPrezdivka = ulozenaPrezdivka,
                         ulozenyPinOtisk = ulozenyPinOtisk,
-                        aktualniElo = aktualniElo,
-                        onUcetUlozenNeboObnoven = {
+                        aktualniTereziany = aktualniTereziany,
+                        dostupnaDenniOdmena = dostupnaDenniOdmena,
+                        onUcetNeboMesecZmenen = {
                             ulozenaPrezdivka = nactiUlozenouPrezdivku()
                             ulozenyPinOtisk = nactiUlozenyPinOtisk()
-                            aktualniElo = nactiLokalniElo()
+                            aktualniTereziany = nactiLokalniTereziany()
+                            dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
                         },
                         onOtevritZivouHernu = { aktualniObrazovka = ObrazovkaHerny.ONLINE_LOBBY },
                         onOtevritTurnaje = { aktualniObrazovka = ObrazovkaHerny.TURNAJE },
@@ -181,7 +191,8 @@ fun App() {
                     offlineKonfig = vybranyOfflineKonfig,
                     pocatecniOnlineStul = aktivniOnlineStul,
                     onOpustitStul = {
-                        aktualniElo = nactiLokalniElo()
+                        aktualniTereziany = nactiLokalniTereziany()
+                        dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
                         val navratDoTurnaje = aktivniOnlineStul?.turnajId?.isNotEmpty() == true
                         aktivniOnlineStul = null
                         vybranyOfflineKonfig = null
@@ -197,12 +208,14 @@ fun App() {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DomovskaObrazovka(
     ulozenaPrezdivka: String,
     ulozenyPinOtisk: String,
-    aktualniElo: Int,
-    onUcetUlozenNeboObnoven: () -> Unit,
+    aktualniTereziany: Int,
+    dostupnaDenniOdmena: Boolean,
+    onUcetNeboMesecZmenen: () -> Unit,
     onOtevritZivouHernu: () -> Unit,
     onOtevritTurnaje: () -> Unit,
     onOtevritTrenink: () -> Unit,
@@ -212,9 +225,9 @@ private fun DomovskaObrazovka(
     val scope = rememberCoroutineScope()
     var vstupNick by remember { mutableStateOf("") }
     var vstupPin by remember { mutableStateOf("") }
-    var stavRegistrace by remember { mutableStateOf("") }
+    var stavHlaska by remember { mutableStateOf("") }
     var jeUspechHlaska by remember { mutableStateOf(false) }
-    var probihaUkladani by remember { mutableStateOf(false) }
+    var probihaAkce by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -223,7 +236,6 @@ private fun DomovskaObrazovka(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Vějíř dvouhlavých mariášových karet v záhlaví
         Row(
             horizontalArrangement = Arrangement.spacedBy((-18).dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -264,7 +276,7 @@ private fun DomovskaObrazovka(
             fontWeight = FontWeight.ExtraBold
         )
         Text(
-            text = "Mariáš • Prší • Sedma — online herna i turnaje",
+            text = "Mariáš • Prší • Sedma — online herna o tereziány",
             color = Color(0xFFDCE775),
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
@@ -273,7 +285,6 @@ private fun DomovskaObrazovka(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // 1) Nové zařízení bez přezdívky: registrace nového účtu nebo obnova existujícího pomocí 4místného PINu
         if (ulozenaPrezdivka.isEmpty()) {
             Column(
                 modifier = Modifier
@@ -293,7 +304,7 @@ private fun DomovskaObrazovka(
                 )
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
-                    text = "Zvol si novou přezdívku a 4místný PIN, nebo zadej svou dřívější přezdívku se svým PINem pro obnovu účtu v jiném telefonu.",
+                    text = "Nový účet získá do začátku 1000 tereziánů. Pokud už účet máš, zadej svou přezdívku a 4místný PIN pro obnovu celého měšce.",
                     color = Color(0xFFB9F6CA),
                     fontSize = 11.sp,
                     textAlign = TextAlign.Center
@@ -335,10 +346,10 @@ private fun DomovskaObrazovka(
                     )
                 }
 
-                if (stavRegistrace.isNotEmpty()) {
+                if (stavHlaska.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = stavRegistrace,
+                        text = stavHlaska,
                         color = if (jeUspechHlaska) Color(0xFF69F0AE) else Color(0xFFFF8A80),
                         fontSize = 12.sp,
                         textAlign = TextAlign.Center
@@ -348,35 +359,34 @@ private fun DomovskaObrazovka(
                 Spacer(modifier = Modifier.height(10.dp))
                 Button(
                     onClick = {
-                        if (probihaUkladani) return@Button
-                        probihaUkladani = true
-                        stavRegistrace = ""
+                        if (probihaAkce) return@Button
+                        probihaAkce = true
+                        stavHlaska = ""
                         scope.launch {
                             when (val vys = OnlineManager.overAUlozPrezdivku(vstupNick, vstupPin)) {
                                 is VysledekRegistraceNicku.Uspech -> {
                                     jeUspechHlaska = true
-                                    stavRegistrace = vys.zprava
-                                    onUcetUlozenNeboObnoven()
+                                    stavHlaska = vys.zprava
+                                    onUcetNeboMesecZmenen()
                                 }
                                 is VysledekRegistraceNicku.Chyba -> {
                                     jeUspechHlaska = false
-                                    stavRegistrace = vys.zprava
+                                    stavHlaska = vys.zprava
                                 }
                             }
-                            probihaUkladani = false
+                            probihaAkce = false
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
                 ) {
                     Text(
-                        text = if (probihaUkladani) "Ověřuji účet…" else "Uložit / Obnovit účet",
+                        text = if (probihaAkce) "Ověřuji na serveru…" else "Uložit / Obnovit účet",
                         color = Color(0xFF072312),
                         fontWeight = FontWeight.ExtraBold
                     )
                 }
             }
         } else {
-            // 2) Přezdívka je již trvale uložena -> zobrazíme čistý profilový štítek hráče
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -390,7 +400,10 @@ private fun DomovskaObrazovka(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Box(
                             modifier = Modifier
                                 .size(10.dp)
@@ -398,34 +411,111 @@ private fun DomovskaObrazovka(
                                 .background(Color(0xFF00E676))
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = ulozenaPrezdivka,
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                        if (ulozenyPinOtisk.isNotEmpty()) {
-                            Spacer(modifier = Modifier.width(6.dp))
+                        Column {
                             Text(
-                                text = "• PIN chráněn",
-                                color = Color(0xFFA5D6A7),
-                                fontSize = 11.sp
+                                text = ulozenaPrezdivka,
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.ExtraBold
                             )
+                            if (ulozenyPinOtisk.isNotEmpty()) {
+                                Text(
+                                    text = "Účet chráněn PINem",
+                                    color = Color(0xFFA5D6A7),
+                                    fontSize = 10.sp
+                                )
+                            }
                         }
                     }
-                    Text(
-                        text = "ELO $aktualniElo",
-                        color = Color(0xFFFFD54F),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF15492B))
+                            .border(1.dp, Color(0xAAFFD54F), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = formatujTereziany(aktualniTereziany),
+                            color = Color(0xFFFFD54F),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
                 }
 
-                // Jednorázové doplnění PINu, pokud měl hráč přezdívku uloženou z verze před zavedením PINu
+                val narokNaPodporu = aktualniTereziany < HRANICE_PODPORY_TEREZIANY
+                if (dostupnaDenniOdmena || narokNaPodporu) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (dostupnaDenniOdmena) {
+                            Button(
+                                onClick = {
+                                    if (probihaAkce) return@Button
+                                    probihaAkce = true
+                                    scope.launch {
+                                        val vys = OnlineManager.vyzvedniDenniOdmenu()
+                                        vys.onSuccess { novyStav ->
+                                            jeUspechHlaska = true
+                                            stavHlaska = "Vyzvednuta denní odměna +$DENNI_ODMENA_TEREZIANY tereziánů! Celkem máš ${formatujTereziany(novyStav)}."
+                                            onUcetNeboMesecZmenen()
+                                        }.onFailure { err ->
+                                            jeUspechHlaska = false
+                                            stavHlaska = err.message ?: "Denní odměnu nelze vyzvednout."
+                                        }
+                                        probihaAkce = false
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
+                            ) {
+                                Text(
+                                    text = "Denní odměna (+$DENNI_ODMENA_TEREZIANY tereziánů)",
+                                    color = Color(0xFF04210E),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+
+                        if (narokNaPodporu) {
+                            Button(
+                                onClick = {
+                                    if (probihaAkce) return@Button
+                                    probihaAkce = true
+                                    scope.launch {
+                                        val vys = OnlineManager.aktivujCisarskouPodporu()
+                                        vys.onSuccess { dorovnano ->
+                                            jeUspechHlaska = true
+                                            stavHlaska = "Císařská podpora dorovnala tvůj měšec na ${formatujTereziany(dorovnano)}!"
+                                            onUcetNeboMesecZmenen()
+                                        }.onFailure { err ->
+                                            jeUspechHlaska = false
+                                            stavHlaska = err.message ?: "Podporu nelze uplatnit."
+                                        }
+                                        probihaAkce = false
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
+                            ) {
+                                Text(
+                                    text = "Císařská podpora (dorovnat na $DOROVNANI_PODPORY_TEREZIANY)",
+                                    color = Color(0xFF072312),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (ulozenyPinOtisk.isEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Nastav si 4místný PIN pro budoucí obnovu účtu v jiném telefonu:",
+                        text = "Nastav si 4místný PIN pro obnovu účtu a tereziánů v jiném telefonu:",
                         color = Color(0xFFFFE082),
                         fontSize = 11.sp
                     )
@@ -450,19 +540,21 @@ private fun DomovskaObrazovka(
                         )
                         Button(
                             onClick = {
-                                if (probihaUkladani) return@Button
-                                probihaUkladani = true
+                                if (probihaAkce) return@Button
+                                probihaAkce = true
                                 scope.launch {
                                     when (val vys = OnlineManager.doplnPinKeStavajiciPrezdivce(vstupPin)) {
                                         is VysledekRegistraceNicku.Uspech -> {
-                                            stavRegistrace = ""
-                                            onUcetUlozenNeboObnoven()
+                                            jeUspechHlaska = true
+                                            stavHlaska = vys.zprava
+                                            onUcetNeboMesecZmenen()
                                         }
                                         is VysledekRegistraceNicku.Chyba -> {
-                                            stavRegistrace = vys.zprava
+                                            jeUspechHlaska = false
+                                            stavHlaska = vys.zprava
                                         }
                                     }
-                                    probihaUkladani = false
+                                    probihaAkce = false
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
@@ -470,10 +562,15 @@ private fun DomovskaObrazovka(
                             Text("Uložit PIN", color = Color(0xFF072312), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     }
-                    if (stavRegistrace.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(stavRegistrace, color = Color(0xFFFF8A80), fontSize = 11.sp)
-                    }
+                }
+
+                if (stavHlaska.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stavHlaska,
+                        color = if (jeUspechHlaska) Color(0xFF69F0AE) else Color(0xFFFF8A80),
+                        fontSize = 11.sp
+                    )
                 }
             }
         }
@@ -482,12 +579,15 @@ private fun DomovskaObrazovka(
 
         MenuKartaTlacitko(
             nadpis = "Živá online herna (proti hráčům)",
-            popis = "Veřejné stoly i soukromé stoly na PIN, zelená kontrolka spojení a hlídání pravidel.",
+            popis = "Veřejné stoly i soukromé stoly na PIN, kontrolka spojení a vyúčtování v tereziánech.",
             zvyraznena = true,
             onClick = {
                 if (ulozenaPrezdivka.isEmpty()) {
                     jeUspechHlaska = false
-                    stavRegistrace = "Nejprve si prosím ulož nebo obnov přezdívku výše."
+                    stavHlaska = "Nejprve si prosím ulož nebo obnov přezdívku výše."
+                } else if (aktualniTereziany < 20) {
+                    jeUspechHlaska = false
+                    stavHlaska = "Pro živý stůl potřebuješ alespoň 20 tereziánů — vyzvedni si nahoře Císařskou podporu zdarma!"
                 } else {
                     onOtevritZivouHernu()
                 }
@@ -505,7 +605,7 @@ private fun DomovskaObrazovka(
 
         MenuKartaTlacitko(
             nadpis = "Trénink proti botům (Offline)",
-            popis = "Okamžitá hra Mariáše, Prší nebo Sedmy bez čekání i bez připojení k internetu.",
+            popis = "Okamžitá hra Mariáše, Prší nebo Sedmy kdykoliv i bez internetu — výhrami si vyděláš tereziány.",
             zvyraznena = false,
             onClick = onOtevritTrenink
         )
@@ -517,16 +617,16 @@ private fun DomovskaObrazovka(
         ) {
             Box(modifier = Modifier.weight(1f)) {
                 MenuKartaTlacitko(
-                    nadpis = "Žebříček ELO",
-                    popis = "Online pořadí nejlepších karbaníků.",
+                    nadpis = "Nejbohatší hráči",
+                    popis = "Online žebříček podle měšce tereziánů.",
                     zvyraznena = false,
                     onClick = onOtevritZebricek
                 )
             }
             Box(modifier = Modifier.weight(1f)) {
                 MenuKartaTlacitko(
-                    nadpis = "Pravidla her",
-                    popis = "Přehled českých pravidel a bodování.",
+                    nadpis = "Pravidla a měna",
+                    popis = "Česká pravidla her a obnova tereziánů.",
                     zvyraznena = false,
                     onClick = onOtevritPravidla
                 )
@@ -797,7 +897,7 @@ private fun OnlineLobbyObrazovka(
                             if (vytvoreny != null) {
                                 onVstoupitDoStolu(vytvoreny)
                             } else {
-                                zpravaChyby = "Nepodařilo se spojit se serverem."
+                                zpravaChyby = "Nepodařilo se otevřít stůl — zkontroluj připojení nebo Rules ve Firebase."
                             }
                         }
                     },
@@ -978,7 +1078,7 @@ private fun CekarnaStoluObrazovka(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = hrac?.let { "${it.prezdivka} (ELO ${it.elo})" } ?: "Volné místo u stolu…",
+                    text = hrac?.let { "${it.prezdivka} (${formatujTereziany(it.tereziany)})" } ?: "Volné místo u stolu…",
                     color = if (hrac != null) Color.White else Color(0x99FFFFFF),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold
@@ -1082,6 +1182,10 @@ private fun TurnajovaSinObrazovka(
                         onClick = {
                             if (ulozenyNick.isEmpty()) {
                                 hlaska = "Pro online turnaj si nejprve nastav přezdívku na hlavní obrazovce."
+                                return@Button
+                            }
+                            if (nactiLokalniTereziany() < 20) {
+                                hlaska = "Pro online turnaj potřebuješ alespoň 20 tereziánů — vyzvedni si na hlavní obrazovce Císařskou podporu."
                                 return@Button
                             }
                             scope.launch {
@@ -1225,12 +1329,12 @@ private fun ZebricekObrazovka(onZpet: () -> Unit) {
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        ZahlaviPodobrazovky("Online žebříček ELO", onZpet)
+        ZahlaviPodobrazovky("Nejbohatší hráči", onZpet)
 
         if (nacita) {
-            Text("Načítám online pořadí…", color = Color(0xFFB9F6CA), fontSize = 14.sp)
+            Text("Načítám online pořadí měšců…", color = Color(0xFFB9F6CA), fontSize = 14.sp)
         } else if (polozky.isEmpty()) {
-            Text("Žebříček je zatím prázdný — odehraj první partii!", color = Color(0xFFB9F6CA), fontSize = 14.sp)
+            Text("Žebříček je zatím prázdný — založ si účet a odehraj první partii!", color = Color(0xFFB9F6CA), fontSize = 14.sp)
         } else {
             for (z in polozky) {
                 Row(
@@ -1254,7 +1358,7 @@ private fun ZebricekObrazovka(onZpet: () -> Unit) {
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "${z.skoreElo} ELO",
+                        text = formatujTereziany(z.tereziany),
                         color = Color(0xFF69F0AE),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.ExtraBold
@@ -1273,8 +1377,12 @@ private fun PravidlaObrazovka(onZpet: () -> Unit) {
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        ZahlaviPodobrazovky("Pravidla her", onZpet)
+        ZahlaviPodobrazovky("Pravidla a měna", onZpet)
 
+        BlokPravidel(
+            nadpis = "Měna tereziány a obnova účtu přes PIN",
+            text = "Každý nový hráč dostává do začátku měšec s 1000 tereziány. Jednou denně si na hlavní obrazovce můžeš vyzvednout denní odměnu +100 tereziánů. Klesne-li tvůj měšec pod 100 tereziánů, tlačítko Císařská podpora ti ho zdarma dorovná na 200 tereziánů, případně si můžeš kdykoliv přivydělat v tréninku s boty. Díky 4místnému PINu si celý svůj účet i měšec obnovíš po přeinstalaci nebo v novém telefonu."
+        )
         BlokPravidel(
             nadpis = "Volený Mariáš (3 hráči)",
             text = "Forhont volí trumf ze 7 karet (nebo naslepo z talonu) a po dobrání odkládá 2 karty mimo es a desítek. Hra automaticky zvýrazňuje povolené tahy a hlídá povinnost přiznat a přebít barvu i povinnost trumfovat bez barvy. Hlášené páry svršek a král automaticky připisují 20 nebo 40 bodů. V Betlu a Durchu nejsou trumfy a desítka klesá mezi devítku a spodka."
@@ -1288,8 +1396,8 @@ private fun PravidlaObrazovka(onZpet: () -> Unit) {
             text = "Štych bere karta stejné hodnoty jako první vynesená nebo libovolná sedmička. Počítají se desítky, esa a poslední štych po 10 bodech. Čtveřice stejných karet ve štychu znamená spálenou a okamžitou výhru."
         )
         BlokPravidel(
-            nadpis = "Účet s PINem a živé online stoly",
-            text = "Přezdívka je chráněna otiskem 4místného PINu, takže si svůj účet včetně ELO skóre kdykoliv obnovíš i v novém telefonu. Zelená ikona u přezdívky hlídá živé spojení — při výpadku nad 60 sekund se stůl čistě uzavře bez zásahu botů."
+            nadpis = "Živé online stoly bez botů",
+            text = "Karty při každém rozdání míchá server. Zelená ikona u přezdívky hlídá živé spojení — při výpadku delším než 60 sekund se stůl čistě uzavře bez zásahu botů a přítomným hráčům se žádné tereziány neodečtou."
         )
     }
 }

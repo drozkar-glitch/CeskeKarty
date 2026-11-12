@@ -1,5 +1,6 @@
 package cz.mares.ceskekarty
 
+import kotlin.math.abs
 import kotlin.random.Random
 
 data class SitovaOdpoved(
@@ -22,10 +23,16 @@ expect suspend fun provedSitovyDotaz(
     jsonTelo: String? = null
 ): SitovaOdpoved
 
+const val STARTOVNI_TEREZIANY = 1000
+const val DENNI_ODMENA_TEREZIANY = 100
+const val HRANICE_PODPORY_TEREZIANY = 100
+const val DOROVNANI_PODPORY_TEREZIANY = 200
+
 private const val KLIC_ID_ZARIZENI = "ck_device_id_v1"
 private const val KLIC_PREZDIVKA = "ck_saved_nick_v1"
 private const val KLIC_PIN_OTISK = "ck_saved_pin_hash_v1"
-private const val KLIC_ELO = "ck_local_elo_v1"
+private const val KLIC_TEREZIANY = "ck_local_elo_v1"
+private const val KLIC_DENNI_ODMENA_DEN = "ck_daily_reward_day_v1"
 
 fun ziskejUnikatniIdZarizeni(): String {
     val ulozene = nactiTextZUloziste(KLIC_ID_ZARIZENI, "")
@@ -61,11 +68,45 @@ fun ulozPinOtiskTrvale(otisk: String) {
     ulozTextDoUloziste(KLIC_PIN_OTISK, otisk.trim())
 }
 
-fun nactiLokalniElo(): Int = nactiTextZUloziste(KLIC_ELO, "1000").toIntOrNull() ?: 1000
+fun nactiLokalniTereziany(): Int {
+    val ulozene = nactiTextZUloziste(KLIC_TEREZIANY, STARTOVNI_TEREZIANY.toString()).toIntOrNull()
+        ?: STARTOVNI_TEREZIANY
+    return ulozene.coerceIn(0, 999_999)
+}
 
-fun ulozLokalniElo(noveElo: Int) {
-    val omezene = noveElo.coerceIn(100, 9999)
-    ulozTextDoUloziste(KLIC_ELO, omezene.toString())
+fun ulozLokalniTereziany(novaCastka: Int) {
+    val omezene = novaCastka.coerceIn(0, 999_999)
+    ulozTextDoUloziste(KLIC_TEREZIANY, omezene.toString())
+}
+
+fun aktualniCisloDne(): Int {
+    return ((ziskejAktualniCasMs() + 3_600_000L) / 86_400_000L).toInt()
+}
+
+fun nactiPosledniDenOdmeny(): Int {
+    return nactiTextZUloziste(KLIC_DENNI_ODMENA_DEN, "0").toIntOrNull() ?: 0
+}
+
+fun ulozPosledniDenOdmeny(den: Int) {
+    ulozTextDoUloziste(KLIC_DENNI_ODMENA_DEN, den.toString())
+}
+
+fun muzeVyzvednoutDenniOdmenu(): Boolean {
+    return aktualniCisloDne() > nactiPosledniDenOdmeny()
+}
+
+fun nazevMenaTerezian(pocet: Int): String {
+    val absolutni = abs(pocet)
+    return when {
+        absolutni == 1 -> "terezián"
+        absolutni in 2..4 -> "tereziány"
+        else -> "tereziánů"
+    }
+}
+
+fun formatujTereziany(pocet: Int, seZnaminkem: Boolean = false): String {
+    val znamenko = if (seZnaminkem && pocet > 0) "+" else ""
+    return "$znamenko$pocet ${nazevMenaTerezian(pocet)}"
 }
 
 fun vypoctiOtiskPinu(prezdivka: String, pin: String): String {

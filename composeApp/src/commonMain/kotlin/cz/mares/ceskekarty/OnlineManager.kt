@@ -30,7 +30,7 @@ data class TepHrace(
 data class HracUStolu(
     val deviceId: String,
     val prezdivka: String,
-    val elo: Int
+    val tereziany: Int
 )
 
 enum class StavMistnosti {
@@ -110,7 +110,7 @@ data class OnlineTurnaj(
 data class ZaznamZebricku(
     val poradi: Int,
     val prezdivka: String,
-    val skoreElo: Int,
+    val tereziany: Int,
     val jeLokalniHrac: Boolean
 )
 
@@ -329,6 +329,10 @@ fun urlKodujKomponentu(text: String): String {
 
 object OnlineManager {
 
+    private fun klicUctuProNick(prezdivka: String): String {
+        return urlKodujKomponentu(prezdivka.trim().lowercase())
+    }
+
     private suspend fun dotazSOpakovanim(
         metoda: String,
         url: String,
@@ -339,6 +343,9 @@ object OnlineManager {
         for (pokus in 0 until pokusy) {
             posledni = provedSitovyDotaz(metoda, url, jsonTelo)
             if (posledni.uspesne) return posledni
+            if (posledni.stavovyKod == 401 || posledni.stavovyKod == 403) {
+                return posledni
+            }
             if (pokus < pokusy - 1) {
                 delay(350L * (pokus + 1))
             }
@@ -346,6 +353,10 @@ object OnlineManager {
         return posledni
     }
 
+    /**
+     * Registrace nové přezdívky s 4místným PINem NEBO obnova existujícího účtu po odinstalaci či v jiném telefonu.
+     * Kontroluje skutečné potvrzení zápisu z Firebase, aby se nikdy neohlásilo uložení při zamítnutých Rules.
+     */
     suspend fun overAUlozPrezdivku(kandidat: String, pin: String = ""): VysledekRegistraceNicku {
         val cista = kandidat.trim()
             .replace("/", "")
@@ -368,54 +379,83 @@ object OnlineManager {
 
         val zadanyOtisk = vypoctiOtiskPinu(cista, cistyPin)
         val mojeId = ziskejUnikatniIdZarizeni()
-        val kodovana = urlKodujKomponentu(cista)
-        val urlHs = "$FIREBASE_DB_ZAKLAD/high_scores/$ZEBRICEK_GAME_ID/$kodovana.json"
-        val urlUcet = "$FIREBASE_DB_ZAKLAD/card_accounts/$kodovana.json"
+        val klicUctu = klicUctuProNick(cista)
+        val urlUcet = "$FIREBASE_DB_ZAKLAD/card_accounts/$klicUctu.json"
 
         val odpovedUcet = dotazSOpakovanim("GET", urlUcet, pokusy = 2)
-        val odpovedHs = dotazSOpakovanim("GET", urlHs, pokusy = 2)
+        if (!odpovedUcet.uspesne) {
+            return if (odpovedUcet.stavovyKod == 401 || odpovedUcet.stavovyKod == 403) {
+                VysledekRegistraceNicku.Chyba("Přístup k účtům je zamítnut (aktualizuj prosím Rules ve Firebase).")
+            } else {
+                VysledekRegistraceNicku.Chyba("Nelze se spojit se serverem — zkontroluj připojení k internetu.")
+            }
+        }
 
-        val ucetObj = if (odpovedUcet.uspesne && odpovedUcet.telo.isNotBlank() && odpovedUcet.telo.trim() != "null") {
+        val ucetObj = if (odpovedUcet.telo.isNotBlank() && odpovedUcet.telo.trim() != "null") {
             parsujJsonText(odpovedUcet.telo) as? JsonPrvek.Objekt
         } else null
 
+        // 1) Účet již v card_accounts existuje -> ověříme otisk PINu a obnovíme zůstatek tereziánů i deviceId
+        if (ucetObj != null) {
+            val ulozenyOtisk = ucetObj.retezec("pinHash", "")
+            val kanonickyNick = ucetObj.retezec("nick", cista).ifBlank { cista }
+            if (ulozenyOtisk.isNotEmpty() && ulozenyOtisk != zadanyOtisk) {
+                return VysledekRegistraceNicku.Chyba("Přezdívka $kanonickyNick již existuje — zadaný PIN nesouhlasí.")
+            }
+
+            val urlHs = "$FIREBASE_DB_ZAKLAD/high_scores/$ZEBRICEK_GAME_ID/${urlKodujKomponentu(kanonickyNick)}.json"
+            val odpovedHs = dotazSOpakovanim("GET", urlHs, pokusy = 2)
+            val hsObj = if (odpovedHs.uspesne && odpovedHs.telo.isNotBlank() && odpovedHs.telo.trim() != "null") {
+                parsujJsonText(odpovedHs.telo) as? JsonPrvek.Objekt
+            } else null
+
+            val puvodniDeviceId = ucetObj.retezec("deviceId", "").ifEmpty {
+                hsObj?.retezec("deviceId", "")?.ifEmpty { mojeId } ?: mojeId
+            }
+            val ucetTereziany = ucetObj.cisloInt("score", -1)
+            val hsTereziany = hsObj?.cisloInt("score", -1) ?: -1
+            val obnoveneTereziany = when {
+                ucetTereziany >= 0 -> ucetTereziany
+                hsTereziany >= 0 -> hsTereziany
+                else -> STARTOVNI_TEREZIANY
+            }.coerceIn(0, 999_999)
+
+            val posledniDen = ucetObj.cisloInt("lastDailyDay", nactiPosledniDenOdmeny())
+
+            val nyni = ziskejAktualniCasMs()
+            val teloUcet = """{"nick":${jsonEscape(kanonickyNick)},"pinHash":${jsonEscape(zadanyOtisk)},"deviceId":${jsonEscape(puvodniDeviceId)},"score":$obnoveneTereziany,"lastDailyDay":$posledniDen,"updatedAt":$nyni}"""
+            val zapisUcet = dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
+            if (!zapisUcet.uspesne) {
+                return VysledekRegistraceNicku.Chyba("Nepodařilo se potvrdit obnovu účtu v databázi (kód ${zapisUcet.stavovyKod}).")
+            }
+
+            val teloHs = """{"score":$obnoveneTereziany,"deviceId":${jsonEscape(puvodniDeviceId)},"updatedAt":$nyni}"""
+            dotazSOpakovanim("PUT", urlHs, teloHs, pokusy = 2)
+
+            ulozObnoveneIdZarizeni(puvodniDeviceId)
+            ulozPrezdivkuTrvale(kanonickyNick)
+            ulozPinOtiskTrvale(zadanyOtisk)
+            ulozLokalniTereziany(obnoveneTereziany)
+            if (posledniDen > 0) ulozPosledniDenOdmeny(posledniDen)
+
+            return VysledekRegistraceNicku.Uspech(
+                "Účet $kanonickyNick (${formatujTereziany(obnoveneTereziany)}) byl úspěšně obnoven!"
+            )
+        }
+
+        // 2) Kontrola žebříčku (zda jméno není zabrané ze starší verze bez PINu)
+        val urlHs = "$FIREBASE_DB_ZAKLAD/high_scores/$ZEBRICEK_GAME_ID/${urlKodujKomponentu(cista)}.json"
+        val odpovedHs = dotazSOpakovanim("GET", urlHs, pokusy = 2)
         val hsPrvek = if (odpovedHs.uspesne && odpovedHs.telo.isNotBlank() && odpovedHs.telo.trim() != "null") {
             parsujJsonText(odpovedHs.telo)
         } else JsonPrvek.Prazdno
 
         val hsSkore = when (hsPrvek) {
-            is JsonPrvek.Objekt -> hsPrvek.cisloInt("score", 0)
+            is JsonPrvek.Objekt -> hsPrvek.cisloInt("score", -1)
             is JsonPrvek.Cislo -> hsPrvek.hodnota.toInt()
-            else -> 0
+            else -> -1
         }
         val hsDeviceId = (hsPrvek as? JsonPrvek.Objekt)?.retezec("deviceId", "") ?: ""
-
-        if (ucetObj != null) {
-            val ulozenyOtisk = ucetObj.retezec("pinHash", "")
-            if (ulozenyOtisk.isNotEmpty()) {
-                if (ulozenyOtisk != zadanyOtisk) {
-                    return VysledekRegistraceNicku.Chyba("Přezdívka již existuje — zadaný PIN nesouhlasí.")
-                }
-                val puvodniDeviceId = ucetObj.retezec("deviceId", "").ifEmpty {
-                    hsDeviceId.ifEmpty { mojeId }
-                }
-                val ucetSkore = ucetObj.cisloInt("score", 1000)
-                val obnoveneElo = (if (hsSkore > 0) hsSkore else ucetSkore).coerceIn(100, 9999)
-
-                ulozObnoveneIdZarizeni(puvodniDeviceId)
-                ulozPrezdivkuTrvale(cista)
-                ulozPinOtiskTrvale(zadanyOtisk)
-                ulozLokalniElo(obnoveneElo)
-
-                val nyni = ziskejAktualniCasMs()
-                val teloUcet = """{"nick":${jsonEscape(cista)},"pinHash":${jsonEscape(zadanyOtisk)},"deviceId":${jsonEscape(puvodniDeviceId)},"score":$obnoveneElo,"updatedAt":$nyni}"""
-                val teloHs = """{"score":$obnoveneElo,"deviceId":${jsonEscape(puvodniDeviceId)},"updatedAt":$nyni}"""
-                dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
-                dotazSOpakovanim("PUT", urlHs, teloHs, pokusy = 2)
-
-                return VysledekRegistraceNicku.Uspech("Účet $cista (ELO $obnoveneElo) byl úspěšně obnoven!")
-            }
-        }
 
         if (hsPrvek is JsonPrvek.Objekt || hsPrvek is JsonPrvek.Cislo) {
             if (hsDeviceId.isNotEmpty() && hsDeviceId != mojeId) {
@@ -426,18 +466,30 @@ object OnlineManager {
             }
         }
 
-        val startElo = (if (hsSkore > 0) hsSkore else nactiLokalniElo()).coerceAtLeast(1000)
+        // 3) Založení nového účtu s měšcem 1000 tereziánů a ověřeným zápisem do Firebase
+        val startTereziany = (if (hsSkore >= 0) hsSkore else STARTOVNI_TEREZIANY).coerceIn(0, 999_999)
+        val posledniDen = nactiPosledniDenOdmeny()
         val nyni = ziskejAktualniCasMs()
-        val teloUcet = """{"nick":${jsonEscape(cista)},"pinHash":${jsonEscape(zadanyOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$startElo,"updatedAt":$nyni}"""
-        val teloHs = """{"score":$startElo,"deviceId":${jsonEscape(mojeId)},"updatedAt":$nyni}"""
+        val teloUcet = """{"nick":${jsonEscape(cista)},"pinHash":${jsonEscape(zadanyOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$startTereziany,"lastDailyDay":$posledniDen,"updatedAt":$nyni}"""
+        val zapisUcet = dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
+        if (!zapisUcet.uspesne) {
+            return if (zapisUcet.stavovyKod == 401 || zapisUcet.stavovyKod == 403) {
+                VysledekRegistraceNicku.Chyba("Zápis účtu byl zamítnut databází — ulož prosím nová Rules ve Firebase.")
+            } else {
+                VysledekRegistraceNicku.Chyba("Nepodařilo se uložit účet na server — zkontroluj připojení.")
+            }
+        }
 
-        dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
+        val teloHs = """{"score":$startTereziany,"deviceId":${jsonEscape(mojeId)},"updatedAt":$nyni}"""
         dotazSOpakovanim("PUT", urlHs, teloHs, pokusy = 2)
 
         ulozPrezdivkuTrvale(cista)
         ulozPinOtiskTrvale(zadanyOtisk)
-        ulozLokalniElo(startElo)
-        return VysledekRegistraceNicku.Uspech("Přezdívka $cista byla uložena a zabezpečena PINem.")
+        ulozLokalniTereziany(startTereziany)
+
+        return VysledekRegistraceNicku.Uspech(
+            "Účet $cista uložen — do začátku máš ${formatujTereziany(startTereziany)}!"
+        )
     }
 
     suspend fun doplnPinKeStavajiciPrezdivce(pin: String): VysledekRegistraceNicku {
@@ -448,26 +500,83 @@ object OnlineManager {
         return overAUlozPrezdivku(aktualniNick, pin)
     }
 
-    suspend fun odesliAktualniEloDoZebricku(noveElo: Int) {
-        val cisteElo = noveElo.coerceIn(100, 9999)
-        ulozLokalniElo(cisteElo)
+    /**
+     * Tichá synchronizace po spuštění aplikace: pokud už měl hráč přezdívku a PIN v telefonu
+     * z doby před úpravou Firebase Rules, automaticky účet dozálohuje do card_accounts.
+     */
+    suspend fun synchronizujUcetPoStartu(): Int {
         val nick = nactiUlozenouPrezdivku()
-        if (nick.isBlank() || cisteElo <= 0) return
+        val pinOtisk = nactiUlozenyPinOtisk()
+        val lokalni = nactiLokalniTereziany()
+        if (nick.isBlank() || pinOtisk.isBlank()) return lokalni
+
+        val mojeId = ziskejUnikatniIdZarizeni()
+        val klicUctu = klicUctuProNick(nick)
+        val urlUcet = "$FIREBASE_DB_ZAKLAD/card_accounts/$klicUctu.json"
+        val odpoved = dotazSOpakovanim("GET", urlUcet, pokusy = 2)
+        if (!odpoved.uspesne) return lokalni
+
+        val nyni = ziskejAktualniCasMs()
+        if (odpoved.telo.isBlank() || odpoved.telo.trim() == "null") {
+            val den = nactiPosledniDenOdmeny()
+            val teloUcet = """{"nick":${jsonEscape(nick)},"pinHash":${jsonEscape(pinOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$lokalni,"lastDailyDay":$den,"updatedAt":$nyni}"""
+            dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
+            return lokalni
+        }
+
+        val obj = parsujJsonText(odpoved.telo) as? JsonPrvek.Objekt ?: return lokalni
+        if (obj.retezec("pinHash", "") == pinOtisk) {
+            val serverDen = obj.cisloInt("lastDailyDay", 0)
+            if (serverDen > nactiPosledniDenOdmeny()) {
+                ulozPosledniDenOdmeny(serverDen)
+            }
+        }
+        return lokalni
+    }
+
+    suspend fun odesliAktualniTerezianyDoZebricku(novaCastka: Int) {
+        val cistaCastka = novaCastka.coerceIn(0, 999_999)
+        ulozLokalniTereziany(cistaCastka)
+        val nick = nactiUlozenouPrezdivku()
+        if (nick.isBlank()) return
 
         val mojeId = ziskejUnikatniIdZarizeni()
         val kodovana = urlKodujKomponentu(nick)
         val nyni = ziskejAktualniCasMs()
+        val posledniDen = nactiPosledniDenOdmeny()
 
         val urlHs = "$FIREBASE_DB_ZAKLAD/high_scores/$ZEBRICEK_GAME_ID/$kodovana.json"
-        val teloHs = """{"score":$cisteElo,"deviceId":${jsonEscape(mojeId)},"updatedAt":$nyni}"""
+        val teloHs = """{"score":$cistaCastka,"deviceId":${jsonEscape(mojeId)},"updatedAt":$nyni}"""
         dotazSOpakovanim("PUT", urlHs, teloHs, pokusy = 2)
 
         val pinOtisk = nactiUlozenyPinOtisk()
         if (pinOtisk.isNotEmpty()) {
-            val urlUcet = "$FIREBASE_DB_ZAKLAD/card_accounts/$kodovana.json"
-            val teloUcet = """{"nick":${jsonEscape(nick)},"pinHash":${jsonEscape(pinOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$cisteElo,"updatedAt":$nyni}"""
+            val urlUcet = "$FIREBASE_DB_ZAKLAD/card_accounts/${klicUctuProNick(nick)}.json"
+            val teloUcet = """{"nick":${jsonEscape(nick)},"pinHash":${jsonEscape(pinOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$cistaCastka,"lastDailyDay":$posledniDen,"updatedAt":$nyni}"""
             dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
         }
+    }
+
+    suspend fun vyzvedniDenniOdmenu(): Result<Int> {
+        val dnes = aktualniCisloDne()
+        if (dnes <= nactiPosledniDenOdmeny()) {
+            return Result.failure(Exception("Dnešní odměnu už máš vyzvednutou — další bude připravena zítra."))
+        }
+        val novyZustatek = (nactiLokalniTereziany() + DENNI_ODMENA_TEREZIANY).coerceIn(0, 999_999)
+        ulozPosledniDenOdmeny(dnes)
+        odesliAktualniTerezianyDoZebricku(novyZustatek)
+        return Result.success(novyZustatek)
+    }
+
+    suspend fun aktivujCisarskouPodporu(): Result<Int> {
+        val aktualni = nactiLokalniTereziany()
+        if (aktualni >= HRANICE_PODPORY_TEREZIANY) {
+            return Result.failure(
+                Exception("Císařská podpora se vyplácí jen při poklesu pod ${formatujTereziany(HRANICE_PODPORY_TEREZIANY)}.")
+            )
+        }
+        odesliAktualniTerezianyDoZebricku(DOROVNANI_PODPORY_TEREZIANY)
+        return Result.success(DOROVNANI_PODPORY_TEREZIANY)
     }
 
     suspend fun nactiZebricek(includeZeroScores: Boolean = false): List<ZaznamZebricku> {
@@ -496,7 +605,7 @@ object OnlineManager {
             ZaznamZebricku(
                 poradi = index + 1,
                 prezdivka = nick,
-                skoreElo = skore,
+                tereziany = skore,
                 jeLokalniHrac = nick.equals(mujNick, ignoreCase = true)
             )
         }
@@ -505,7 +614,7 @@ object OnlineManager {
     private fun serializujSeznamHracu(hraci: List<HracUStolu>): String {
         return hraci.joinToString(";") { h ->
             val jmeno = h.prezdivka.replace("~", " ").replace(";", " ").replace("|", " ")
-            "${h.deviceId}~${jmeno}~${h.elo}"
+            "${h.deviceId}~${jmeno}~${h.tereziany}"
         }
     }
 
@@ -517,7 +626,7 @@ object OnlineManager {
             HracUStolu(
                 deviceId = casti[0],
                 prezdivka = casti[1],
-                elo = casti[2].toIntOrNull() ?: 1000
+                tereziany = casti[2].toIntOrNull() ?: STARTOVNI_TEREZIANY
             )
         }
     }
@@ -647,12 +756,12 @@ object OnlineManager {
     ): OnlineStul? {
         val mojeId = ziskejUnikatniIdZarizeni()
         val mujNick = nactiUlozenouPrezdivku().ifBlank { "Hráč" }
-        val mojeElo = nactiLokalniElo()
+        val mojeTereziany = nactiLokalniTereziany()
         val nyni = ziskejAktualniCasMs()
         val nahoda = Random.nextInt(1000, 9999)
         val roomId = "stul_${nyni}_$nahoda"
 
-        val seznamHracu = predvyplneniHraci ?: listOf(HracUStolu(mojeId, mujNick, mojeElo))
+        val seznamHracu = predvyplneniHraci ?: listOf(HracUStolu(mojeId, mujNick, mojeTereziany))
         val stul = OnlineStul(
             roomId = roomId,
             nazevStolu = nazevStolu.ifBlank { "${typHry.nazev} — $mujNick" },
@@ -710,8 +819,8 @@ object OnlineManager {
         }
 
         val mujNick = nactiUlozenouPrezdivku().ifBlank { "Hráč" }
-        val mojeElo = nactiLokalniElo()
-        val noviHraci = aktualni.hraci + HracUStolu(mojeId, mujNick, mojeElo)
+        val mojeTereziany = nactiLokalniTereziany()
+        val noviHraci = aktualni.hraci + HracUStolu(mojeId, mujNick, mojeTereziany)
         val upraveny = aktualni.copy(hraci = noviHraci)
 
         val meta = serializujMetaStolu(upraveny)
@@ -940,7 +1049,7 @@ object OnlineManager {
     suspend fun vytvorTurnaj(nazev: String, typHry: TypHry): OnlineTurnaj? {
         val mojeId = ziskejUnikatniIdZarizeni()
         val mujNick = nactiUlozenouPrezdivku().ifBlank { "Hráč" }
-        val mojeElo = nactiLokalniElo()
+        val mojeTereziany = nactiLokalniTereziany()
         val nyni = ziskejAktualniCasMs()
         val tid = "tur_${nyni}_${Random.nextInt(100, 999)}"
         val kapacita = if (typHry == TypHry.MARIAS) 3 else 4
@@ -951,7 +1060,7 @@ object OnlineManager {
             typHry = typHry,
             kapacita = kapacita,
             stav = "REGISTRACE",
-            ucastnici = listOf(HracUStolu(mojeId, mujNick, mojeElo)),
+            ucastnici = listOf(HracUStolu(mojeId, mujNick, mojeTereziany)),
             zapasy = emptyList(),
             mariasRoomId = "",
             celkovyVitez = "",
@@ -977,7 +1086,7 @@ object OnlineManager {
         val novi = turnaj.ucastnici + HracUStolu(
             deviceId = mojeId,
             prezdivka = nactiUlozenouPrezdivku().ifBlank { "Hráč" },
-            elo = nactiLokalniElo()
+            tereziany = nactiLokalniTereziany()
         )
 
         if (novi.size < turnaj.kapacita) {
@@ -1105,9 +1214,9 @@ object OnlineManager {
             )
             if (sfA.vitezId.isNotEmpty() && sfB.vitezId.isNotEmpty() && noveFinale.roomId.isEmpty()) {
                 val h1 = turnaj.ucastnici.firstOrNull { it.deviceId == sfA.vitezId }
-                    ?: HracUStolu(sfA.vitezId, sfA.vitezJmeno, 1000)
+                    ?: HracUStolu(sfA.vitezId, sfA.vitezJmeno, STARTOVNI_TEREZIANY)
                 val h2 = turnaj.ucastnici.firstOrNull { it.deviceId == sfB.vitezId }
-                    ?: HracUStolu(sfB.vitezId, sfB.vitezJmeno, 1000)
+                    ?: HracUStolu(sfB.vitezId, sfB.vitezJmeno, STARTOVNI_TEREZIANY)
                 val finalovyStul = vytvorStul(
                     nazevStolu = "${turnaj.nazev} — FINÁLE",
                     typHry = turnaj.typHry,

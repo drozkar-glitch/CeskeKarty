@@ -88,6 +88,7 @@ fun GameTableScreen(
     var onlineStul by remember { mutableStateOf(pocatecniOnlineStul) }
     var tikSekundyMs by remember { mutableStateOf(ziskejAktualniCasMs()) }
     var potvrditOdchod by remember { mutableStateOf(false) }
+    var aktualniMesecTerezianu by remember { mutableStateOf(nactiLokalniTereziany()) }
 
     val aktivniTypHry = onlineStul?.typHry ?: offlineKonfig?.typHry ?: TypHry.PRSI
     val pocetHracu = onlineStul?.maxHracu ?: offlineKonfig?.pocetHracu ?: 3
@@ -276,8 +277,9 @@ fun GameTableScreen(
             zapoctenaVerzeVysledku = klicDokonceneHry
             val mojeZmena = vysledekPartie.hraci.firstOrNull { it.indexHrace == lokalniIndex }
             if (mojeZmena != null) {
-                val upraveneElo = (nactiLokalniElo() + mojeZmena.zmenaElo).coerceIn(100, 9999)
-                OnlineManager.odesliAktualniEloDoZebricku(upraveneElo)
+                val novyZustatek = (nactiLokalniTereziany() + mojeZmena.zmenaElo).coerceIn(0, 999_999)
+                aktualniMesecTerezianu = novyZustatek
+                OnlineManager.odesliAktualniTerezianyDoZebricku(novyZustatek)
             }
 
             if (!jeOnlineRezim) {
@@ -329,7 +331,7 @@ fun GameTableScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(
-                        horizontal = if (naSirku) 8.dp else 8.dp,
+                        horizontal = 8.dp,
                         vertical = if (naSirku) 4.dp else 6.dp
                     ),
                 verticalArrangement = Arrangement.SpaceBetween
@@ -500,6 +502,7 @@ fun GameTableScreen(
                     offlineKonfig = offlineKonfig,
                     cisloOfflineRozdani = cisloOfflineRozdani,
                     soucetBoduOffline = soucetBoduOffline,
+                    aktualniMesecTerezianu = aktualniMesecTerezianu,
                     mojeDeviceId = mojeDeviceId,
                     onDalsiRozdani = {
                         zapoctenaVerzeVysledku = -1
@@ -567,7 +570,7 @@ fun GameTableScreen(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "Hráč ${onlineStul?.ukoncenoKym ?: ""} ztratil spojení nebo neodehrál tah do 60 sekund. Do živé hry boti nezasahují — stůl byl čistě uzavřen bez započtení prohry přítomným hráčům.",
+                            text = "Hráč ${onlineStul?.ukoncenoKym ?: ""} ztratil spojení nebo neodehrál tah do 60 sekund. Do živé hry boti nezasahují — stůl byl čistě uzavřen bez odečtení tereziánů přítomným hráčům.",
                             color = Color.White,
                             fontSize = 14.sp,
                             textAlign = TextAlign.Center
@@ -1496,8 +1499,6 @@ private fun SpodniRukaHrace(
             val pocetVRuce = ruka.size
             val stredIdx = (pocetVRuce - 1) / 2f
 
-            // Automatický výpočet šířky a rozestupu vějíře tak, aby 1 až 12 karet
-            // vždy přesně sedělo v šířce obrazovky bez jakéhokoliv uříznutí vpravo.
             val vnitrniSirkaDp = (maxWidth.value - 24f).coerceAtLeast(180f)
             val kartaSirkaDp = if (pocetVRuce in 1..4) {
                 minOf(sirkaKarty.value, (vnitrniSirkaDp - 12f) / 4f).coerceAtLeast(52f)
@@ -1611,6 +1612,7 @@ private fun PanelVyuctovaniPartie(
     offlineKonfig: KonfiguraceOfflineHry?,
     cisloOfflineRozdani: Int,
     soucetBoduOffline: List<Int>,
+    aktualniMesecTerezianu: Int,
     mojeDeviceId: String,
     onDalsiRozdani: () -> Unit,
     onZpetDoHerny: () -> Unit
@@ -1678,16 +1680,31 @@ private fun PanelVyuctovaniPartie(
             }
 
             Spacer(modifier = Modifier.height(10.dp))
-            Text("Změna ELO hodnocení:", color = Color(0xFFFFF59D), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("Vyúčtování tereziánů:", color = Color(0xFFFFF59D), fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(4.dp))
 
             for (h in vysledek.hraci) {
-                val znamenko = if (h.zmenaElo >= 0) "+" else ""
                 Text(
-                    text = "${h.jmenoHrace}: ${znamenko}${h.zmenaElo} ELO",
+                    text = "${h.jmenoHrace}: ${formatujTereziany(h.zmenaElo, seZnaminkem = true)}",
                     color = if (h.zmenaElo >= 0) Color(0xFF69F0AE) else Color(0xFFFF8A80),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF184A2C))
+                    .border(1.dp, Color(0x88FFD54F), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = "Tvůj měšec celkem: ${formatujTereziany(aktualniMesecTerezianu)}",
+                    color = Color(0xFFFFD54F),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold
                 )
             }
 
