@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,9 +62,6 @@ fun barvaProZnakKarty(barva: BarvaKarty): Color {
     }
 }
 
-/**
- * Zelený hospodský karetní stůl s mahagonovou dřevěnou obrubou, mosaznou linkou a česaným suknem.
- */
 @Composable
 fun ZelenyKaretniStulBox(
     modifier: Modifier = Modifier,
@@ -95,7 +95,6 @@ fun ZelenyKaretniStulBox(
                 )
             )
 
-            // Jemná struktura karetního plátna
             val krok = 20f
             var y = 0f
             while (y < size.height) {
@@ -108,7 +107,6 @@ fun ZelenyKaretniStulBox(
                 y += krok
             }
 
-            // Vnitřní zlatá linka plátna
             val odsazeni = 10f
             drawRoundRect(
                 color = Color(0x40E6C365),
@@ -160,19 +158,19 @@ fun IkonaBarvyKarty(
 fun KartaLiceComposable(
     karta: Karta,
     modifier: Modifier = Modifier,
-    sirka: Dp = 78.dp,
+    sirka: Dp = 74.dp,
     jePovolena: Boolean = true,
     aktivniKontrolaTahu: Boolean = false,
     jeVybrana: Boolean = false,
     stitekNavic: String? = null,
     onClick: (() -> Unit)? = null
 ) {
-    val vyska = sirka * 1.56f
-    val tvar = RoundedCornerShape(10.dp)
+    val vyska = sirka * 1.54f
+    val tvar = RoundedCornerShape(9.dp)
 
     val cilovyPosunY = when {
-        jeVybrana -> (-16).dp
-        aktivniKontrolaTahu && jePovolena -> (-10).dp
+        jeVybrana -> (-14).dp
+        aktivniKontrolaTahu && jePovolena -> (-9).dp
         else -> 0.dp
     }
     val animovanyPosunY by animateDpAsState(targetValue = cilovyPosunY)
@@ -183,9 +181,9 @@ fun KartaLiceComposable(
         else -> Color(0xFF5A4529)
     }
     val okrajTloustka = when {
-        jeVybrana -> 3.0.dp
-        aktivniKontrolaTahu && jePovolena -> 2.5.dp
-        else -> 1.3.dp
+        jeVybrana -> 2.8.dp
+        aktivniKontrolaTahu && jePovolena -> 2.4.dp
+        else -> 1.2.dp
     }
 
     val muzeKliknout = onClick != null && (!aktivniKontrolaTahu || jePovolena)
@@ -193,9 +191,11 @@ fun KartaLiceComposable(
     Box(
         modifier = modifier
             .offset(y = animovanyPosunY)
-            .size(width = sirka, height = vyska)
+            .widthIn(max = sirka)
+            .heightIn(max = vyska)
+            .aspectRatio(1f / 1.54f)
             .shadow(
-                elevation = if (jeVybrana || (aktivniKontrolaTahu && jePovolena)) 10.dp else 5.dp,
+                elevation = if (jeVybrana || (aktivniKontrolaTahu && jePovolena)) 9.dp else 4.dp,
                 shape = tvar
             )
             .clip(tvar)
@@ -217,21 +217,21 @@ fun KartaLiceComposable(
             )
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val vnejsi = size.width * 0.055f
-            val vnitrni = size.width * 0.082f
+            val vnejsi = size.width * 0.052f
+            val vnitrni = size.width * 0.078f
             drawRoundRect(
                 color = BarvaRamuCervena,
                 topLeft = Offset(vnejsi, vnejsi),
                 size = Size(size.width - vnejsi * 2f, size.height - vnejsi * 2f),
-                cornerRadius = CornerRadius(12f, 12f),
-                style = Stroke(width = 1.4f)
+                cornerRadius = CornerRadius(11f, 11f),
+                style = Stroke(width = 1.3f)
             )
             drawRoundRect(
                 color = BarvaRamuZlata,
                 topLeft = Offset(vnitrni, vnitrni),
                 size = Size(size.width - vnitrni * 2f, size.height - vnitrni * 2f),
-                cornerRadius = CornerRadius(9f, 9f),
-                style = Stroke(width = 1.1f)
+                cornerRadius = CornerRadius(8f, 8f),
+                style = Stroke(width = 1.0f)
             )
 
             vykresliDvouhlavyObsahKarty(karta)
@@ -239,14 +239,14 @@ fun KartaLiceComposable(
 
         val barvaPisma = barvaProZnakKarty(karta.barva)
         val pismoRohu = when {
-            sirka < 60.dp -> 10.sp
-            sirka < 72.dp -> 11.sp
-            else -> 12.sp
+            sirka < 58.dp -> 9.sp
+            sirka < 70.dp -> 10.sp
+            else -> 11.sp
         }
         val ikonaRohu = when {
-            sirka < 60.dp -> 10.dp
-            sirka < 72.dp -> 12.dp
-            else -> 14.dp
+            sirka < 58.dp -> 9.dp
+            sirka < 70.dp -> 11.dp
+            else -> 12.dp
         }
 
         RohovyIndexKarty(
@@ -257,7 +257,7 @@ fun KartaLiceComposable(
             velikostIkony = ikonaRohu,
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(start = 4.dp, top = 3.dp)
+                .padding(start = 3.dp, top = 2.dp)
         )
 
         RohovyIndexKarty(
@@ -268,7 +268,7 @@ fun KartaLiceComposable(
             velikostIkony = ikonaRohu,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 4.dp, bottom = 3.dp)
+                .padding(end = 3.dp, bottom = 2.dp)
                 .rotate(180f)
         )
 
@@ -276,16 +276,16 @@ fun KartaLiceComposable(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(4.dp)
-                    .clip(RoundedCornerShape(5.dp))
+                    .padding(3.dp)
+                    .clip(RoundedCornerShape(4.dp))
                     .background(Color(0xEB134E27))
-                    .border(0.8.dp, Color(0xFFFFD54F), RoundedCornerShape(5.dp))
+                    .border(0.8.dp, Color(0xFFFFD54F), RoundedCornerShape(4.dp))
                     .padding(horizontal = 4.dp, vertical = 1.dp)
             ) {
                 Text(
                     text = stitekNavic,
                     color = Color(0xFFFFF59D),
-                    fontSize = 9.sp,
+                    fontSize = 8.sp,
                     fontWeight = FontWeight.ExtraBold
                 )
             }
@@ -295,7 +295,7 @@ fun KartaLiceComposable(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0x8809140D))
+                    .background(Color(0x5806140D))
             )
         }
     }
@@ -312,8 +312,8 @@ private fun RohovyIndexKarty(
 ) {
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(5.dp))
-            .background(Color(0xEBFFFDF7))
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color(0xEEFFFDF8))
             .padding(horizontal = 2.dp, vertical = 1.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -337,17 +337,19 @@ fun KartaRubComposable(
     zvyseneZvyrazneni: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
-    val vyska = sirka * 1.56f
-    val tvar = RoundedCornerShape(10.dp)
+    val vyska = sirka * 1.54f
+    val tvar = RoundedCornerShape(9.dp)
 
     Box(
         modifier = modifier
-            .size(width = sirka, height = vyska)
-            .shadow(6.dp, tvar)
+            .widthIn(max = sirka)
+            .heightIn(max = vyska)
+            .aspectRatio(1f / 1.54f)
+            .shadow(5.dp, tvar)
             .clip(tvar)
             .background(BarvaSlonovinySvetla)
             .border(
-                width = if (zvyseneZvyrazneni) 2.6.dp else 1.3.dp,
+                width = if (zvyseneZvyrazneni) 2.5.dp else 1.3.dp,
                 color = if (zvyseneZvyrazneni) BarvaPovoleneZare else Color(0xFF5A4529),
                 shape = tvar
             )
@@ -402,15 +404,15 @@ fun KartaRubComposable(
                 topLeft = Offset(pad + 2.5f, pad + 2.5f),
                 size = Size(w - 5f, h - 5f),
                 cornerRadius = CornerRadius(8f, 8f),
-                style = Stroke(width = 1.8f)
+                style = Stroke(width = 1.6f)
             )
 
             val stred = Offset(size.width / 2f, size.height / 2f)
             val rMed = min(w, h) * 0.31f
             drawCircle(color = Color(0xFF470B0F), radius = rMed, center = stred)
-            drawCircle(color = Color(0xFFE6C15A), radius = rMed, center = stred, style = Stroke(width = 1.8f))
+            drawCircle(color = Color(0xFFE6C15A), radius = rMed, center = stred, style = Stroke(width = 1.6f))
             drawCircle(color = Color(0xFF9C2229), radius = rMed * 0.66f, center = stred)
-            drawCircle(color = Color(0xFFF6DC8B), radius = rMed * 0.66f, center = stred, style = Stroke(width = 1.2f))
+            drawCircle(color = Color(0xFFF6DC8B), radius = rMed * 0.66f, center = stred, style = Stroke(width = 1.1f))
             drawCircle(color = Color(0xFFE6C15A), radius = rMed * 0.24f, center = stred)
         }
 
@@ -419,16 +421,16 @@ fun KartaRubComposable(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(7.dp))
+                    .clip(RoundedCornerShape(6.dp))
                     .background(Color(0xD90E2918))
-                    .border(1.dp, Color(0xFFE6C15A), RoundedCornerShape(7.dp))
-                    .padding(horizontal = 7.dp, vertical = 3.dp)
+                    .border(1.dp, Color(0xFFE6C15A), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 3.dp)
             ) {
                 if (pocetVBalicku != null) {
                     Text(
                         text = pocetVBalicku.toString(),
                         color = Color.White,
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                 }
@@ -436,7 +438,7 @@ fun KartaRubComposable(
                     Text(
                         text = popisek,
                         color = Color(0xFFFFE082),
-                        fontSize = 9.sp,
+                        fontSize = 8.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -448,17 +450,17 @@ fun KartaRubComposable(
 private fun DrawScope.vykresliDvouhlavyObsahKarty(karta: Karta) {
     val cx = size.width / 2f
     val cy = size.height / 2f
-    val rZaklad = min(size.width, size.height) * 0.145f
+    val rZaklad = min(size.width, size.height) * 0.135f
 
     when (karta.hodnota) {
         HodnotaKarty.ESO -> vykresliDvouhlaveEso(karta.barva, cx, cy, rZaklad)
         HodnotaKarty.KRAL -> vykresliDvouhlavouFiguru(karta.barva, cx, cy, typPostavy = 3)
         HodnotaKarty.SVRSEK -> vykresliDvouhlavouFiguru(karta.barva, cx, cy, typPostavy = 2)
         HodnotaKarty.SPODEK -> vykresliDvouhlavouFiguru(karta.barva, cx, cy, typPostavy = 1)
-        HodnotaKarty.R10 -> vykresliBodovouKartu(karta.barva, pocetZnaku = 10, cx = cx, cy = cy, rZnak = rZaklad * 0.88f)
-        HodnotaKarty.R9 -> vykresliBodovouKartu(karta.barva, pocetZnaku = 9, cx = cx, cy = cy, rZnak = rZaklad * 0.90f)
-        HodnotaKarty.R8 -> vykresliBodovouKartu(karta.barva, pocetZnaku = 8, cx = cx, cy = cy, rZnak = rZaklad * 0.94f)
-        HodnotaKarty.R7 -> vykresliBodovouKartu(karta.barva, pocetZnaku = 7, cx = cx, cy = cy, rZnak = rZaklad * 0.98f)
+        HodnotaKarty.R10 -> vykresliBodovouKartu(karta.barva, pocetZnaku = 10, cx = cx, cy = cy, rZnak = rZaklad * 0.78f)
+        HodnotaKarty.R9 -> vykresliBodovouKartu(karta.barva, pocetZnaku = 9, cx = cx, cy = cy, rZnak = rZaklad * 0.82f)
+        HodnotaKarty.R8 -> vykresliBodovouKartu(karta.barva, pocetZnaku = 8, cx = cx, cy = cy, rZnak = rZaklad * 0.85f)
+        HodnotaKarty.R7 -> vykresliBodovouKartu(karta.barva, pocetZnaku = 7, cx = cx, cy = cy, rZnak = rZaklad * 0.88f)
     }
 }
 
@@ -485,17 +487,17 @@ private fun DrawScope.vykresliDvouhlaveEso(
             val yZnak = cy - size.height * 0.21f
             drawCircle(
                 color = Color(0xFFD4A437),
-                radius = rZaklad * 1.25f,
+                radius = rZaklad * 1.22f,
                 center = Offset(cx, yZnak),
-                style = Stroke(width = 1.8f)
+                style = Stroke(width = 1.6f)
             )
-            vykresliKralovskouKorunu(Offset(cx, yZnak - rZaklad * 1.32f), rZaklad * 1.18f)
-            vykresliZnakBarvy(barva, Offset(cx, yZnak + rZaklad * 0.08f), rZaklad * 1.12f)
+            vykresliKralovskouKorunu(Offset(cx, yZnak - rZaklad * 1.30f), rZaklad * 1.15f)
+            vykresliZnakBarvy(barva, Offset(cx, yZnak + rZaklad * 0.08f), rZaklad * 1.08f)
         }
     }
 
-    val sirkaStuhy = size.width * 0.68f
-    val vyskaStuhy = size.height * 0.072f
+    val sirkaStuhy = size.width * 0.66f
+    val vyskaStuhy = size.height * 0.070f
     drawRoundRect(
         brush = Brush.horizontalGradient(
             colors = listOf(Color(0xFFB3821E), Color(0xFFF6DC8B), Color(0xFFB3821E))
@@ -509,9 +511,9 @@ private fun DrawScope.vykresliDvouhlaveEso(
         topLeft = Offset(cx - sirkaStuhy / 2f, cy - vyskaStuhy / 2f),
         size = Size(sirkaStuhy, vyskaStuhy),
         cornerRadius = CornerRadius(8f, 8f),
-        style = Stroke(width = 1.2f)
+        style = Stroke(width = 1.1f)
     )
-    vykresliZnakBarvy(barva, Offset(cx, cy), rZaklad * 0.56f)
+    vykresliZnakBarvy(barva, Offset(cx, cy), rZaklad * 0.54f)
 }
 
 private fun DrawScope.vykresliDvouhlavouFiguru(
@@ -520,7 +522,7 @@ private fun DrawScope.vykresliDvouhlavouFiguru(
     cy: Float,
     typPostavy: Int
 ) {
-    val okraj = size.width * 0.09f
+    val okraj = size.width * 0.085f
 
     clipRect(left = okraj, top = okraj, right = size.width - okraj, bottom = cy) {
         vykresliPolovinuPostavy(barva, cx, cy, typPostavy)
@@ -535,7 +537,7 @@ private fun DrawScope.vykresliDvouhlavouFiguru(
     }
 
     val sirkaSerpy = size.width - okraj * 2f
-    val vyskaSerpy = size.height * 0.042f
+    val vyskaSerpy = size.height * 0.040f
     drawRect(
         brush = Brush.horizontalGradient(
             colors = listOf(
@@ -553,13 +555,13 @@ private fun DrawScope.vykresliDvouhlavouFiguru(
         color = Color(0xFF5D3A08),
         start = Offset(okraj, cy - vyskaSerpy / 2f),
         end = Offset(size.width - okraj, cy - vyskaSerpy / 2f),
-        strokeWidth = 1.3f
+        strokeWidth = 1.2f
     )
     drawLine(
         color = Color(0xFF5D3A08),
         start = Offset(okraj, cy + vyskaSerpy / 2f),
         end = Offset(size.width - okraj, cy + vyskaSerpy / 2f),
-        strokeWidth = 1.3f
+        strokeWidth = 1.2f
     )
 
     val kosoctverec = Path().apply {
@@ -570,7 +572,7 @@ private fun DrawScope.vykresliDvouhlavouFiguru(
         close()
     }
     drawPath(kosoctverec, color = barvaProZnakKarty(barva))
-    drawPath(kosoctverec, color = Color(0xFFFFF3C4), style = Stroke(width = 1.2f))
+    drawPath(kosoctverec, color = Color(0xFFFFF3C4), style = Stroke(width = 1.1f))
 }
 
 private fun DrawScope.vykresliPolovinuPostavy(
@@ -579,16 +581,16 @@ private fun DrawScope.vykresliPolovinuPostavy(
     cy: Float,
     typPostavy: Int
 ) {
-    val u = size.width * 0.11f
+    val u = size.width * 0.108f
 
     drawRect(
-        color = Color(0x15D4AF37),
-        topLeft = Offset(size.width * 0.09f, size.width * 0.09f),
-        size = Size(size.width * 0.82f, cy - size.width * 0.09f)
+        color = Color(0x14D4AF37),
+        topLeft = Offset(size.width * 0.085f, size.width * 0.085f),
+        size = Size(size.width * 0.83f, cy - size.width * 0.085f)
     )
 
-    val stredX = cx - u * 0.30f
-    val hlavaY = cy - u * 3.05f
+    val stredX = cx - u * 0.25f
+    val hlavaY = cy - u * 3.00f
 
     val barvaPlaste1: Color
     val barvaPlaste2: Color
@@ -612,22 +614,22 @@ private fun DrawScope.vykresliPolovinuPostavy(
     }
 
     val plast = Path().apply {
-        moveTo(stredX - u * 2.55f, cy + 4f)
+        moveTo(stredX - u * 2.45f, cy + 4f)
         cubicTo(
-            stredX - u * 2.35f,
-            cy - u * 1.55f,
-            stredX - u * 1.45f,
-            cy - u * 2.25f,
-            stredX - u * 0.85f,
-            cy - u * 2.20f
-        )
-        lineTo(stredX + u * 0.95f, cy - u * 2.20f)
-        cubicTo(
-            stredX + u * 1.65f,
+            stredX - u * 2.25f,
+            cy - u * 1.50f,
+            stredX - u * 1.40f,
             cy - u * 2.20f,
-            stredX + u * 2.35f,
-            cy - u * 1.45f,
-            stredX + u * 2.55f,
+            stredX - u * 0.80f,
+            cy - u * 2.15f
+        )
+        lineTo(stredX + u * 0.90f, cy - u * 2.15f)
+        cubicTo(
+            stredX + u * 1.60f,
+            cy - u * 2.15f,
+            stredX + u * 2.25f,
+            cy - u * 1.40f,
+            stredX + u * 2.45f,
             cy + 4f
         )
         close()
@@ -636,78 +638,78 @@ private fun DrawScope.vykresliPolovinuPostavy(
         path = plast,
         brush = Brush.verticalGradient(
             colors = listOf(barvaPlaste1, barvaPlaste2),
-            startY = cy - u * 2.3f,
+            startY = cy - u * 2.25f,
             endY = cy
         )
     )
-    drawPath(plast, color = Color(0xFFD9AE42), style = Stroke(width = 1.8f))
+    drawPath(plast, color = Color(0xFFD9AE42), style = Stroke(width = 1.6f))
 
     val tunika = Path().apply {
-        moveTo(stredX - u * 0.95f, cy + 4f)
-        lineTo(stredX - u * 0.65f, cy - u * 2.15f)
-        lineTo(stredX + u * 0.65f, cy - u * 2.15f)
-        lineTo(stredX + u * 0.95f, cy + 4f)
+        moveTo(stredX - u * 0.90f, cy + 4f)
+        lineTo(stredX - u * 0.62f, cy - u * 2.10f)
+        lineTo(stredX + u * 0.62f, cy - u * 2.10f)
+        lineTo(stredX + u * 0.90f, cy + 4f)
         close()
     }
     drawPath(tunika, color = barvaTuniky)
-    drawPath(tunika, color = Color(0xFFE6C15A), style = Stroke(width = 1.3f))
+    drawPath(tunika, color = Color(0xFFE6C15A), style = Stroke(width = 1.2f))
 
     for (k in 0..2) {
-        val ky = cy - u * (1.65f - k * 0.58f)
-        drawCircle(color = Color(0xFFFFE082), radius = u * 0.14f, center = Offset(stredX, ky))
+        val ky = cy - u * (1.60f - k * 0.56f)
+        drawCircle(color = Color(0xFFFFE082), radius = u * 0.13f, center = Offset(stredX, ky))
     }
 
     drawOval(
         color = if (typPostavy == 3) Color(0xFFFFFBF0) else Color(0xFFF3E2B8),
-        topLeft = Offset(stredX - u * 0.95f, cy - u * 2.38f),
-        size = Size(u * 1.90f, u * 0.52f)
+        topLeft = Offset(stredX - u * 0.90f, cy - u * 2.34f),
+        size = Size(u * 1.80f, u * 0.50f)
     )
     drawOval(
         color = Color(0xFF795548),
-        topLeft = Offset(stredX - u * 0.95f, cy - u * 2.38f),
-        size = Size(u * 1.90f, u * 0.52f),
+        topLeft = Offset(stredX - u * 0.90f, cy - u * 2.34f),
+        size = Size(u * 1.80f, u * 0.50f),
         style = Stroke(width = 1.0f)
     )
 
     when (typPostavy) {
         3 -> {
-            val xZezlo = stredX - u * 1.65f
+            val xZezlo = stredX - u * 1.55f
             drawLine(
                 color = Color(0xFFE6B83A),
                 start = Offset(xZezlo + u * 0.35f, cy),
-                end = Offset(xZezlo, hlavaY - u * 0.25f),
-                strokeWidth = 3.2f
+                end = Offset(xZezlo, hlavaY - u * 0.20f),
+                strokeWidth = 2.8f
             )
-            drawCircle(color = Color(0xFFFFD54F), radius = u * 0.32f, center = Offset(xZezlo, hlavaY - u * 0.38f))
-            drawCircle(color = Color(0xFFC62828), radius = u * 0.15f, center = Offset(xZezlo, hlavaY - u * 0.38f))
+            drawCircle(color = Color(0xFFFFD54F), radius = u * 0.30f, center = Offset(xZezlo, hlavaY - u * 0.32f))
+            drawCircle(color = Color(0xFFC62828), radius = u * 0.14f, center = Offset(xZezlo, hlavaY - u * 0.32f))
         }
         2 -> {
-            val xMec = stredX - u * 1.62f
+            val xMec = stredX - u * 1.55f
             drawLine(
                 color = Color(0xFFCFD8DC),
                 start = Offset(xMec, cy - u * 0.4f),
-                end = Offset(xMec - u * 0.15f, hlavaY - u * 0.8f),
-                strokeWidth = 2.8f
+                end = Offset(xMec - u * 0.12f, hlavaY - u * 0.72f),
+                strokeWidth = 2.5f
             )
             drawLine(
                 color = Color(0xFFE6B83A),
-                start = Offset(xMec - u * 0.42f, cy - u * 0.72f),
-                end = Offset(xMec + u * 0.42f, cy - u * 0.72f),
-                strokeWidth = 2.6f
+                start = Offset(xMec - u * 0.38f, cy - u * 0.70f),
+                end = Offset(xMec + u * 0.38f, cy - u * 0.70f),
+                strokeWidth = 2.4f
             )
         }
         else -> {
-            val xKopi = stredX - u * 1.58f
+            val xKopi = stredX - u * 1.52f
             drawLine(
                 color = Color(0xFF795548),
                 start = Offset(xKopi, cy),
-                end = Offset(xKopi, hlavaY - u * 0.85f),
-                strokeWidth = 2.6f
+                end = Offset(xKopi, hlavaY - u * 0.78f),
+                strokeWidth = 2.4f
             )
             val hrot = Path().apply {
-                moveTo(xKopi, hlavaY - u * 1.35f)
-                lineTo(xKopi + u * 0.32f, hlavaY - u * 0.65f)
-                lineTo(xKopi - u * 0.22f, hlavaY - u * 0.65f)
+                moveTo(xKopi, hlavaY - u * 1.25f)
+                lineTo(xKopi + u * 0.30f, hlavaY - u * 0.60f)
+                lineTo(xKopi - u * 0.20f, hlavaY - u * 0.60f)
                 close()
             }
             drawPath(hrot, color = Color(0xFFB0BEC5))
@@ -716,7 +718,7 @@ private fun DrawScope.vykresliPolovinuPostavy(
 
     drawCircle(
         color = if (typPostavy == 3) Color(0xFF8D6E63) else Color(0xFF5D4037),
-        radius = u * 0.92f,
+        radius = u * 0.88f,
         center = Offset(stredX, hlavaY + u * 0.08f)
     )
 
@@ -725,76 +727,76 @@ private fun DrawScope.vykresliPolovinuPostavy(
         brush = Brush.radialGradient(
             colors = listOf(Color(0xFFFCE2C4), Color(0xFFEAB88F)),
             center = Offset(hlavaStred.x - u * 0.15f, hlavaStred.y - u * 0.15f),
-            radius = u * 1.05f
+            radius = u * 1.0f
         ),
-        topLeft = Offset(hlavaStred.x - u * 0.76f, hlavaStred.y - u * 0.86f),
-        size = Size(u * 1.52f, u * 1.72f)
+        topLeft = Offset(hlavaStred.x - u * 0.74f, hlavaStred.y - u * 0.84f),
+        size = Size(u * 1.48f, u * 1.68f)
     )
     drawOval(
         color = Color(0xFF6D4C41),
-        topLeft = Offset(hlavaStred.x - u * 0.76f, hlavaStred.y - u * 0.86f),
-        size = Size(u * 1.52f, u * 1.72f),
-        style = Stroke(width = 1.2f)
+        topLeft = Offset(hlavaStred.x - u * 0.74f, hlavaStred.y - u * 0.84f),
+        size = Size(u * 1.48f, u * 1.68f),
+        style = Stroke(width = 1.1f)
     )
 
     val yOci = hlavaStred.y - u * 0.14f
-    drawCircle(color = Color(0xFF2E1C14), radius = u * 0.10f, center = Offset(hlavaStred.x - u * 0.28f, yOci))
-    drawCircle(color = Color(0xFF2E1C14), radius = u * 0.10f, center = Offset(hlavaStred.x + u * 0.28f, yOci))
+    drawCircle(color = Color(0xFF2E1C14), radius = u * 0.10f, center = Offset(hlavaStred.x - u * 0.27f, yOci))
+    drawCircle(color = Color(0xFF2E1C14), radius = u * 0.10f, center = Offset(hlavaStred.x + u * 0.27f, yOci))
     drawLine(
         color = Color(0xFF8D5B3E),
         start = Offset(hlavaStred.x, yOci - u * 0.05f),
-        end = Offset(hlavaStred.x + u * 0.08f, hlavaStred.y + u * 0.22f),
-        strokeWidth = 1.2f
+        end = Offset(hlavaStred.x + u * 0.07f, hlavaStred.y + u * 0.20f),
+        strokeWidth = 1.1f
     )
 
     when (typPostavy) {
         3 -> {
             val plnovous = Path().apply {
-                moveTo(hlavaStred.x - u * 0.68f, hlavaStred.y + u * 0.22f)
+                moveTo(hlavaStred.x - u * 0.66f, hlavaStred.y + u * 0.22f)
                 cubicTo(
-                    hlavaStred.x - u * 0.65f,
-                    hlavaStred.y + u * 1.25f,
-                    hlavaStred.x + u * 0.65f,
-                    hlavaStred.y + u * 1.25f,
-                    hlavaStred.x + u * 0.68f,
+                    hlavaStred.x - u * 0.62f,
+                    hlavaStred.y + u * 1.20f,
+                    hlavaStred.x + u * 0.62f,
+                    hlavaStred.y + u * 1.20f,
+                    hlavaStred.x + u * 0.66f,
                     hlavaStred.y + u * 0.22f
                 )
                 close()
             }
             drawPath(plnovous, color = Color(0xFF9E8A78))
             drawPath(plnovous, color = Color(0xFF5D4037), style = Stroke(width = 1.0f))
-            vykresliKralovskouKorunu(Offset(hlavaStred.x, hlavaStred.y - u * 1.05f), u * 1.85f)
+            vykresliKralovskouKorunu(Offset(hlavaStred.x, hlavaStred.y - u * 1.02f), u * 1.78f)
         }
         2 -> {
             drawLine(
                 color = Color(0xFF4E342E),
-                start = Offset(hlavaStred.x - u * 0.42f, hlavaStred.y + u * 0.36f),
-                end = Offset(hlavaStred.x + u * 0.42f, hlavaStred.y + u * 0.36f),
-                strokeWidth = 2.2f
+                start = Offset(hlavaStred.x - u * 0.40f, hlavaStred.y + u * 0.35f),
+                end = Offset(hlavaStred.x + u * 0.40f, hlavaStred.y + u * 0.35f),
+                strokeWidth = 2.0f
             )
             val baret = Path().apply {
-                moveTo(hlavaStred.x - u * 1.05f, hlavaStred.y - u * 0.62f)
+                moveTo(hlavaStred.x - u * 1.00f, hlavaStred.y - u * 0.60f)
                 cubicTo(
-                    hlavaStred.x - u * 0.95f,
-                    hlavaStred.y - u * 1.45f,
-                    hlavaStred.x + u * 1.05f,
-                    hlavaStred.y - u * 1.45f,
-                    hlavaStred.x + u * 0.95f,
-                    hlavaStred.y - u * 0.58f
+                    hlavaStred.x - u * 0.90f,
+                    hlavaStred.y - u * 1.40f,
+                    hlavaStred.x + u * 1.00f,
+                    hlavaStred.y - u * 1.40f,
+                    hlavaStred.x + u * 0.90f,
+                    hlavaStred.y - u * 0.56f
                 )
                 close()
             }
             drawPath(baret, color = Color(0xFF1B5E38))
-            drawPath(baret, color = Color(0xFFE6C15A), style = Stroke(width = 1.3f))
+            drawPath(baret, color = Color(0xFFE6C15A), style = Stroke(width = 1.2f))
             val pero = Path().apply {
-                moveTo(hlavaStred.x + u * 0.35f, hlavaStred.y - u * 1.05f)
+                moveTo(hlavaStred.x + u * 0.32f, hlavaStred.y - u * 1.02f)
                 cubicTo(
-                    hlavaStred.x + u * 1.45f,
-                    hlavaStred.y - u * 1.85f,
-                    hlavaStred.x + u * 1.65f,
-                    hlavaStred.y - u * 0.95f,
-                    hlavaStred.x + u * 0.55f,
-                    hlavaStred.y - u * 0.78f
+                    hlavaStred.x + u * 1.40f,
+                    hlavaStred.y - u * 1.78f,
+                    hlavaStred.x + u * 1.55f,
+                    hlavaStred.y - u * 0.92f,
+                    hlavaStred.x + u * 0.52f,
+                    hlavaStred.y - u * 0.76f
                 )
                 close()
             }
@@ -803,36 +805,39 @@ private fun DrawScope.vykresliPolovinuPostavy(
         else -> {
             drawLine(
                 color = Color(0xFF8D4E3C),
-                start = Offset(hlavaStred.x - u * 0.24f, hlavaStred.y + u * 0.42f),
-                end = Offset(hlavaStred.x + u * 0.24f, hlavaStred.y + u * 0.42f),
-                strokeWidth = 1.5f
+                start = Offset(hlavaStred.x - u * 0.22f, hlavaStred.y + u * 0.40f),
+                end = Offset(hlavaStred.x + u * 0.22f, hlavaStred.y + u * 0.40f),
+                strokeWidth = 1.4f
             )
             drawRoundRect(
                 color = Color(0xFF284B8C),
-                topLeft = Offset(hlavaStred.x - u * 0.92f, hlavaStred.y - u * 1.18f),
-                size = Size(u * 1.84f, u * 0.58f),
-                cornerRadius = CornerRadius(8f, 8f)
+                topLeft = Offset(hlavaStred.x - u * 0.88f, hlavaStred.y - u * 1.15f),
+                size = Size(u * 1.76f, u * 0.56f),
+                cornerRadius = CornerRadius(7f, 7f)
             )
             drawLine(
                 color = Color(0xFFE6C15A),
-                start = Offset(hlavaStred.x - u * 0.92f, hlavaStred.y - u * 0.64f),
-                end = Offset(hlavaStred.x + u * 0.92f, hlavaStred.y - u * 0.64f),
-                strokeWidth = 2.0f
+                start = Offset(hlavaStred.x - u * 0.88f, hlavaStred.y - u * 0.62f),
+                end = Offset(hlavaStred.x + u * 0.88f, hlavaStred.y - u * 0.62f),
+                strokeWidth = 1.8f
             )
         }
     }
 
-    // Znak barvy: Král a Svršek nahoře u hlavy, Spodek dole u šerpy
     val poziceZnaku = when (typPostavy) {
-        3 -> Offset(cx + u * 1.95f, hlavaY - u * 0.35f)
-        2 -> Offset(cx + u * 1.95f, hlavaY - u * 0.45f)
-        else -> Offset(cx + u * 1.90f, cy - u * 1.18f)
+        3 -> Offset(cx + u * 1.90f, hlavaY - u * 0.32f)
+        2 -> Offset(cx + u * 1.90f, hlavaY - u * 0.42f)
+        else -> Offset(cx + u * 1.85f, cy - u * 1.15f)
     }
-    drawCircle(color = Color(0xEBFFFDF6), radius = u * 1.05f, center = poziceZnaku)
-    drawCircle(color = Color(0xFFC5962C), radius = u * 1.05f, center = poziceZnaku, style = Stroke(width = 1.2f))
-    vykresliZnakBarvy(barva, poziceZnaku, u * 0.86f)
+    drawCircle(color = Color(0xEBFFFDF6), radius = u * 0.98f, center = poziceZnaku)
+    drawCircle(color = Color(0xFFC5962C), radius = u * 0.98f, center = poziceZnaku, style = Stroke(width = 1.1f))
+    vykresliZnakBarvy(barva, poziceZnaku, u * 0.80f)
 }
 
+/**
+ * Bodové karty 7, 8, 9 a 10: postranní sloupce drží bezpečný odstup od levého horního
+ * i pravého dolního indexu v rohu, zatímco středový sloupec využívá volnou osu karty.
+ */
 private fun DrawScope.vykresliBodovouKartu(
     barva: BarvaKarty,
     pocetZnaku: Int,
@@ -840,13 +845,13 @@ private fun DrawScope.vykresliBodovouKartu(
     cy: Float,
     rZnak: Float
 ) {
-    val sloupX = size.width * 0.22f
+    val sloupX = size.width * 0.205f
 
     drawLine(
-        color = Color(0x366D8F5B),
-        start = Offset(cx, size.height * 0.20f),
-        end = Offset(cx, size.height * 0.80f),
-        strokeWidth = 1.6f
+        color = Color(0x306D8F5B),
+        start = Offset(cx, size.height * 0.18f),
+        end = Offset(cx, size.height * 0.82f),
+        strokeWidth = 1.4f
     )
 
     fun kresliZnak(x: Float, y: Float, otocitDolu: Boolean, meritko: Float = 1f) {
@@ -863,54 +868,67 @@ private fun DrawScope.vykresliBodovouKartu(
 
     when (pocetZnaku) {
         10 -> {
-            val yRady = listOf(0.21f, 0.38f, 0.62f, 0.79f)
-            for (r in yRady) {
+            // 3 vlevo + 3 vpravo (v bezpečné zóně 32%..68%) + 4 na středové ose = 10 znaků + římské X
+            val yBoky = listOf(0.32f, 0.50f, 0.68f)
+            for (r in yBoky) {
                 val y = size.height * r
-                val dolu = r > 0.5f
-                kresliZnak(cx - sloupX, y, dolu, 0.86f)
-                kresliZnak(cx + sloupX, y, dolu, 0.86f)
+                val dolu = r > 0.55f
+                kresliZnak(cx - sloupX, y, dolu, 0.90f)
+                kresliZnak(cx + sloupX, y, dolu, 0.90f)
             }
-            kresliZnak(cx, size.height * 0.29f, false, 0.88f)
-            kresliZnak(cx, size.height * 0.71f, true, 0.88f)
+            kresliZnak(cx, size.height * 0.17f, false, 0.90f)
+            kresliZnak(cx, size.height * 0.35f, false, 0.88f)
+            kresliZnak(cx, size.height * 0.65f, true, 0.88f)
+            kresliZnak(cx, size.height * 0.83f, true, 0.90f)
 
             val rStred = rZnak * 0.72f
             drawCircle(color = Color(0xFFFFF8E1), radius = rStred, center = Offset(cx, cy))
-            drawCircle(color = Color(0xFFC5962C), radius = rStred, center = Offset(cx, cy), style = Stroke(width = 1.5f))
-            val d = rStred * 0.48f
+            drawCircle(color = Color(0xFFC5962C), radius = rStred, center = Offset(cx, cy), style = Stroke(width = 1.4f))
+            val d = rStred * 0.46f
             val b = barvaProZnakKarty(barva)
-            drawLine(b, Offset(cx - d, cy - d), Offset(cx + d, cy + d), strokeWidth = 2.5f)
-            drawLine(b, Offset(cx + d, cy - d), Offset(cx - d, cy + d), strokeWidth = 2.5f)
+            drawLine(b, Offset(cx - d, cy - d), Offset(cx + d, cy + d), strokeWidth = 2.2f)
+            drawLine(b, Offset(cx + d, cy - d), Offset(cx - d, cy + d), strokeWidth = 2.2f)
         }
+
         9 -> {
-            val yRady = listOf(0.21f, 0.38f, 0.62f, 0.79f)
-            for (r in yRady) {
-                val y = size.height * r
-                val dolu = r > 0.5f
-                kresliZnak(cx - sloupX, y, dolu, 0.88f)
-                kresliZnak(cx + sloupX, y, dolu, 0.88f)
-            }
-            kresliZnak(cx, cy, false, 1.02f)
-        }
-        8 -> {
-            val ySloupce = listOf(0.23f, 0.50f, 0.77f)
-            for (r in ySloupce) {
+            // 3 vlevo + 3 vpravo + 3 na středové ose = 9 znaků
+            val yBoky = listOf(0.32f, 0.50f, 0.68f)
+            for (r in yBoky) {
                 val y = size.height * r
                 val dolu = r > 0.55f
                 kresliZnak(cx - sloupX, y, dolu, 0.92f)
                 kresliZnak(cx + sloupX, y, dolu, 0.92f)
             }
-            kresliZnak(cx, size.height * 0.35f, false, 0.92f)
-            kresliZnak(cx, size.height * 0.65f, true, 0.92f)
+            kresliZnak(cx, size.height * 0.19f, false, 0.95f)
+            kresliZnak(cx, cy, false, 1.02f)
+            kresliZnak(cx, size.height * 0.81f, true, 0.95f)
         }
-        else -> {
-            val ySloupce = listOf(0.23f, 0.50f, 0.77f)
-            for (r in ySloupce) {
+
+        8 -> {
+            // 3 vlevo + 3 vpravo + 2 na středové ose = 8 znaků
+            val yBoky = listOf(0.32f, 0.50f, 0.68f)
+            for (r in yBoky) {
                 val y = size.height * r
                 val dolu = r > 0.55f
                 kresliZnak(cx - sloupX, y, dolu, 0.94f)
                 kresliZnak(cx + sloupX, y, dolu, 0.94f)
             }
-            kresliZnak(cx, size.height * 0.36f, false, 1.02f)
+            kresliZnak(cx, size.height * 0.20f, false, 0.96f)
+            kresliZnak(cx, size.height * 0.80f, true, 0.96f)
+        }
+
+        else -> {
+            // Sedmička: 2 vlevo + 2 vpravo (36% a 64%) + 3 na středové ose = 7 znaků
+            val yBoky = listOf(0.36f, 0.64f)
+            for (r in yBoky) {
+                val y = size.height * r
+                val dolu = r > 0.5f
+                kresliZnak(cx - sloupX, y, dolu, 0.96f)
+                kresliZnak(cx + sloupX, y, dolu, 0.96f)
+            }
+            kresliZnak(cx, size.height * 0.20f, false, 0.98f)
+            kresliZnak(cx, cy, false, 1.04f)
+            kresliZnak(cx, size.height * 0.80f, true, 0.98f)
         }
     }
 }
@@ -936,7 +954,7 @@ private fun DrawScope.vykresliKralovskouKorunu(stred: Offset, sirka: Float) {
             endY = stred.y + vyska * 0.5f
         )
     )
-    drawPath(koruna, color = Color(0xFF6D4C00), style = Stroke(width = 1.3f))
+    drawPath(koruna, color = Color(0xFF6D4C00), style = Stroke(width = 1.2f))
     drawCircle(color = Color(0xFFD32F2F), radius = sirka * 0.07f, center = Offset(stred.x, stred.y + vyska * 0.18f))
 }
 
@@ -984,9 +1002,9 @@ private fun DrawScope.vykresliZnakBarvy(
                 color = Color(0x486A0B0B),
                 start = Offset(stred.x, stred.y - polomer * 0.26f),
                 end = Offset(stred.x, stred.y + polomer * 0.92f),
-                strokeWidth = 1.1f
+                strokeWidth = 1.0f
             )
-            drawPath(srdce, color = Color(0xFF6A0B0B), style = Stroke(width = 1.4f))
+            drawPath(srdce, color = Color(0xFF6A0B0B), style = Stroke(width = 1.3f))
         }
 
         BarvaKarty.KULE -> {
@@ -995,7 +1013,7 @@ private fun DrawScope.vykresliZnakBarvy(
                 color = Color(0xFFE09F1F),
                 radius = polomer * 0.19f,
                 center = Offset(stred.x, stred.y - rKoule * 0.96f),
-                style = Stroke(width = 1.5f)
+                style = Stroke(width = 1.4f)
             )
             drawCircle(
                 brush = Brush.radialGradient(
@@ -1010,19 +1028,19 @@ private fun DrawScope.vykresliZnakBarvy(
                 color = Color(0xFFFFE082),
                 start = Offset(stred.x - rKoule * 0.96f, stred.y - rKoule * 0.05f),
                 end = Offset(stred.x + rKoule * 0.96f, stred.y - rKoule * 0.05f),
-                strokeWidth = 2.4f
+                strokeWidth = 2.2f
             )
             drawLine(
                 color = Color(0xFF5D3405),
                 start = Offset(stred.x - rKoule * 0.98f, stred.y + rKoule * 0.07f),
                 end = Offset(stred.x + rKoule * 0.98f, stred.y + rKoule * 0.07f),
-                strokeWidth = 1.4f
+                strokeWidth = 1.3f
             )
             drawLine(
                 color = Color(0xFF3E1F04),
                 start = Offset(stred.x, stred.y + rKoule * 0.14f),
                 end = Offset(stred.x, stred.y + rKoule * 0.84f),
-                strokeWidth = 1.6f
+                strokeWidth = 1.5f
             )
             drawCircle(
                 color = Color(0xFF2B1402),
@@ -1033,7 +1051,7 @@ private fun DrawScope.vykresliZnakBarvy(
                 color = Color(0xFF5D3405),
                 radius = rKoule,
                 center = stred,
-                style = Stroke(width = 1.4f)
+                style = Stroke(width = 1.3f)
             )
         }
 
@@ -1066,7 +1084,7 @@ private fun DrawScope.vykresliZnakBarvy(
                     endX = stred.x + polomer * 0.65f
                 )
             )
-            drawPath(plod, color = Color(0xFF3E2411), style = Stroke(width = 1.3f))
+            drawPath(plod, color = Color(0xFF3E2411), style = Stroke(width = 1.2f))
 
             val cepickaTop = stred.y - polomer * 0.56f
             val cepickaSirka = polomer * 1.56f
@@ -1091,13 +1109,13 @@ private fun DrawScope.vykresliZnakBarvy(
                 topLeft = Offset(stred.x - cepickaSirka / 2f, cepickaTop),
                 size = Size(cepickaSirka, cepickaVyska),
                 cornerRadius = CornerRadius(polomer * 0.22f, polomer * 0.22f),
-                style = Stroke(width = 1.3f)
+                style = Stroke(width = 1.2f)
             )
             drawLine(
                 color = Color(0xFF3E2411),
                 start = Offset(stred.x, cepickaTop),
                 end = Offset(stred.x + polomer * 0.12f, stred.y - polomer * 0.96f),
-                strokeWidth = 2.2f
+                strokeWidth = 2.0f
             )
         }
 
@@ -1134,7 +1152,7 @@ private fun DrawScope.vykresliZnakBarvy(
                 color = Color(0xFFDCE775),
                 start = Offset(stred.x, stred.y - polomer * 0.78f),
                 end = Offset(stred.x, stred.y + polomer * 0.98f),
-                strokeWidth = 1.8f
+                strokeWidth = 1.7f
             )
             for (v in -1..1) {
                 val vy = stred.y + v * polomer * 0.28f
@@ -1142,16 +1160,16 @@ private fun DrawScope.vykresliZnakBarvy(
                     color = Color(0xAAFFF59D),
                     start = Offset(stred.x, vy + polomer * 0.10f),
                     end = Offset(stred.x - polomer * 0.52f, vy - polomer * 0.12f),
-                    strokeWidth = 1.1f
+                    strokeWidth = 1.0f
                 )
                 drawLine(
                     color = Color(0x88C8E6C9),
                     start = Offset(stred.x, vy + polomer * 0.10f),
                     end = Offset(stred.x + polomer * 0.52f, vy - polomer * 0.12f),
-                    strokeWidth = 1.1f
+                    strokeWidth = 1.0f
                 )
             }
-            drawPath(list, color = Color(0xFF0A3D17), style = Stroke(width = 1.4f))
+            drawPath(list, color = Color(0xFF0A3D17), style = Stroke(width = 1.3f))
         }
     }
 }

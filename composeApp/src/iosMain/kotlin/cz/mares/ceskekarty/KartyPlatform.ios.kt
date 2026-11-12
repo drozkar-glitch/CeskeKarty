@@ -1,17 +1,16 @@
-@file:OptIn(
-    kotlinx.cinterop.ExperimentalForeignApi::class,
-    kotlinx.cinterop.BetaInteropApi::class
-)
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 
 package cz.mares.ceskekarty
 
 import kotlin.coroutines.resume
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.suspendCancellableCoroutine
 import platform.Foundation.*
 import platform.UIKit.UIImpactFeedbackGenerator
-import platform.UIKit.UIImpactFeedbackStyle
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
+import platform.posix.memcpy
 
 actual fun ziskejAktualniCasMs(): Long {
     return (NSDate().timeIntervalSince1970 * 1000.0).toLong()
@@ -27,12 +26,29 @@ actual fun nactiTextZUloziste(klic: String, vychozi: String): String {
 
 actual fun jemnaHaptika() {
     dispatch_async(dispatch_get_main_queue()) {
-        val generator = UIImpactFeedbackGenerator(
-            style = UIImpactFeedbackStyle.UIImpactFeedbackStyleLight
-        )
+        val generator = UIImpactFeedbackGenerator()
         generator.prepare()
         generator.impactOccurred()
     }
+}
+
+private fun retezecNaNsData(text: String): NSData? {
+    val bajty = text.encodeToByteArray()
+    if (bajty.isEmpty()) return NSData()
+    return bajty.usePinned { pripnute ->
+        NSData.dataWithBytes(pripnute.addressOf(0), bajty.size.toULong())
+    }
+}
+
+private fun nsDataNaRetezec(data: NSData): String {
+    val delka = data.length.toInt()
+    if (delka <= 0) return ""
+    val zdroj = data.bytes ?: return ""
+    val bajty = ByteArray(delka)
+    bajty.usePinned { pripnute ->
+        memcpy(pripnute.addressOf(0), zdroj, data.length)
+    }
+    return bajty.decodeToString()
 }
 
 actual suspend fun provedSitovyDotaz(
@@ -46,15 +62,17 @@ actual suspend fun provedSitovyDotaz(
         return@suspendCancellableCoroutine
     }
 
-    val pozadavek = NSMutableURLRequest(nsUrl)
-    pozadavek.timeoutInterval = 10.0
+    val pozadavek = NSMutableURLRequest(
+        nsUrl,
+        NSURLRequestReloadIgnoringLocalCacheData,
+        10.0
+    )
     pozadavek.setHTTPMethod(metoda.uppercase())
     pozadavek.setValue("application/json", forHTTPHeaderField = "Accept")
     pozadavek.setValue("application/json; charset=utf-8", forHTTPHeaderField = "Content-Type")
 
     if (jsonTelo != null && metoda.uppercase() != "GET" && metoda.uppercase() != "DELETE") {
-        val dataTela: NSData? = NSString.create(string = jsonTelo).dataUsingEncoding(NSUTF8StringEncoding)
-        pozadavek.setHTTPBody(dataTela)
+        pozadavek.setHTTPBody(retezecNaNsData(jsonTelo))
     }
 
     val uloha = NSURLSession.sharedSession.dataTaskWithRequest(pozadavek) { data, odpoved, chyba ->
@@ -71,11 +89,7 @@ actual suspend fun provedSitovyDotaz(
         }
         val httpOdpoved = odpoved as? NSHTTPURLResponse
         val kod = httpOdpoved?.statusCode?.toInt() ?: 200
-        val textOdpovedi = if (data != null) {
-            NSString.create(data = data, encoding = NSUTF8StringEncoding)?.toString() ?: ""
-        } else {
-            ""
-        }
+        val textOdpovedi = if (data != null) nsDataNaRetezec(data) else ""
         pokracovani.resume(
             SitovaOdpoved(
                 stavovyKod = kod,
