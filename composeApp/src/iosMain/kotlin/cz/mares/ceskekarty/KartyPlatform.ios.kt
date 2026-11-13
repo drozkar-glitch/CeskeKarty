@@ -9,7 +9,11 @@ import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.jetbrains.skia.Image
-import platform.AVFAudio.*
+import platform.AVFAudio.AVAudioPlayer
+import platform.AVFAudio.AVSpeechBoundary
+import platform.AVFAudio.AVSpeechSynthesisVoice
+import platform.AVFAudio.AVSpeechSynthesizer
+import platform.AVFAudio.AVSpeechUtterance
 import platform.Foundation.*
 import platform.UIKit.UIImpactFeedbackGenerator
 import platform.darwin.DISPATCH_TIME_NOW
@@ -20,7 +24,8 @@ import platform.darwin.dispatch_time
 import platform.posix.memcpy
 
 private val iosSyntezatorReci: AVSpeechSynthesizer by lazy { AVSpeechSynthesizer() }
-private var aktivniAudioPrehravac: AVAudioPlayer? = null
+private var aktivniEfektPrehravac: AVAudioPlayer? = null
+private var aktivniHlasPrehravac: AVAudioPlayer? = null
 private val kesovanyWavKarta: ByteArray by lazy { vygenerujWavBajtyEfektu(EfektStolu.KARTA_NA_STUL, 22050) }
 private val kesovanyWavCink: ByteArray by lazy { vygenerujWavBajtyEfektu(EfektStolu.SLAVNOSTNI_CINK, 22050) }
 
@@ -63,11 +68,36 @@ private fun bajtyNaNsData(bajty: ByteArray): NSData {
     }
 }
 
+actual fun prehrajHospodaKlipPlatforma(idKlipu: String): Boolean {
+    val wavBajty = ziskejHospodaKlipWavBajty(idKlipu) ?: return false
+    if (wavBajty.isEmpty()) return false
+    dispatch_async(dispatch_get_main_queue()) {
+        try {
+            if (iosSyntezatorReci.isSpeaking()) {
+                iosSyntezatorReci.stopSpeakingAtBoundary(AVSpeechBoundary.AVSpeechBoundaryImmediate)
+            }
+            aktivniHlasPrehravac?.stop()
+            val nsData = bajtyNaNsData(wavBajty)
+            val prehravac = AVAudioPlayer(nsData, null)
+            prehravac.volume = 1.0f
+            prehravac.prepareToPlay()
+            prehravac.play()
+            aktivniHlasPrehravac = prehravac
+        } catch (_: Throwable) {
+        }
+    }
+    return true
+}
+
 actual fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHlasu: Float) {
     if (text.isBlank()) return
     dispatch_async(dispatch_get_main_queue()) {
         try {
-            iosSyntezatorReci.stopSpeakingAtBoundary(AVSpeechBoundaryImmediate)
+            aktivniHlasPrehravac?.stop()
+            aktivniHlasPrehravac = null
+            if (iosSyntezatorReci.isSpeaking()) {
+                iosSyntezatorReci.stopSpeakingAtBoundary(AVSpeechBoundary.AVSpeechBoundaryImmediate)
+            }
             val vyrok = AVSpeechUtterance.speechUtteranceWithString(text)
             val hlas = AVSpeechSynthesisVoice.voiceWithLanguage("cs-CZ")
             if (hlas != null) {
@@ -84,7 +114,11 @@ actual fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHla
 actual fun zastavMluveniPlatforma() {
     dispatch_async(dispatch_get_main_queue()) {
         try {
-            iosSyntezatorReci.stopSpeakingAtBoundary(AVSpeechBoundaryImmediate)
+            aktivniHlasPrehravac?.stop()
+            aktivniHlasPrehravac = null
+            if (iosSyntezatorReci.isSpeaking()) {
+                iosSyntezatorReci.stopSpeakingAtBoundary(AVSpeechBoundary.AVSpeechBoundaryImmediate)
+            }
         } catch (_: Throwable) {
         }
     }
@@ -100,10 +134,10 @@ actual fun prehrajZvukovyEfektPlatforma(efekt: EfektStolu) {
         try {
             val nsData = bajtyNaNsData(wavBajty)
             val prehravac = AVAudioPlayer(nsData, null)
-            prehravac.volume = 0.75f
+            prehravac.volume = 0.82f
             prehravac.prepareToPlay()
             prehravac.play()
-            aktivniAudioPrehravac = prehravac
+            aktivniEfektPrehravac = prehravac
         } catch (_: Throwable) {
         }
     }

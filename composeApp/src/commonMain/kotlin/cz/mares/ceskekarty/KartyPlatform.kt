@@ -28,6 +28,8 @@ expect fun jemnaHaptika()
 
 expect fun silnaHaptika()
 
+expect fun prehrajHospodaKlipPlatforma(idKlipu: String): Boolean
+
 expect fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHlasu: Float)
 
 expect fun zastavMluveniPlatforma()
@@ -42,8 +44,8 @@ expect suspend fun provedSitovyDotaz(
 
 expect fun nactiArchKaretBitmap(): ImageBitmap?
 
-fun dekodujArchKaretBajty(): ByteArray {
-    val celkovaDelka = BOHEMIAN_DECK_B64_CHUNKS.sumOf { it.length }
+fun dekodujBase64Bloky(bloky: Array<String>): ByteArray {
+    val celkovaDelka = bloky.sumOf { it.length }
     if (celkovaDelka == 0) return ByteArray(0)
 
     val tabulka = IntArray(256) { -1 }
@@ -58,7 +60,7 @@ fun dekodujArchKaretBajty(): ByteArray {
     var buffer = 0
     var bity = 0
 
-    for (blok in BOHEMIAN_DECK_B64_CHUNKS) {
+    for (blok in bloky) {
         for (i in blok.indices) {
             val c = blok[i].code
             if (c == '='.code) {
@@ -77,6 +79,8 @@ fun dekodujArchKaretBajty(): ByteArray {
     return if (outPos == vystup.size) vystup else vystup.copyOf(outPos)
 }
 
+fun dekodujArchKaretBajty(): ByteArray = dekodujBase64Bloky(BOHEMIAN_DECK_B64_CHUNKS)
+
 private var kesovanyArchKaret: ImageBitmap? = null
 
 fun ziskejArchJednohlavychKaret(): ImageBitmap? {
@@ -88,10 +92,75 @@ fun ziskejArchJednohlavychKaret(): ImageBitmap? {
     return nacteny
 }
 
+private val IMA_INDEX_TABLE: IntArray = intArrayOf(
+    -1, -1, -1, -1, 2, 4, 6, 8,
+    -1, -1, -1, -1, 2, 4, 6, 8
+)
+
+private val IMA_STEP_TABLE: IntArray = intArrayOf(
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17,
+    19, 21, 23, 25, 28, 31, 34, 37, 41, 45,
+    50, 55, 60, 66, 73, 80, 88, 97, 107, 118,
+    130, 143, 157, 173, 190, 209, 230, 253, 279, 307,
+    337, 371, 408, 449, 494, 544, 598, 658, 724, 796,
+    876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066,
+    2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358,
+    5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899,
+    15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767
+)
+
+fun dekodujImaAdpcmNaPcm16(adpcmBajty: ByteArray): ShortArray {
+    if (adpcmBajty.isEmpty()) return ShortArray(0)
+    val vystup = ShortArray(adpcmBajty.size * 2)
+    var prediktor = 0
+    var indexKroku = 0
+    var outIdx = 0
+
+    for (i in adpcmBajty.indices) {
+        val b = adpcmBajty[i].toInt() and 0xFF
+        for (posun in 0..4 step 4) {
+            val nibble = (b ushr posun) and 0x0F
+            val krok = IMA_STEP_TABLE[indexKroku]
+            var rozdil = krok shr 3
+            if ((nibble and 4) != 0) rozdil += krok
+            if ((nibble and 2) != 0) rozdil += (krok shr 1)
+            if ((nibble and 1) != 0) rozdil += (krok shr 2)
+            if ((nibble and 8) != 0) {
+                prediktor -= rozdil
+            } else {
+                prediktor += rozdil
+            }
+            if (prediktor > 32767) prediktor = 32767
+            else if (prediktor < -32768) prediktor = -32768
+
+            indexKroku += IMA_INDEX_TABLE[nibble]
+            if (indexKroku < 0) indexKroku = 0
+            else if (indexKroku > 88) indexKroku = 88
+
+            vystup[outIdx++] = prediktor.toShort()
+        }
+    }
+    return vystup
+}
+
+private val kesovaneHospodaPcm = HashMap<String, ShortArray>()
+
+fun ziskejHospodaKlipPcm16(idKlipu: String): ShortArray? {
+    kesovaneHospodaPcm[idKlipu]?.let { return it }
+    val bloky = ziskejHospodaKlipB64(idKlipu) ?: return null
+    val adpcmBajty = dekodujBase64Bloky(bloky)
+    if (adpcmBajty.isEmpty()) return null
+    val pcm = dekodujImaAdpcmNaPcm16(adpcmBajty)
+    if (pcm.isNotEmpty()) {
+        kesovaneHospodaPcm[idKlipu] = pcm
+    }
+    return pcm
+}
+
 fun vygenerujPcm16Efektu(efekt: EfektStolu, vzorkovaciFrekvence: Int = 22050): ShortArray {
     return when (efekt) {
         EfektStolu.KARTA_NA_STUL -> {
-            val pocetVzorku = (vzorkovaciFrekvence * 0.068).toInt()
+            val pocetVzorku = (vzorkovaciFrekvence * 0.075).toInt()
             val vzorky = ShortArray(pocetVzorku)
             var stavSumu = 0x5A3C91
             var dolniPropust = 0.0
@@ -99,12 +168,14 @@ fun vygenerujPcm16Efektu(efekt: EfektStolu, vzorkovaciFrekvence: Int = 22050): S
                 val t = i.toDouble() / vzorkovaciFrekvence
                 stavSumu = (stavSumu * 1103515245 + 12345) and 0x7FFFFFFF
                 val bilySum = (stavSumu.toDouble() / 1073741824.0) - 1.0
-                dolniPropust = dolniPropust * 0.68 + bilySum * 0.32
-                val obalkaSumu = exp(-t * 58.0)
-                val obalkarazu = exp(-t * 105.0)
-                val nizkeKlepnuti = sin(2.0 * PI * 145.0 * t) * obalkarazu * 0.62
-                val svistPapiru = dolniPropust * obalkaSumu * 0.58
-                val hodnota = ((nizkeKlepnuti + svistPapiru) * 24000.0)
+                dolniPropust = dolniPropust * 0.58 + bilySum * 0.42
+                val obalkaSumu = exp(-t * 52.0)
+                val obalkaNarazu = exp(-t * 95.0)
+                val obalkaLupnuti = exp(-t * 210.0)
+                val drevenyStul = sin(2.0 * PI * (165.0 - t * 620.0).coerceAtLeast(85.0) * t) * obalkaNarazu * 0.72
+                val lupnutiKarty = sin(2.0 * PI * 980.0 * t) * obalkaLupnuti * 0.34
+                val svistPapiru = dolniPropust * obalkaSumu * 0.65
+                val hodnota = ((drevenyStul + lupnutiKarty + svistPapiru) * 26500.0)
                     .coerceIn(-32000.0, 32000.0)
                 vzorky[i] = hodnota.toInt().toShort()
             }
@@ -117,14 +188,14 @@ fun vygenerujPcm16Efektu(efekt: EfektStolu, vzorkovaciFrekvence: Int = 22050): S
             for (i in 0 until pocetVzorku) {
                 val t = i.toDouble() / vzorkovaciFrekvence
                 val obalka1 = exp(-t * 14.0)
-                val ton1 = sin(2.0 * PI * 1046.5 * t) * obalka1 * 0.40
+                val ton1 = sin(2.0 * PI * 1046.5 * t) * obalka1 * 0.44
                 val ton2 = if (t >= 0.065) {
                     val t2 = t - 0.065
-                    sin(2.0 * PI * 1318.5 * t2) * exp(-t2 * 11.0) * 0.46
+                    sin(2.0 * PI * 1318.5 * t2) * exp(-t2 * 11.0) * 0.50
                 } else {
                     0.0
                 }
-                val hodnota = ((ton1 + ton2) * 23000.0).coerceIn(-32000.0, 32000.0)
+                val hodnota = ((ton1 + ton2) * 24500.0).coerceIn(-32000.0, 32000.0)
                 vzorky[i] = hodnota.toInt().toShort()
             }
             vzorky
@@ -132,8 +203,7 @@ fun vygenerujPcm16Efektu(efekt: EfektStolu, vzorkovaciFrekvence: Int = 22050): S
     }
 }
 
-fun vygenerujWavBajtyEfektu(efekt: EfektStolu, vzorkovaciFrekvence: Int = 22050): ByteArray {
-    val pcm = vygenerujPcm16Efektu(efekt, vzorkovaciFrekvence)
+fun pcm16NaWavBajty(pcm: ShortArray, vzorkovaciFrekvence: Int): ByteArray {
     val velikostDat = pcm.size * 2
     val celkovaVelikost = 44 + velikostDat
     val wav = ByteArray(celkovaVelikost)
@@ -178,6 +248,16 @@ fun vygenerujWavBajtyEfektu(efekt: EfektStolu, vzorkovaciFrekvence: Int = 22050)
         p += 2
     }
     return wav
+}
+
+fun vygenerujWavBajtyEfektu(efekt: EfektStolu, vzorkovaciFrekvence: Int = 22050): ByteArray {
+    return pcm16NaWavBajty(vygenerujPcm16Efektu(efekt, vzorkovaciFrekvence), vzorkovaciFrekvence)
+}
+
+fun ziskejHospodaKlipWavBajty(idKlipu: String): ByteArray? {
+    val pcm = ziskejHospodaKlipPcm16(idKlipu) ?: return null
+    if (pcm.isEmpty()) return null
+    return pcm16NaWavBajty(pcm, HOSPODA_AUDIO_VZORKOVANI_HZ)
 }
 
 const val STARTOVNI_TEREZIANY = 1000

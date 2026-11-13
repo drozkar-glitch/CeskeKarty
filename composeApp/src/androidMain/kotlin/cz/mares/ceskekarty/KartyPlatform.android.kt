@@ -34,6 +34,11 @@ private var ttsPodporujeCestinu: Boolean = false
 private var ttsInicializaceBezi: Boolean = false
 private var cekajiciHlaskaTts: Triple<String, Float, Float>? = null
 
+private val zamekHlasoveStopy = Any()
+private var aktivniHlasovaStopa: AudioTrack? = null
+@Volatile
+private var sekvenceHlasuId: Long = 0L
+
 private val kesovanyPcmKarta: ShortArray by lazy { vygenerujPcm16Efektu(EfektStolu.KARTA_NA_STUL, 22050) }
 private val kesovanyPcmCink: ShortArray by lazy { vygenerujPcm16Efektu(EfektStolu.SLAVNOSTNI_CINK, 22050) }
 
@@ -157,6 +162,121 @@ actual fun silnaHaptika() {
     }
 }
 
+private fun zastavHlasovouStopuAndroid() {
+    val stara: AudioTrack? = synchronized(zamekHlasoveStopy) {
+        sekvenceHlasuId++
+        val s = aktivniHlasovaStopa
+        aktivniHlasovaStopa = null
+        s
+    }
+    if (stara != null) {
+        try {
+            stara.pause()
+            stara.flush()
+            stara.stop()
+        } catch (_: Throwable) {
+        }
+        try {
+            stara.release()
+        } catch (_: Throwable) {
+        }
+    }
+}
+
+actual fun prehrajHospodaKlipPlatforma(idKlipu: String): Boolean {
+    val pcm = ziskejHospodaKlipPcm16(idKlipu) ?: return false
+    if (pcm.isEmpty()) return false
+
+    cekajiciHlaskaTts = null
+    try {
+        androidTts?.stop()
+    } catch (_: Throwable) {
+    }
+    zastavHlasovouStopuAndroid()
+
+    val mojeSekvence: Long = synchronized(zamekHlasoveStopy) {
+        ++sekvenceHlasuId
+    }
+
+    Thread {
+        var vlastniStopa: AudioTrack? = null
+        try {
+            val vzorkovani = HOSPODA_AUDIO_VZORKOVANI_HZ
+            val velikostBajty = pcm.size * 2
+            val minBuf = AudioTrack.getMinBufferSize(
+                vzorkovani,
+                AudioFormat.CHANNEL_OUT_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            ).coerceAtLeast(velikostBajty)
+
+            val atributy = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
+            val format = AudioFormat.Builder()
+                .setSampleRate(vzorkovani)
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                .build()
+
+            val novaStopa = AudioTrack(
+                atributy,
+                format,
+                minBuf,
+                AudioTrack.MODE_STATIC,
+                android.media.AudioManager.AUDIO_SESSION_ID_GENERATE
+            )
+            novaStopa.write(pcm, 0, pcm.size)
+            novaStopa.setVolume(1.0f)
+
+            val povoleno = synchronized(zamekHlasoveStopy) {
+                if (sekvenceHlasuId == mojeSekvence) {
+                    aktivniHlasovaStopa = novaStopa
+                    true
+                } else {
+                    false
+                }
+            }
+            if (!povoleno) {
+                novaStopa.release()
+                return@Thread
+            }
+
+            vlastniStopa = novaStopa
+            novaStopa.play()
+
+            val celkemMs = ((pcm.size * 1000L) / vzorkovani) + 90L
+            var ubehlo = 0L
+            while (ubehlo < celkemMs && sekvenceHlasuId == mojeSekvence) {
+                Thread.sleep(40L)
+                ubehlo += 40L
+            }
+        } catch (_: Throwable) {
+        } finally {
+            val kUvolneni: AudioTrack? = synchronized(zamekHlasoveStopy) {
+                if (vlastniStopa != null && aktivniHlasovaStopa === vlastniStopa) {
+                    aktivniHlasovaStopa = null
+                    vlastniStopa
+                } else {
+                    null
+                }
+            }
+            if (kUvolneni != null) {
+                try {
+                    kUvolneni.stop()
+                } catch (_: Throwable) {
+                }
+                try {
+                    kUvolneni.release()
+                } catch (_: Throwable) {
+                }
+            }
+        }
+    }.start()
+
+    return true
+}
+
 private fun zajistiInicializaciTts(ctx: Context) {
     if (androidTts != null || ttsInicializaceBezi) return
     ttsInicializaceBezi = true
@@ -208,6 +328,7 @@ private fun odehrajTtsInterni(
 
 actual fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHlasu: Float) {
     if (text.isBlank()) return
+    zastavHlasovouStopuAndroid()
     val ctx = ziskejAndroidKontext() ?: return
     zajistiInicializaciTts(ctx)
     val engine = androidTts
@@ -222,6 +343,7 @@ actual fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHla
 
 actual fun zastavMluveniPlatforma() {
     cekajiciHlaskaTts = null
+    zastavHlasovouStopuAndroid()
     try {
         androidTts?.stop()
     } catch (_: Throwable) {
@@ -264,6 +386,7 @@ actual fun prehrajZvukovyEfektPlatforma(efekt: EfektStolu) {
                 android.media.AudioManager.AUDIO_SESSION_ID_GENERATE
             )
             stopa.write(pcm, 0, pcm.size)
+            stopa.setVolume(0.85f)
             stopa.play()
             val dobaMs = ((pcm.size * 1000L) / vzorkovani) + 80L
             Thread.sleep(dobaMs)
