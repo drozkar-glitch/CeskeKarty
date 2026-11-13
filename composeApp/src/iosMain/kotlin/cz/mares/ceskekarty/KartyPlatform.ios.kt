@@ -26,6 +26,7 @@ import platform.posix.memcpy
 private val iosSyntezatorReci: AVSpeechSynthesizer by lazy { AVSpeechSynthesizer() }
 private var aktivniEfektPrehravac: AVAudioPlayer? = null
 private var aktivniHlasPrehravac: AVAudioPlayer? = null
+private var hlasKonciMsIos: Long = 0L
 private val kesovanyWavKarta: ByteArray by lazy { vygenerujWavBajtyEfektu(EfektStolu.KARTA_NA_STUL, 22050) }
 private val kesovanyWavCink: ByteArray by lazy { vygenerujWavBajtyEfektu(EfektStolu.SLAVNOSTNI_CINK, 22050) }
 
@@ -71,6 +72,10 @@ private fun bajtyNaNsData(bajty: ByteArray): NSData {
 actual fun prehrajHospodaKlipPlatforma(idKlipu: String): Boolean {
     val wavBajty = ziskejHospodaKlipWavBajty(idKlipu) ?: return false
     if (wavBajty.isEmpty()) return false
+    val pocetVzorku = ((wavBajty.size - 44).coerceAtLeast(0)) / 2
+    val trvaniMs = ((pocetVzorku * 1000L) / HOSPODA_AUDIO_VZORKOVANI_HZ) + 140L
+    hlasKonciMsIos = ziskejAktualniCasMs() + trvaniMs
+
     dispatch_async(dispatch_get_main_queue()) {
         try {
             if (iosSyntezatorReci.isSpeaking()) {
@@ -91,6 +96,9 @@ actual fun prehrajHospodaKlipPlatforma(idKlipu: String): Boolean {
 
 actual fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHlasu: Float) {
     if (text.isBlank()) return
+    val odhadMs = (text.length * 72L).coerceIn(850L, 2500L)
+    hlasKonciMsIos = ziskejAktualniCasMs() + odhadMs
+
     dispatch_async(dispatch_get_main_queue()) {
         try {
             aktivniHlasPrehravac?.stop()
@@ -112,6 +120,7 @@ actual fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHla
 }
 
 actual fun zastavMluveniPlatforma() {
+    hlasKonciMsIos = 0L
     dispatch_async(dispatch_get_main_queue()) {
         try {
             aktivniHlasPrehravac?.stop()
@@ -121,6 +130,15 @@ actual fun zastavMluveniPlatforma() {
             }
         } catch (_: Throwable) {
         }
+    }
+}
+
+actual fun probihaMluveniPlatforma(): Boolean {
+    if (ziskejAktualniCasMs() < hlasKonciMsIos) return true
+    return try {
+        iosSyntezatorReci.isSpeaking()
+    } catch (_: Throwable) {
+        false
     }
 }
 

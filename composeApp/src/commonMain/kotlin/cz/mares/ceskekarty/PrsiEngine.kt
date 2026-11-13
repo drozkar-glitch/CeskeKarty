@@ -14,7 +14,8 @@ data class StavPrsi(
     val posledniHlaska: String,
     val jeKonec: Boolean,
     val indexViteze: Int,
-    val cisloTahu: Int
+    val cisloTahu: Int,
+    val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
 ) {
     val vrchniKarta: Karta
         get() = odhazovaciBalicek.last()
@@ -40,6 +41,7 @@ data class StavPrsi(
         pole.add("kon" to if (jeKonec) "1" else "0")
         pole.add("vit" to indexViteze.toString())
         pole.add("ct" to cisloTahu.toString())
+        pole.add("vp" to variantaPravidel.kod)
         return serializujMapuPoli(pole)
     }
 
@@ -71,7 +73,8 @@ data class StavPrsi(
                 posledniHlaska = r.text("hl"),
                 jeKonec = r.pravda("kon", false),
                 indexViteze = r.cislo("vit", -1),
-                cisloTahu = r.cislo("ct", 1)
+                cisloTahu = r.cislo("ct", 1),
+                variantaPravidel = VariantaPravidel.dleKodu(r.text("vp", VariantaPravidel.HOSPODSKA.kod))
             )
         }
     }
@@ -105,7 +108,8 @@ object PrsiEngine {
     fun novaHra(
         jmenaHracu: List<String>,
         predmichanyBalicek: List<Karta>? = null,
-        zacinajiciHrac: Int = 0
+        zacinajiciHrac: Int = 0,
+        variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
     ): StavPrsi {
         val pocet = jmenaHracu.size.coerceIn(2, 4)
         val balicek = (predmichanyBalicek ?: Karta.vytvorZamichanyBalicek()).toMutableList()
@@ -129,10 +133,11 @@ object PrsiEngine {
             aktivniSedmyPocet = 0,
             aktivniEsoStoji = false,
             cekaNaVolbuBarvy = false,
-            posledniHlaska = "Rozdáno! Začíná ${jmenaHracu[startIndex]} na kartu ${prvniNaStole.celyNazev()}.",
+            posledniHlaska = "Rozdáno (${variantaPravidel.kratkyNazev.lowercase()} pravidla)! Začíná ${jmenaHracu[startIndex]} na kartu ${prvniNaStole.celyNazev()}.",
             jeKonec = false,
             indexViteze = -1,
-            cisloTahu = 1
+            cisloTahu = 1,
+            variantaPravidel = variantaPravidel
         )
     }
 
@@ -146,7 +151,12 @@ object PrsiEngine {
             return ruka.filter { it.hodnota == HodnotaKarty.R7 }.toSet()
         }
         if (stav.aktivniEsoStoji) {
-            return ruka.filter { it.hodnota == HodnotaKarty.ESO }.toSet()
+            return ruka.filter { karta ->
+                karta.hodnota == HodnotaKarty.ESO ||
+                    (stav.variantaPravidel == VariantaPravidel.HOSPODSKA &&
+                        karta.barva == BarvaKarty.CERVENE &&
+                        karta.hodnota == HodnotaKarty.R7)
+            }.toSet()
         }
 
         val platnaBarva = stav.aktualniPlatnaBarva
@@ -197,11 +207,14 @@ object PrsiEngine {
         }
 
         val dalsiHrac = (indexHrace + 1) % stav.pocetHracu
+        val prebilEsoCervenouSedmou = stav.aktivniEsoStoji && karta.hodnota == HodnotaKarty.R7
         val noveSedmy = if (karta.hodnota == HodnotaKarty.R7) stav.aktivniSedmyPocet + 1 else 0
         val noveEso = karta.hodnota == HodnotaKarty.ESO
         val barvaSvrskem = if (karta.hodnota == HodnotaKarty.SVRSEK) zvolenaBarva else null
 
         val hlaska = when {
+            prebilEsoCervenouSedmou ->
+                "$jmeno přebíjí stojící eso Červenou sedmou — ${sklonujBereSeKaret(noveSedmy * 2)}!"
             karta.hodnota == HodnotaKarty.R7 ->
                 "$jmeno hraje ${karta.celyNazev()} — ${sklonujBereSeKaret(noveSedmy * 2)}!"
             karta.hodnota == HodnotaKarty.ESO ->
@@ -374,7 +387,7 @@ object PrsiEngine {
         return VysledekPartie(
             typHry = TypHry.PRSI,
             nadpis = "Vítězí $jmenoViteze!",
-            podnadpis = "Automatické vyúčtování zbylých karet v rukou soupeřů",
+            podnadpis = "Automatické vyúčtování zbylých karet (${stav.variantaPravidel.kratkyNazev.lowercase()} pravidla)",
             polozky = polozky,
             hraci = zmenyHracu
         )

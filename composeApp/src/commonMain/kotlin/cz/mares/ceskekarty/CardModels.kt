@@ -2,6 +2,32 @@ package cz.mares.ceskekarty
 
 import kotlin.random.Random
 
+enum class VariantaPravidel(
+    val kod: String,
+    val kratkyNazev: String,
+    val stitekUStolu: String,
+    val popisVyberu: String
+) {
+    HOSPODSKA(
+        kod = "HOSPODSKA",
+        kratkyNazev = "Hospodská",
+        stitekUStolu = "HOSPODSKÁ",
+        popisVyberu = "Sedma: spálená i ze 4 v ruce + natahování štychu • Mariáš: povolena falešná 7 (blaf) • Prší: červená 7 přebíjí i eso."
+    ),
+    SVAZOVA(
+        kod = "SVAZOVA",
+        kratkyNazev = "Svazová",
+        stitekUStolu = "SVAZOVÁ",
+        popisVyberu = "Čistá soutěžní pravidla: Mariáš jen pravá 7 bez blafu • Sedma spálená jen ve štychu a konec nepřebitou dvojicí • Prší klasika."
+    );
+
+    companion object {
+        fun dleKodu(kod: String): VariantaPravidel {
+            return entries.firstOrNull { it.kod.equals(kod.trim(), ignoreCase = true) } ?: HOSPODSKA
+        }
+    }
+}
+
 enum class TypHry(
     val idHry: String,
     val nazev: String,

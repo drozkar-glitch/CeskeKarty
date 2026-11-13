@@ -38,6 +38,10 @@ private val zamekHlasoveStopy = Any()
 private var aktivniHlasovaStopa: AudioTrack? = null
 @Volatile
 private var sekvenceHlasuId: Long = 0L
+@Volatile
+private var hlasKlipKonciMs: Long = 0L
+@Volatile
+private var ttsOdhadKonciMs: Long = 0L
 
 private val kesovanyPcmKarta: ShortArray by lazy { vygenerujPcm16Efektu(EfektStolu.KARTA_NA_STUL, 22050) }
 private val kesovanyPcmCink: ShortArray by lazy { vygenerujPcm16Efektu(EfektStolu.SLAVNOSTNI_CINK, 22050) }
@@ -165,6 +169,7 @@ actual fun silnaHaptika() {
 private fun zastavHlasovouStopuAndroid() {
     val stara: AudioTrack? = synchronized(zamekHlasoveStopy) {
         sekvenceHlasuId++
+        hlasKlipKonciMs = 0L
         val s = aktivniHlasovaStopa
         aktivniHlasovaStopa = null
         s
@@ -188,20 +193,24 @@ actual fun prehrajHospodaKlipPlatforma(idKlipu: String): Boolean {
     if (pcm.isEmpty()) return false
 
     cekajiciHlaskaTts = null
+    ttsOdhadKonciMs = 0L
     try {
         androidTts?.stop()
     } catch (_: Throwable) {
     }
     zastavHlasovouStopuAndroid()
 
+    val vzorkovani = HOSPODA_AUDIO_VZORKOVANI_HZ
+    val trvaniMs = ((pcm.size * 1000L) / vzorkovani) + 120L
+
     val mojeSekvence: Long = synchronized(zamekHlasoveStopy) {
+        hlasKlipKonciMs = System.currentTimeMillis() + trvaniMs
         ++sekvenceHlasuId
     }
 
     Thread {
         var vlastniStopa: AudioTrack? = null
         try {
-            val vzorkovani = HOSPODA_AUDIO_VZORKOVANI_HZ
             val velikostBajty = pcm.size * 2
             val minBuf = AudioTrack.getMinBufferSize(
                 vzorkovani,
@@ -256,6 +265,7 @@ actual fun prehrajHospodaKlipPlatforma(idKlipu: String): Boolean {
             val kUvolneni: AudioTrack? = synchronized(zamekHlasoveStopy) {
                 if (vlastniStopa != null && aktivniHlasovaStopa === vlastniStopa) {
                     aktivniHlasovaStopa = null
+                    hlasKlipKonciMs = 0L
                     vlastniStopa
                 } else {
                     null
@@ -319,6 +329,8 @@ private fun odehrajTtsInterni(
     rychlost: Float
 ) {
     try {
+        val odhadMs = (text.length * 72L).coerceIn(850L, 2500L)
+        ttsOdhadKonciMs = System.currentTimeMillis() + odhadMs
         engine.setPitch(vyska.coerceIn(0.65f, 1.45f))
         engine.setSpeechRate(rychlost.coerceIn(0.75f, 1.35f))
         engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "ck_${System.currentTimeMillis()}")
@@ -343,10 +355,23 @@ actual fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHla
 
 actual fun zastavMluveniPlatforma() {
     cekajiciHlaskaTts = null
+    ttsOdhadKonciMs = 0L
     zastavHlasovouStopuAndroid()
     try {
         androidTts?.stop()
     } catch (_: Throwable) {
+    }
+}
+
+actual fun probihaMluveniPlatforma(): Boolean {
+    val nyni = System.currentTimeMillis()
+    if (nyni < hlasKlipKonciMs || nyni < ttsOdhadKonciMs) return true
+    val hrajeStopa = synchronized(zamekHlasoveStopy) { aktivniHlasovaStopa != null }
+    if (hrajeStopa) return true
+    return try {
+        androidTts?.isSpeaking == true
+    } catch (_: Throwable) {
+        false
     }
 }
 

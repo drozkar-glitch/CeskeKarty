@@ -4,8 +4,8 @@ import kotlin.random.Random
 
 /**
  * Hospodský komentátor a zvuková kulisa pro Mariáš, Prší a Sedmu.
- * Přednostně přehrává šťavnaté AI hlášky z HospodaAudioData.kt a u dosud nevygenerovaných
- * klipů automaticky zaskočí českou hlasovou syntézou telefonu.
+ * Přednostně přehrává šťavnaté AI hlášky z HospodaAudioData.kt, u chybějících klipů
+ * zaskočí českou hlasovou syntézou a hlídá, aby podružné hlášky neusekávaly důležitá zvolání.
  */
 object HospodaZvuk {
 
@@ -18,6 +18,8 @@ object HospodaZvuk {
         val idKlipu: String?,
         val zalozniText: String
     )
+
+    private var dulezitaHlaskaChranenaDoMs: Long = 0L
 
     private fun profilProHrace(jmeno: String, indexHrace: Int): ProfilHlasu {
         val male = jmeno.lowercase()
@@ -46,8 +48,20 @@ object HospodaZvuk {
         prehrajZvukovyEfektPlatforma(EfektStolu.SLAVNOSTNI_CINK)
     }
 
-    fun rekniHlasku(text: String, jmenoMluvciho: String = "", indexHrace: Int = 0) {
+    fun rekniHlasku(
+        text: String,
+        jmenoMluvciho: String = "",
+        indexHrace: Int = 0,
+        jeDulezita: Boolean = true
+    ) {
         if (!jeZvukAHlaskyZapnuty() || text.isBlank()) return
+        val nyni = ziskejAktualniCasMs()
+        if (!jeDulezita && (probihaMluveniPlatforma() || nyni < dulezitaHlaskaChranenaDoMs)) {
+            return
+        }
+        if (jeDulezita) {
+            dulezitaHlaskaChranenaDoMs = nyni + 1200L
+        }
         val profil = profilProHrace(jmenoMluvciho, indexHrace)
         vyslovCeskyTextPlatforma(text, profil.vyska, profil.rychlost)
     }
@@ -56,19 +70,29 @@ object HospodaZvuk {
         idKlipu: String?,
         zalozniText: String,
         jmenoMluvciho: String = "",
-        indexHrace: Int = 0
+        indexHrace: Int = 0,
+        jeDulezita: Boolean = true
     ) {
         if (!jeZvukAHlaskyZapnuty()) return
+        val nyni = ziskejAktualniCasMs()
+        if (!jeDulezita && (probihaMluveniPlatforma() || nyni < dulezitaHlaskaChranenaDoMs)) {
+            return
+        }
+        if (jeDulezita) {
+            dulezitaHlaskaChranenaDoMs = nyni + 1250L
+        }
         if (!idKlipu.isNullOrEmpty() && prehrajHospodaKlipPlatforma(idKlipu)) {
             return
         }
-        rekniHlasku(zalozniText, jmenoMluvciho, indexHrace)
+        val profil = profilProHrace(jmenoMluvciho, indexHrace)
+        vyslovCeskyTextPlatforma(zalozniText, profil.vyska, profil.rychlost)
     }
 
     private fun prehrajVybranouHlasku(
         kandidati: List<KandidatHlasky>,
         jmenoMluvciho: String = "",
-        indexHrace: Int = 0
+        indexHrace: Int = 0,
+        jeDulezita: Boolean = true
     ) {
         if (!jeZvukAHlaskyZapnuty() || kandidati.isEmpty()) return
         val dostupneAi = kandidati.filter { !it.idKlipu.isNullOrEmpty() && ziskejHospodaKlipB64(it.idKlipu) != null }
@@ -77,14 +101,15 @@ object HospodaZvuk {
         } else {
             vyberNahodne(kandidati)
         }
-        prehrajKlipNeboTts(vybrany.idKlipu, vybrany.zalozniText, jmenoMluvciho, indexHrace)
+        prehrajKlipNeboTts(vybrany.idKlipu, vybrany.zalozniText, jmenoMluvciho, indexHrace, jeDulezita)
     }
 
     fun priPrepnutiZvuku(zapnuto: Boolean) {
+        dulezitaHlaskaChranenaDoMs = 0L
         nastavZvukAHlasky(zapnuto)
         if (zapnuto) {
             prehrajZvukovyEfektPlatforma(EfektStolu.KARTA_NA_STUL)
-            prehrajKlipNeboTts("rozdej", "Tak rozdávej, pane vrchní!", "", 0)
+            prehrajKlipNeboTts("rozdej", "Tak rozdávej, pane vrchní!", "", 0, jeDulezita = true)
         }
     }
 
@@ -115,7 +140,7 @@ object HospodaZvuk {
             cinkniVyuctovani()
             val vitezIdx = novy.indexViteze.coerceAtLeast(0)
             val vitezJm = novy.jmenaHracu.getOrElse(vitezIdx) { "" }
-            prehrajKlipNeboTts("p_vyhra", "Čistá ruka, dopršelo!", vitezJm, vitezIdx)
+            prehrajKlipNeboTts("p_vyhra", "Čistá ruka, dopršelo!", vitezJm, vitezIdx, jeDulezita = true)
             return
         }
 
@@ -135,15 +160,21 @@ object HospodaZvuk {
             return
         }
 
-        // Vynesení nebo přebití sedmičky
+        // Vynesení nebo přebití sedmičky (včetně hospodské červené sedmy na eso)
         if (novy.aktivniSedmyPocet > predchozi.aktivniSedmyPocet) {
             val karet = novy.aktivniSedmyPocet * 2
-            if (karet >= 4) silnaHaptika()
-            when (karet) {
-                2 -> prehrajKlipNeboTts("p_ber2", "Sedmička, lízni si dvě!", mluvciJmeno, mluvciIdx)
-                4 -> prehrajKlipNeboTts("p_ber4", "Přitlačím, čtyři kousky do ruky!", mluvciJmeno, mluvciIdx)
-                6 -> rekniHlasku("Šest karet na cestu!", mluvciJmeno, mluvciIdx)
-                else -> rekniHlasku("Osm karet, to už neuneseš!", mluvciJmeno, mluvciIdx)
+            if (karet >= 4 || predchozi.aktivniEsoStoji) silnaHaptika()
+            when {
+                predchozi.aktivniEsoStoji && karet == 2 ->
+                    prehrajKlipNeboTts("p_ber2", "Červená sedma přebíjí eso, lízni si dvě!", mluvciJmeno, mluvciIdx)
+                karet == 2 ->
+                    prehrajKlipNeboTts("p_ber2", "Sedmička, lízni si dvě!", mluvciJmeno, mluvciIdx)
+                karet == 4 ->
+                    prehrajKlipNeboTts("p_ber4", "Přitlačím, čtyři kousky do ruky!", mluvciJmeno, mluvciIdx)
+                karet == 6 ->
+                    rekniHlasku("Šest karet na cestu!", mluvciJmeno, mluvciIdx)
+                else ->
+                    rekniHlasku("Osm karet, to už neuneseš!", mluvciJmeno, mluvciIdx)
             }
             return
         }
@@ -154,7 +185,7 @@ object HospodaZvuk {
             if (bral >= 4 || rukaMluvcihoPoTahu >= 6) {
                 prehrajKlipNeboTts("p_lizu", "No nazdar, plná ruka!", mluvciJmeno, mluvciIdx)
             } else {
-                rekniHlasku("Beru dvě.", mluvciJmeno, mluvciIdx)
+                rekniHlasku("Beru dvě.", mluvciJmeno, mluvciIdx, jeDulezita = false)
             }
             return
         }
@@ -185,19 +216,20 @@ object HospodaZvuk {
 
         val mluvciIdx = predchozi.naTahu
         val mluvciJmeno = novy.jmenaHracu.getOrElse(mluvciIdx) { "" }
-        val pustilBezKarty = predchozi.muzePustitStych && !novy.muzePustitStych &&
+        val ukoncilStychTlacitkem = predchozi.muzePustitStych && !novy.muzePustitStych &&
             novy.aktualniStych.isEmpty() &&
+            novy.spalenaTym < 0 &&
             novy.ruceHracu[mluvciIdx].size >= predchozi.ruceHracu[mluvciIdx].size
 
-        if (!pustilBezKarty) {
+        if (!ukoncilStychTlacitkem) {
             pleskniKartou()
         }
 
-        // Spálená!
+        // Spálená (ve štychu i z ruky v hospodských pravidlech)
         if (predchozi.spalenaTym < 0 && novy.spalenaTym >= 0) {
             silnaHaptika()
             cinkniVyuctovani()
-            prehrajKlipNeboTts("s_spalena", "Spálená! Čtyři stejné na stole!", mluvciJmeno, mluvciIdx)
+            prehrajKlipNeboTts("s_spalena", "Spálená! Čtyři stejné na stole!", mluvciJmeno, mluvciIdx, jeDulezita = true)
             return
         }
 
@@ -207,12 +239,16 @@ object HospodaZvuk {
             cinkniVyuctovani()
             val vitezStychu = novy.prozatimBereHrac
             val jm = novy.jmenaHracu.getOrElse(vitezStychu) { mluvciJmeno }
-            prehrajKlipNeboTts("s_vyhra", "Poslední štych je doma!", jm, vitezStychu)
+            prehrajKlipNeboTts("s_vyhra", "Poslední štych je doma!", jm, vitezStychu, jeDulezita = true)
             return
         }
 
-        if (pustilBezKarty) {
-            rekniHlasku("Pouštím, vem si to.", mluvciJmeno, mluvciIdx)
+        if (ukoncilStychTlacitkem) {
+            if (predchozi.prozatimBereHrac == mluvciIdx) {
+                rekniHlasku("Beru štych!", mluvciJmeno, mluvciIdx, jeDulezita = false)
+            } else {
+                rekniHlasku("Pouštím, vem si to.", mluvciJmeno, mluvciIdx, jeDulezita = false)
+            }
             return
         }
 
@@ -225,8 +261,12 @@ object HospodaZvuk {
                 if (posledni.karta.hodnota == HodnotaKarty.R7) {
                     prehrajKlipNeboTts("s_sedma_bere", "Šup tam sedmu, ten je můj!", posledni.jmenoHrace, posledni.indexHrace)
                 } else {
-                    rekniHlasku("Stejná, beru zatím já!", posledni.jmenoHrace, posledni.indexHrace)
+                    rekniHlasku("Stejná, beru zatím já!", posledni.jmenoHrace, posledni.indexHrace, jeDulezita = false)
                 }
+            } else if (novy.pocetHracu == 2 && novy.aktualniStych.size >= 3 && novy.aktualniStych.size % 2 == 1 &&
+                predchozi.prozatimBereHrac == posledni.indexHrace
+            ) {
+                rekniHlasku("Ještě jednu stejnou, přitlač!", posledni.jmenoHrace, posledni.indexHrace, jeDulezita = false)
             } else if (novy.pocetHracu == 4 && novy.aktualniStych.size > 1 &&
                 posledni.karta.hodnota.bodyMariasSedma == 10 &&
                 novy.tymHrace(posledni.indexHrace) == novy.tymHrace(novy.prozatimBereHrac) &&
@@ -327,13 +367,15 @@ object HospodaZvuk {
                         prehrajKlipNeboTts("m_flek", "Flek!", mluvciJmeno, mluvciIdx)
                 }
             } else {
+                // "Dobrý" má nižší prioritu — pokud ještě doznívá hlášení závazku forhonta, neskočí mu do řeči
                 prehrajVybranouHlasku(
                     listOf(
                         KandidatHlasky("m_dobry_1", "Dobrý, nes!"),
                         KandidatHlasky("m_dobry_2", "Nechám tě hrát, dobrý!")
                     ),
                     mluvciJmeno,
-                    mluvciIdx
+                    mluvciIdx,
+                    jeDulezita = false
                 )
             }
             return

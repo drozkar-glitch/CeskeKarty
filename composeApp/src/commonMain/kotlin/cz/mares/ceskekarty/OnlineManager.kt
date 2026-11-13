@@ -59,7 +59,8 @@ data class OnlineStul(
     val cisloRozdani: Int,
     val celkemRozdani: Int,
     val soucetBoduHracu: List<Int>,
-    val tepyHracu: List<TepHrace>
+    val tepyHracu: List<TepHrace>,
+    val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
 ) {
     val jeSoukromy: Boolean
         get() = pinKod.isNotEmpty()
@@ -104,7 +105,8 @@ data class OnlineTurnaj(
     val zapasy: List<ZapasTurnaje>,
     val mariasRoomId: String,
     val celkovyVitez: String,
-    val vytvorenoMs: Long
+    val vytvorenoMs: Long,
+    val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
 )
 
 data class ZaznamZebricku(
@@ -353,10 +355,6 @@ object OnlineManager {
         return posledni
     }
 
-    /**
-     * Registrace nové přezdívky s 4místným PINem NEBO obnova existujícího účtu po odinstalaci či v jiném telefonu.
-     * Kontroluje skutečné potvrzení zápisu z Firebase, aby se nikdy neohlásilo uložení při zamítnutých Rules.
-     */
     suspend fun overAUlozPrezdivku(kandidat: String, pin: String = ""): VysledekRegistraceNicku {
         val cista = kandidat.trim()
             .replace("/", "")
@@ -396,7 +394,6 @@ object OnlineManager {
             parsujJsonText(odpovedUcet.telo) as? JsonPrvek.Objekt
         } else null
 
-        // 1) Účet již v card_accounts existuje -> ověříme otisk PINu a obnovíme zůstatek tereziánů i deviceId
         if (ucetObj != null) {
             val ulozenyOtisk = ucetObj.retezec("pinHash", "")
             val kanonickyNick = ucetObj.retezec("nick", cista).ifBlank { cista }
@@ -443,7 +440,6 @@ object OnlineManager {
             )
         }
 
-        // 2) Kontrola žebříčku (zda jméno není zabrané ze starší verze bez PINu)
         val urlHs = "$FIREBASE_DB_ZAKLAD/high_scores/$ZEBRICEK_GAME_ID/${urlKodujKomponentu(cista)}.json"
         val odpovedHs = dotazSOpakovanim("GET", urlHs, pokusy = 2)
         val hsPrvek = if (odpovedHs.uspesne && odpovedHs.telo.isNotBlank() && odpovedHs.telo.trim() != "null") {
@@ -465,7 +461,6 @@ object OnlineManager {
             }
         }
 
-        // 3) Založení nového účtu s měšcem 1000 tereziánů a ověřeným zápisem do Firebase
         val startTereziany = (if (hsSkore >= 0) hsSkore else STARTOVNI_TEREZIANY).coerceIn(0, 999_999)
         val posledniDen = nactiPosledniDenOdmeny()
         val nyni = ziskejAktualniCasMs()
@@ -499,10 +494,6 @@ object OnlineManager {
         return overAUlozPrezdivku(aktualniNick, pin)
     }
 
-    /**
-     * Tichá synchronizace po spuštění aplikace: pokud už měl hráč přezdívku a PIN v telefonu
-     * z doby před úpravou Firebase Rules, automaticky účet dozálohuje do card_accounts.
-     */
     suspend fun synchronizujUcetPoStartu(): Int {
         val nick = nactiUlozenouPrezdivku()
         val pinOtisk = nactiUlozenyPinOtisk()
@@ -648,7 +639,8 @@ object OnlineManager {
                 "slot" to stul.slotZapasu.toString(),
                 "cr" to stul.cisloRozdani.toString(),
                 "celr" to stul.celkemRozdani.toString(),
-                "sb" to stul.soucetBoduHracu.joinToString(",")
+                "sb" to stul.soucetBoduHracu.joinToString(","),
+                "vp" to stul.variantaPravidel.kod
             )
         )
     }
@@ -706,7 +698,8 @@ object OnlineManager {
             cisloRozdani = r.cislo("cr", 1),
             celkemRozdani = r.cislo("celr", 1),
             soucetBoduHracu = soucty,
-            tepyHracu = tepy
+            tepyHracu = tepy,
+            variantaPravidel = VariantaPravidel.dleKodu(r.text("vp", VariantaPravidel.HOSPODSKA.kod))
         )
     }
 
@@ -748,10 +741,6 @@ object OnlineManager {
         return parsujStulZJsonObjektu(roomId, obj)
     }
 
-    /**
-     * Založení stolu s ochranou proti spamerům: běžný stůl má deterministický klíč podle deviceId zakladatele,
-     * takže jedno zařízení může mít v databázi otevřený vždy nejvýše jeden vlastní stůl.
-     */
     suspend fun vytvorStul(
         nazevStolu: String,
         typHry: TypHry,
@@ -760,7 +749,8 @@ object OnlineManager {
         turnajId: String = "",
         slotZapasu: Int = -1,
         celkemRozdani: Int = 1,
-        predvyplneniHraci: List<HracUStolu>? = null
+        predvyplneniHraci: List<HracUStolu>? = null,
+        variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
     ): OnlineStul? {
         val mojeId = ziskejUnikatniIdZarizeni()
         val mujNick = nactiUlozenouPrezdivku().ifBlank { "Hráč" }
@@ -792,7 +782,8 @@ object OnlineManager {
             cisloRozdani = 1,
             celkemRozdani = celkemRozdani,
             soucetBoduHracu = List(pocetHracu) { 0 },
-            tepyHracu = seznamHracu.map { TepHrace(it.deviceId, nyni) }
+            tepyHracu = seznamHracu.map { TepHrace(it.deviceId, nyni) },
+            variantaPravidel = variantaPravidel
         )
 
         val meta = serializujMetaStolu(stul)
@@ -848,11 +839,6 @@ object OnlineManager {
         return Result.success(upraveny)
     }
 
-    /**
-     * Korektní opuštění čekárny nebo dohraného stolu:
-     * pokud odchází zakladatel nebo poslední hráč, stůl se smaže; pokud odchází přísedící spoluhráč,
-     * uvolní se jeho židle a běžný stůl se vrátí do stavu CEKANI pro další zájemce.
-     */
     suspend fun opustStul(roomId: String) {
         if (roomId.isBlank()) return
         val aktualni = nactiKonkretniStul(roomId) ?: return
@@ -922,10 +908,11 @@ object OnlineManager {
         if (stul.hraci.size < stul.maxHracu) return null
         val jmena = stul.hraci.map { it.prezdivka }
         val balicek = vygenerujBalicekPresWorkerNeboLokalne(stul.roomId, stul.typHry, stul.hraci)
+        val vp = stul.variantaPravidel
         val stavRetezec = when (stul.typHry) {
-            TypHry.PRSI -> PrsiEngine.novaHra(jmena, balicek, zacinajiciIndex).doKompaktnihoRetezce()
-            TypHry.SEDMA -> SedmaEngine.novaHra(jmena, balicek, zacinajiciIndex).doKompaktnihoRetezce()
-            TypHry.MARIAS -> MariasEngine.novaHra(jmena, zacinajiciIndex, balicek).doKompaktnihoRetezce()
+            TypHry.PRSI -> PrsiEngine.novaHra(jmena, balicek, zacinajiciIndex, vp).doKompaktnihoRetezce()
+            TypHry.SEDMA -> SedmaEngine.novaHra(jmena, balicek, zacinajiciIndex, vp).doKompaktnihoRetezce()
+            TypHry.MARIAS -> MariasEngine.novaHra(jmena, zacinajiciIndex, balicek, vp).doKompaktnihoRetezce()
         }
         val nyni = ziskejAktualniCasMs()
         val novyStul = stul.copy(
@@ -1044,7 +1031,8 @@ object OnlineManager {
                 "zap" to serializujZapasy(t.zapasy),
                 "mrid" to t.mariasRoomId,
                 "vit" to t.celkovyVitez,
-                "vyt" to t.vytvorenoMs.toString()
+                "vyt" to t.vytvorenoMs.toString(),
+                "vp" to t.variantaPravidel.kod
             )
         )
     }
@@ -1065,7 +1053,8 @@ object OnlineManager {
             zapasy = deserializujZapasy(r.text("zap")),
             mariasRoomId = r.text("mrid", ""),
             celkovyVitez = r.text("vit", ""),
-            vytvorenoMs = r.text("vyt").toLongOrNull() ?: 0L
+            vytvorenoMs = r.text("vyt").toLongOrNull() ?: 0L,
+            variantaPravidel = VariantaPravidel.dleKodu(r.text("vp", VariantaPravidel.HOSPODSKA.kod))
         )
     }
 
@@ -1091,7 +1080,11 @@ object OnlineManager {
         return seznam.sortedByDescending { it.vytvorenoMs }
     }
 
-    suspend fun vytvorTurnaj(nazev: String, typHry: TypHry): OnlineTurnaj? {
+    suspend fun vytvorTurnaj(
+        nazev: String,
+        typHry: TypHry,
+        variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
+    ): OnlineTurnaj? {
         val mojeId = ziskejUnikatniIdZarizeni()
         val existujiciAktivni = nactiTurnaje().firstOrNull {
             it.stav != "DOKONCENO" && it.ucastnici.firstOrNull()?.deviceId == mojeId
@@ -1107,7 +1100,7 @@ object OnlineManager {
         val kapacita = if (typHry == TypHry.MARIAS) 3 else 4
         val turnaj = OnlineTurnaj(
             turnajId = tid,
-            nazev = nazev.ifBlank { "Pohár: ${typHry.nazev}" },
+            nazev = nazev.ifBlank { "Pohár (${variantaPravidel.kratkyNazev}): ${typHry.nazev}" },
             typHry = typHry,
             kapacita = kapacita,
             stav = "REGISTRACE",
@@ -1115,7 +1108,8 @@ object OnlineManager {
             zapasy = emptyList(),
             mariasRoomId = "",
             celkovyVitez = "",
-            vytvorenoMs = nyni
+            vytvorenoMs = nyni,
+            variantaPravidel = variantaPravidel
         )
         return ulozTurnaj(turnaj)
     }
@@ -1152,7 +1146,8 @@ object OnlineManager {
                 turnajId = turnaj.turnajId,
                 slotZapasu = 0,
                 celkemRozdani = 3,
-                predvyplneniHraci = novi
+                predvyplneniHraci = novi,
+                variantaPravidel = turnaj.variantaPravidel
             )
             ulozTurnaj(
                 turnaj.copy(
@@ -1169,7 +1164,8 @@ object OnlineManager {
                 pocetHracu = 2,
                 turnajId = turnaj.turnajId,
                 slotZapasu = 0,
-                predvyplneniHraci = listOf(zamichani[0], zamichani[1])
+                predvyplneniHraci = listOf(zamichani[0], zamichani[1]),
+                variantaPravidel = turnaj.variantaPravidel
             )
             val stulB = vytvorStul(
                 nazevStolu = "${turnaj.nazev} — Semifinále B",
@@ -1177,7 +1173,8 @@ object OnlineManager {
                 pocetHracu = 2,
                 turnajId = turnaj.turnajId,
                 slotZapasu = 1,
-                predvyplneniHraci = listOf(zamichani[2], zamichani[3])
+                predvyplneniHraci = listOf(zamichani[2], zamichani[3]),
+                variantaPravidel = turnaj.variantaPravidel
             )
             val zapasy = listOf(
                 ZapasTurnaje(
@@ -1273,7 +1270,8 @@ object OnlineManager {
                     pocetHracu = 2,
                     turnajId = turnaj.turnajId,
                     slotZapasu = 2,
-                    predvyplneniHraci = listOf(h1, h2)
+                    predvyplneniHraci = listOf(h1, h2),
+                    variantaPravidel = turnaj.variantaPravidel
                 )
                 noveFinale = noveFinale.copy(roomId = finalovyStul?.roomId ?: "")
             }

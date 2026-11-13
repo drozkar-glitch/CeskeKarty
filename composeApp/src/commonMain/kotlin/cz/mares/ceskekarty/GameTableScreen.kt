@@ -49,12 +49,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class KonfiguraceOfflineHry(
     val typHry: TypHry,
     val pocetHracu: Int,
+    val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA,
     val jeOfflinePohar: Boolean = false,
     val celkemRozdani: Int = 3
 )
@@ -151,6 +153,9 @@ fun GameTableScreen(
 
     val aktivniTypHry = onlineStul?.typHry ?: offlineKonfig?.typHry ?: TypHry.PRSI
     val pocetHracu = onlineStul?.maxHracu ?: offlineKonfig?.pocetHracu ?: 3
+    val pocatecniPravidla = onlineStul?.variantaPravidel
+        ?: offlineKonfig?.variantaPravidel
+        ?: nactiVychoziVariantuPravidel()
 
     val vychoziJmenaOffline = remember(aktivniTypHry, pocetHracu, mojePrezdivka) {
         val botJmena = listOf("Karel (Bot)", "Pepa (Bot)", "Franta (Bot)")
@@ -164,7 +169,10 @@ fun GameTableScreen(
         mutableStateOf(
             if (aktivniTypHry == TypHry.PRSI) {
                 onlineStul?.serializovanyStavHry?.let { StavPrsi.zKompaktnihoRetezce(it) }
-                    ?: PrsiEngine.novaHra(vychoziJmenaOffline)
+                    ?: PrsiEngine.novaHra(
+                        jmenaHracu = vychoziJmenaOffline,
+                        variantaPravidel = pocatecniPravidla
+                    )
             } else null
         )
     }
@@ -172,7 +180,10 @@ fun GameTableScreen(
         mutableStateOf(
             if (aktivniTypHry == TypHry.SEDMA) {
                 onlineStul?.serializovanyStavHry?.let { StavSedma.zKompaktnihoRetezce(it) }
-                    ?: SedmaEngine.novaHra(vychoziJmenaOffline)
+                    ?: SedmaEngine.novaHra(
+                        jmenaHracu = vychoziJmenaOffline,
+                        variantaPravidel = pocatecniPravidla
+                    )
             } else null
         )
     }
@@ -180,10 +191,20 @@ fun GameTableScreen(
         mutableStateOf(
             if (aktivniTypHry == TypHry.MARIAS) {
                 onlineStul?.serializovanyStavHry?.let { StavMarias.zKompaktnihoRetezce(it) }
-                    ?: MariasEngine.novaHra(vychoziJmenaOffline, indexForhonta = 0)
+                    ?: MariasEngine.novaHra(
+                        jmenaHracu = vychoziJmenaOffline,
+                        indexForhonta = 0,
+                        variantaPravidel = pocatecniPravidla
+                    )
             } else null
         )
     }
+
+    val aktivniPravidla: VariantaPravidel = when (aktivniTypHry) {
+        TypHry.PRSI -> stavPrsi?.variantaPravidel
+        TypHry.SEDMA -> stavSedma?.variantaPravidel
+        TypHry.MARIAS -> stavMarias?.variantaPravidel
+    } ?: onlineStul?.variantaPravidel ?: pocatecniPravidla
 
     var vybraneKartyDoTalonu by remember { mutableStateOf(emptyList<Karta>()) }
     var planovanyZavazekMariase by remember { mutableStateOf(ZavazekMariase.HRA) }
@@ -204,6 +225,7 @@ fun GameTableScreen(
         }
     }
 
+    // 1) Zvukové a hlasové efekty — spouštějí se před časovačem botů, aby bot počkal na doznění hlášky
     var sledovanyPrsi by remember { mutableStateOf(stavPrsi) }
     LaunchedEffect(stavPrsi) {
         val novy = stavPrsi ?: return@LaunchedEffect
@@ -245,6 +267,47 @@ fun GameTableScreen(
         }
         sledovanyMarias = novy
     }
+
+    // 2) Podržení dohraného štychu na stole po dobu 1,45 s bez probliknutí snímku
+    val aktualniRozdaniCislo = onlineStul?.cisloRozdani ?: cisloOfflineRozdani
+
+    val klicUzavrenehoStychuSedma = aktualniRozdaniCislo * 100 +
+        ((stavSedma?.pocetStychuTym0 ?: 0) + (stavSedma?.pocetStychuTym1 ?: 0))
+    var skrytyStychKlicSedma by remember { mutableStateOf(klicUzavrenehoStychuSedma) }
+    LaunchedEffect(klicUzavrenehoStychuSedma) {
+        val s = stavSedma
+        if (s != null && (s.pocetStychuTym0 + s.pocetStychuTym1) > 0 &&
+            s.posledniUzavrenyStych.isNotEmpty() && !s.jeKonec
+        ) {
+            delay(1450L)
+            skrytyStychKlicSedma = klicUzavrenehoStychuSedma
+        } else {
+            skrytyStychKlicSedma = klicUzavrenehoStychuSedma
+        }
+    }
+    val zobrazitUzavrenyStychSedma = stavSedma != null &&
+        stavSedma!!.aktualniStych.isEmpty() &&
+        stavSedma!!.posledniUzavrenyStych.isNotEmpty() &&
+        (stavSedma!!.jeKonec || klicUzavrenehoStychuSedma != skrytyStychKlicSedma)
+
+    val klicUzavrenehoStychuMarias = aktualniRozdaniCislo * 100 +
+        ((stavMarias?.pocetStychuForhont ?: 0) + (stavMarias?.pocetStychuObrana ?: 0))
+    var skrytyStychKlicMarias by remember { mutableStateOf(klicUzavrenehoStychuMarias) }
+    LaunchedEffect(klicUzavrenehoStychuMarias) {
+        val s = stavMarias
+        if (s != null && (s.pocetStychuForhont + s.pocetStychuObrana) > 0 &&
+            s.posledniUzavrenyStych.isNotEmpty() && s.faze != FazeMariase.KONEC
+        ) {
+            delay(1450L)
+            skrytyStychKlicMarias = klicUzavrenehoStychuMarias
+        } else {
+            skrytyStychKlicMarias = klicUzavrenehoStychuMarias
+        }
+    }
+    val zobrazitUzavrenyStychMarias = stavMarias != null &&
+        stavMarias!!.aktualniStych.isEmpty() &&
+        stavMarias!!.posledniUzavrenyStych.isNotEmpty() &&
+        (stavMarias!!.faze == FazeMariase.KONEC || klicUzavrenehoStychuMarias != skrytyStychKlicMarias)
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -340,28 +403,53 @@ fun GameTableScreen(
         TypHry.MARIAS -> stavMarias?.cisloTahu ?: 0
     }
 
+    // 3) Tah bota — počká na zobrazení dohraného štychu i na doznění probíhající hlášky (max 2,7 s)
     LaunchedEffect(jeOnlineRezim, aktualniCisloTahu) {
         if (jeOnlineRezim) return@LaunchedEffect
-        val prodlevaBotaMs = if (zvukZapnut) 1050L else 700L
+
+        suspend fun pockejNaStulAHlasku(praveUzavrenStych: Boolean) {
+            val startMs = ziskejAktualniCasMs()
+            val zakladniPauzaMs = when {
+                praveUzavrenStych -> 1580L
+                zvukZapnut -> 920L
+                else -> 760L
+            }
+            delay(zakladniPauzaMs)
+            if (zvukZapnut) {
+                var mluviloSe = false
+                while (probihaMluveniPlatforma() && (ziskejAktualniCasMs() - startMs) < 2750L) {
+                    mluviloSe = true
+                    delay(80L)
+                }
+                if (mluviloSe) {
+                    delay(120L)
+                }
+            }
+        }
+
         when (aktivniTypHry) {
             TypHry.PRSI -> {
                 val s = stavPrsi ?: return@LaunchedEffect
                 if (!s.jeKonec && s.naTahu != 0) {
-                    delay(prodlevaBotaMs)
+                    pockejNaStulAHlasku(praveUzavrenStych = false)
                     stavPrsi = PrsiEngine.provedTahBota(s)
                 }
             }
             TypHry.SEDMA -> {
                 val s = stavSedma ?: return@LaunchedEffect
                 if (!s.jeKonec && s.naTahu != 0) {
-                    delay(prodlevaBotaMs)
+                    val uzavrenStych = s.aktualniStych.isEmpty() && s.posledniUzavrenyStych.isNotEmpty()
+                    pockejNaStulAHlasku(praveUzavrenStych = uzavrenStych)
                     stavSedma = SedmaEngine.provedTahBota(s)
                 }
             }
             TypHry.MARIAS -> {
                 val s = stavMarias ?: return@LaunchedEffect
                 if (s.faze != FazeMariase.KONEC && s.naTahu != 0) {
-                    delay(prodlevaBotaMs)
+                    val uzavrenStych = s.faze == FazeMariase.SEHRAVKA &&
+                        s.aktualniStych.isEmpty() &&
+                        s.posledniUzavrenyStych.isNotEmpty()
+                    pockejNaStulAHlasku(praveUzavrenStych = uzavrenStych)
                     stavMarias = MariasEngine.provedTahBota(s)
                 }
             }
@@ -385,9 +473,20 @@ fun GameTableScreen(
     }
 
     val klicDokonceneHry = if (vysledekPartie != null) {
-        (onlineStul?.cisloRozdani ?: cisloOfflineRozdani) * 10000 + aktualniCisloTahu
+        aktualniRozdaniCislo * 10000 + aktualniCisloTahu
     } else {
         -1
+    }
+
+    // Krátká pauza před zobrazením vyúčtování, aby hráč viděl poslední vynesenou kartu / štych na stole
+    var zobrazenyKlicVyuctovani by remember { mutableStateOf(-1) }
+    LaunchedEffect(klicDokonceneHry) {
+        if (klicDokonceneHry > 0) {
+            delay(1300L)
+            zobrazenyKlicVyuctovani = klicDokonceneHry
+        } else {
+            zobrazenyKlicVyuctovani = -1
+        }
     }
 
     LaunchedEffect(klicDokonceneHry) {
@@ -434,15 +533,22 @@ fun GameTableScreen(
     ZelenyKaretniStulBox(zobrazitStredovyKruh = true) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val naSirku = maxWidth > maxHeight
+            val naVyskuDostMista = !naSirku && maxHeight >= 680.dp
+
             val sirkaKartyRuky: Dp = if (naSirku) {
-                (maxHeight.value * 0.165f).coerceIn(48f, 62f).dp
+                (maxHeight.value * 0.17f).coerceIn(50f, 64f).dp
             } else {
-                (maxWidth.value * 0.195f).coerceIn(64f, 76f).dp
+                (maxWidth.value * 0.205f).coerceIn(66f, 79f).dp
+            }
+            val sirkaBalickuPrsi: Dp = if (naSirku) {
+                (maxHeight.value * 0.22f).coerceIn(62f, 84f).dp
+            } else {
+                min(maxWidth.value * 0.29f, maxHeight.value * 0.15f).coerceIn(86f, 110f).dp
             }
             val sirkaKartyStolu: Dp = if (naSirku) {
-                (maxHeight.value * 0.155f).coerceIn(46f, 58f).dp
+                (maxHeight.value * 0.195f).coerceIn(56f, 74f).dp
             } else {
-                (maxHeight.value * 0.105f).coerceIn(62f, 76f).dp
+                min(maxWidth.value * 0.23f, maxHeight.value * 0.128f).coerceIn(76f, 94f).dp
             }
 
             Column(
@@ -457,6 +563,7 @@ fun GameTableScreen(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     HorniListaStolu(
                         typHry = aktivniTypHry,
+                        variantaPravidel = aktivniPravidla,
                         jeOnline = jeOnlineRezim,
                         onlineStul = onlineStul,
                         offlineKonfig = offlineKonfig,
@@ -513,7 +620,7 @@ fun GameTableScreen(
                             StredStoluPrsi(
                                 stav = s,
                                 lokalniIndex = lokalniIndex,
-                                sirkaKarty = sirkaKartyStolu,
+                                sirkaKarty = sirkaBalickuPrsi,
                                 naSirku = naSirku,
                                 onLiznoutNeboStat = {
                                     val novy = PrsiEngine.lizniNeboStuj(s, lokalniIndex)
@@ -533,9 +640,17 @@ fun GameTableScreen(
                                 stav = s,
                                 lokalniIndex = lokalniIndex,
                                 sirkaKarty = sirkaKartyStolu,
+                                dostupnaSirkaDp = (maxWidth.value - 16f).coerceAtLeast(240f),
                                 naSirku = naSirku,
-                                onPustitStych = {
+                                talonNadStychem = naVyskuDostMista,
+                                zobrazitUzavrenyStych = zobrazitUzavrenyStychSedma,
+                                onPustitNeboVzitStych = {
                                     val novy = SedmaEngine.pustStych(s, lokalniIndex)
+                                    stavSedma = novy
+                                    if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                                },
+                                onNahlasitSpalenouZRuky = {
+                                    val novy = SedmaEngine.nahlasSpalenouZRuky(s, lokalniIndex)
                                     stavSedma = novy
                                     if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
                                 }
@@ -547,6 +662,8 @@ fun GameTableScreen(
                                 stav = s,
                                 lokalniIndex = lokalniIndex,
                                 sirkaKarty = sirkaKartyStolu,
+                                talonNadStychem = naVyskuDostMista,
+                                zobrazitUzavrenyStych = zobrazitUzavrenyStychMarias,
                                 vybraneDoTalonu = vybraneKartyDoTalonu,
                                 planovanyZavazek = planovanyZavazekMariase,
                                 onZmenaPlanovanehoZavazku = { novyZav ->
@@ -626,7 +743,10 @@ fun GameTableScreen(
                 )
             }
 
-            if (vysledekPartie != null && onlineStul?.stavMistnosti != StavMistnosti.UKONCENO_VYPADKEM) {
+            if (vysledekPartie != null &&
+                zobrazenyKlicVyuctovani == klicDokonceneHry &&
+                onlineStul?.stavMistnosti != StavMistnosti.UKONCENO_VYPADKEM
+            ) {
                 PanelVyuctovaniPartie(
                     vysledek = vysledekPartie,
                     jeOnline = jeOnlineRezim,
@@ -637,6 +757,7 @@ fun GameTableScreen(
                     aktualniMesecTerezianu = aktualniMesecTerezianu,
                     mojeDeviceId = mojeDeviceId,
                     onDalsiRozdani = {
+                        zobrazenyKlicVyuctovani = -1
                         zapoctenaVerzeVysledku = -1
                         vybraneKartyDoTalonu = emptyList()
                         planovanyZavazekMariase = ZavazekMariase.HRA
@@ -645,9 +766,21 @@ fun GameTableScreen(
                             cisloOfflineRozdani = dalsiKolo
                             val zacinajici = (dalsiKolo - 1) % pocetHracu
                             when (aktivniTypHry) {
-                                TypHry.PRSI -> stavPrsi = PrsiEngine.novaHra(vychoziJmenaOffline, zacinajiciHrac = zacinajici)
-                                TypHry.SEDMA -> stavSedma = SedmaEngine.novaHra(vychoziJmenaOffline, zacinajiciHrac = zacinajici)
-                                TypHry.MARIAS -> stavMarias = MariasEngine.novaHra(vychoziJmenaOffline, indexForhonta = zacinajici)
+                                TypHry.PRSI -> stavPrsi = PrsiEngine.novaHra(
+                                    jmenaHracu = vychoziJmenaOffline,
+                                    zacinajiciHrac = zacinajici,
+                                    variantaPravidel = aktivniPravidla
+                                )
+                                TypHry.SEDMA -> stavSedma = SedmaEngine.novaHra(
+                                    jmenaHracu = vychoziJmenaOffline,
+                                    zacinajiciHrac = zacinajici,
+                                    variantaPravidel = aktivniPravidla
+                                )
+                                TypHry.MARIAS -> stavMarias = MariasEngine.novaHra(
+                                    jmenaHracu = vychoziJmenaOffline,
+                                    indexForhonta = zacinajici,
+                                    variantaPravidel = aktivniPravidla
+                                )
                             }
                         } else {
                             val stul = onlineStul ?: return@PanelVyuctovaniPartie
@@ -805,6 +938,7 @@ fun GameTableScreen(
 @Composable
 private fun HorniListaStolu(
     typHry: TypHry,
+    variantaPravidel: VariantaPravidel,
     jeOnline: Boolean,
     onlineStul: OnlineStul?,
     offlineKonfig: KonfiguraceOfflineHry?,
@@ -854,11 +988,13 @@ private fun HorniListaStolu(
         ) {
             val stitekRezimu = when {
                 onlineStul != null && onlineStul.turnajId.isNotEmpty() ->
-                    "TURNAJ (${onlineStul.cisloRozdani}/${onlineStul.celkemRozdani})"
-                jeOnline -> "ŽIVÝ STŮL"
+                    "TURNAJ (${onlineStul.cisloRozdani}/${onlineStul.celkemRozdani}) • ${variantaPravidel.stitekUStolu}"
+                jeOnline ->
+                    "ŽIVÝ STŮL • ${variantaPravidel.stitekUStolu}"
                 offlineKonfig?.jeOfflinePohar == true ->
-                    "POHÁR ($cisloOfflineRozdani/${offlineKonfig.celkemRozdani})"
-                else -> "TRÉNINK"
+                    "POHÁR ($cisloOfflineRozdani/${offlineKonfig.celkemRozdani}) • ${variantaPravidel.stitekUStolu}"
+                else ->
+                    "TRÉNINK • ${variantaPravidel.stitekUStolu}"
             }
             Text(
                 text = typHry.nazev,
@@ -872,12 +1008,12 @@ private fun HorniListaStolu(
             if (jeOnline && onlineStul != null && onlineStul.stavMistnosti == StavMistnosti.HRAJE_SE) {
                 val zbyvaTahu = max(0L, (LIMIT_ODPOJENI_MS - (tikSekundyMs - onlineStul.zacatekTahuMs)) / 1000L)
                 Text(
-                    text = "$stitekRezimu • Tah: ${zbyvaTahu}s",
+                    text = "$stitekRezimu • ${zbyvaTahu}s",
                     color = if (zbyvaTahu <= 15L) Color(0xFFFF8A65) else Color(0xFFA5D6A7),
                     fontSize = 9.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    softWrap = false
+                    overflow = TextOverflow.Ellipsis
                 )
             } else {
                 Text(
@@ -886,7 +1022,7 @@ private fun HorniListaStolu(
                     fontSize = 9.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    softWrap = false
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -1092,7 +1228,7 @@ private fun PruhySouperu(
                 }
                 if (pocetKaret > 0) {
                     Spacer(modifier = Modifier.width(4.dp))
-                    KartaRubComposable(sirka = 20.dp)
+                    KartaRubComposable(sirka = 22.dp)
                 }
             }
         }
@@ -1129,11 +1265,11 @@ private fun StredStoluPrsi(
                 .border(1.dp, Color(0x55E6C15A), RoundedCornerShape(9.dp))
                 .padding(horizontal = 12.dp, vertical = 4.dp)
         )
-        Spacer(modifier = Modifier.height(if (naSirku) 6.dp else 10.dp))
+        Spacer(modifier = Modifier.height(if (naSirku) 6.dp else 12.dp))
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(22.dp)
+            horizontalArrangement = Arrangement.spacedBy(if (naSirku) 20.dp else 26.dp)
         ) {
             KartaRubComposable(
                 sirka = sirkaKarty,
@@ -1151,7 +1287,7 @@ private fun StredStoluPrsi(
         }
 
         if (jsemNaTahu && !stav.cekaNaVolbuBarvy) {
-            Spacer(modifier = Modifier.height(if (naSirku) 6.dp else 10.dp))
+            Spacer(modifier = Modifier.height(if (naSirku) 6.dp else 12.dp))
             val textTlacitka = when {
                 stav.aktivniEsoStoji -> "Stát 1 kolo (potvrdit eso)"
                 stav.aktivniSedmyPocet > 0 -> "Líznout ${sklonujKartyAkuzativ(stav.aktivniSedmyPocet * 2)}"
@@ -1171,7 +1307,7 @@ private fun StredStoluPrsi(
                         jemnaHaptika()
                         onLiznoutNeboStat()
                     }
-                    .padding(horizontal = 14.dp, vertical = 7.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 Text(
                     text = textTlacitka,
@@ -1232,9 +1368,87 @@ private fun StredStoluSedma(
     stav: StavSedma,
     lokalniIndex: Int,
     sirkaKarty: Dp,
+    dostupnaSirkaDp: Float,
     naSirku: Boolean,
-    onPustitStych: () -> Unit
+    talonNadStychem: Boolean,
+    zobrazitUzavrenyStych: Boolean,
+    onPustitNeboVzitStych: () -> Unit,
+    onNahlasitSpalenouZRuky: () -> Unit
 ) {
+    val stychNaPlose = when {
+        stav.aktualniStych.isNotEmpty() -> stav.aktualniStych
+        zobrazitUzavrenyStych && stav.posledniUzavrenyStych.isNotEmpty() -> stav.posledniUzavrenyStych
+        else -> emptyList()
+    }
+    val jeNahledSebraneho = stav.aktualniStych.isEmpty() && stychNaPlose.isNotEmpty()
+    val drzitelNaPlose = if (jeNahledSebraneho) stav.posledniUzavrenyVitez else stav.prozatimBereHrac
+    val zobrazenyVyrez = stychNaPlose.takeLast(4)
+
+    val sirkaKartyVeStychu: Dp = if (talonNadStychem && zobrazenyVyrez.isNotEmpty()) {
+        val maxNaJednu = (dostupnaSirkaDp - 24f) / zobrazenyVyrez.size.coerceAtLeast(3).toFloat()
+        min(sirkaKarty.value, maxNaJednu).coerceAtLeast(64f).dp
+    } else {
+        sirkaKarty
+    }
+    val sirkaTalonu: Dp = (sirkaKarty.value * if (talonNadStychem) 0.94f else 0.92f).dp
+    val spalenaVRuceHodnota = remember(stav, lokalniIndex) {
+        SedmaEngine.zjistiSpalenouVRuce(stav, lokalniIndex)
+    }
+
+    @Composable
+    fun KresliTalon() {
+        KartaRubComposable(
+            sirka = sirkaTalonu,
+            pocetVBalicku = stav.lizaciBalicek.size,
+            popisek = "TALON"
+        )
+    }
+
+    @Composable
+    fun KresliStychBox() {
+        if (zobrazenyVyrez.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .size(width = sirkaKarty * 1.75f, height = sirkaKarty * 1.54f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0x33000000))
+                    .border(1.2.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Čeká na výnos", color = Color(0xCCFFF8E1), fontSize = 12.sp)
+            }
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                modifier = Modifier.horizontalScroll(rememberScrollState())
+            ) {
+                for (hrana in zobrazenyVyrez) {
+                    val bereTato = hrana.indexHrace == drzitelNaPlose &&
+                        hrana == zobrazenyVyrez.lastOrNull { it.indexHrace == drzitelNaPlose }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = hrana.jmenoHrace,
+                            color = if (bereTato) Color(0xFF69F0AE) else Color(0xFFFFF8E1),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        KartaLiceComposable(
+                            karta = hrana.karta,
+                            sirka = sirkaKartyVeStychu,
+                            stitekNavic = when {
+                                bereTato && jeNahledSebraneho -> "BERE ŠTYCH"
+                                bereTato -> "BERE"
+                                else -> null
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -1253,77 +1467,79 @@ private fun StredStoluSedma(
                 .border(1.dp, Color(0x55E6C15A), RoundedCornerShape(9.dp))
                 .padding(horizontal = 12.dp, vertical = 4.dp)
         )
-        Spacer(modifier = Modifier.height(if (naSirku) 6.dp else 10.dp))
+        Spacer(modifier = Modifier.height(if (naSirku) 5.dp else 8.dp))
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            KartaRubComposable(
-                sirka = sirkaKarty * 0.86f,
-                pocetVBalicku = stav.lizaciBalicek.size,
-                popisek = "TALON"
-            )
-
-            if (stav.aktualniStych.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .size(width = sirkaKarty * 1.65f, height = sirkaKarty * 1.48f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0x33000000))
-                        .border(1.2.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Čeká na výnos", color = Color(0xCCFFF8E1), fontSize = 12.sp)
-                }
-            } else {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.horizontalScroll(rememberScrollState())
-                ) {
-                    for (hrana in stav.aktualniStych.takeLast(4)) {
-                        val bereTato = hrana.indexHrace == stav.prozatimBereHrac &&
-                            hrana == stav.aktualniStych.lastOrNull { it.indexHrace == stav.prozatimBereHrac }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = hrana.jmenoHrace,
-                                color = if (bereTato) Color(0xFF69F0AE) else Color(0xFFFFF8E1),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            KartaLiceComposable(
-                                karta = hrana.karta,
-                                sirka = sirkaKarty,
-                                stitekNavic = if (bereTato) "BERE" else null
-                            )
-                        }
-                    }
-                }
+        if (talonNadStychem) {
+            KresliTalon()
+            Spacer(modifier = Modifier.height(8.dp))
+            KresliStychBox()
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                KresliTalon()
+                KresliStychBox()
             }
         }
 
-        if (stav.muzePustitStych && stav.naTahu == lokalniIndex && !stav.jeKonec) {
+        if ((stav.muzePustitStych && stav.naTahu == lokalniIndex && !stav.jeKonec) || spalenaVRuceHodnota != null) {
             Spacer(modifier = Modifier.height(8.dp))
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFFD4AF37))
-                    .clickable {
-                        jemnaHaptika()
-                        onPustitStych()
-                    }
-                    .padding(horizontal = 16.dp, vertical = 7.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Pustit štych soupeři",
-                    color = Color(0xFF082413),
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    softWrap = false
-                )
+                if (spalenaVRuceHodnota != null && !stav.jeKonec) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFFD84315))
+                            .border(1.2.dp, Color(0xFFFFE082), RoundedCornerShape(10.dp))
+                            .clickable {
+                                silnaHaptika()
+                                onNahlasitSpalenouZRuky()
+                            }
+                            .padding(horizontal = 14.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            text = "🔥 Hlásit spálenou z ruky (4× ${spalenaVRuceHodnota.kratkyZnak})!",
+                            color = Color.White,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+
+                if (stav.muzePustitStych && stav.naTahu == lokalniIndex && !stav.jeKonec) {
+                    val drzimStychJa = stav.prozatimBereHrac == lokalniIndex
+                    val bodyVeStychu = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
+                    val popisekTlacitka = if (drzimStychJa) {
+                        "Vzít štych (${bodyVeStychu} b.)"
+                    } else {
+                        "Pustit štych soupeři"
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (drzimStychJa) Color(0xFF00C853) else Color(0xFFD4AF37))
+                            .clickable {
+                                jemnaHaptika()
+                                onPustitNeboVzitStych()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 7.dp)
+                    ) {
+                        Text(
+                            text = popisekTlacitka,
+                            color = Color(0xFF062111),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
             }
         }
     }
@@ -1335,6 +1551,8 @@ private fun StredStoluMarias(
     stav: StavMarias,
     lokalniIndex: Int,
     sirkaKarty: Dp,
+    talonNadStychem: Boolean,
+    zobrazitUzavrenyStych: Boolean,
     vybraneDoTalonu: List<Karta>,
     planovanyZavazek: ZavazekMariase,
     onZmenaPlanovanehoZavazku: (ZavazekMariase) -> Unit,
@@ -1444,18 +1662,39 @@ private fun StredStoluMarias(
                         }
                     }
                 } else {
-                    Text(
-                        text = "Čekání, než ${stav.jmenaHracu[stav.indexForhonta]} zvolí trumf…",
-                        color = Color(0xFFB9F6CA),
-                        fontSize = 13.sp
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        KartaRubComposable(
+                            sirka = sirkaKarty,
+                            pocetVBalicku = stav.zbytekProForhonta.size.takeIf { it > 0 } ?: 5,
+                            popisek = "TALON"
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Čekání, než ${stav.jmenaHracu[stav.indexForhonta]} zvolí trumf…",
+                            color = Color(0xFFB9F6CA),
+                            fontSize = 13.sp
+                        )
+                    }
                 }
             }
 
             FazeMariase.ODKLADANI_TALONU -> {
                 if (stav.naTahu == lokalniIndex) {
+                    val moznosti = remember(stav) { MariasEngine.zjistiPovoleneZavazkyTalonu(stav) }
+                    val aktualniPlan = if (planovanyZavazek in moznosti) {
+                        planovanyZavazek
+                    } else {
+                        moznosti.firstOrNull() ?: ZavazekMariase.HRA
+                    }
+                    LaunchedEffect(aktualniPlan) {
+                        if (aktualniPlan != planovanyZavazek) {
+                            onZmenaPlanovanehoZavazku(aktualniPlan)
+                        }
+                    }
+
                     val maPravou7 = MariasEngine.maPravouSedmu(stav, vybraneDoTalonu)
                     val maPrave2Sedmy = MariasEngine.maPraveDveSedmy(stav, vybraneDoTalonu)
+                    val jeHospodska = stav.variantaPravidel == VariantaPravidel.HOSPODSKA
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1474,42 +1713,32 @@ private fun StredStoluMarias(
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
                         )
-                        if (!planovanyZavazek.jeBezTrumfu) {
+                        if (!aktualniPlan.jeBezTrumfu) {
                             Text(
-                                text = "Esa a desítky jsou chráněné proti odložení.",
+                                text = if (jeHospodska) {
+                                    "Esa a desítky jsou chráněné • Hospodská: lze hlásit i falešnou 7."
+                                } else {
+                                    "Esa a desítky jsou chráněné • Svazová: hlásit lze jen pravou 7."
+                                },
                                 color = Color(0xFFA5D6A7),
-                                fontSize = 10.sp
+                                fontSize = 10.sp,
+                                textAlign = TextAlign.Center
                             )
                         }
                         Spacer(modifier = Modifier.height(6.dp))
-
-                        val moznosti = when {
-                            stav.volenoZTalonu -> listOf(ZavazekMariase.HRA)
-                            stav.trumf == null -> listOf(ZavazekMariase.BETL, ZavazekMariase.DURCH)
-                            else -> listOf(
-                                ZavazekMariase.HRA,
-                                ZavazekMariase.HRA_A_SEDMA,
-                                ZavazekMariase.HRA_A_DVE_SEDMY,
-                                ZavazekMariase.STO,
-                                ZavazekMariase.STO_A_SEDMA,
-                                ZavazekMariase.STO_A_DVE_SEDMY,
-                                ZavazekMariase.BETL,
-                                ZavazekMariase.DURCH
-                            )
-                        }
 
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             for (moznost in moznosti) {
-                                val aktivni = planovanyZavazek == moznost
+                                val aktivni = aktualniPlan == moznost
                                 val popisek = when (moznost) {
-                                    ZavazekMariase.HRA_A_SEDMA -> if (maPravou7) "Hra + 7" else "Hra + fal. 7"
-                                    ZavazekMariase.HRA_A_DVE_SEDMY -> if (maPrave2Sedmy) "Hra + 2×7" else "Hra + fal. 2×7"
+                                    ZavazekMariase.HRA_A_SEDMA -> if (maPravou7 || !jeHospodska) "Hra + 7" else "Hra + fal. 7"
+                                    ZavazekMariase.HRA_A_DVE_SEDMY -> if (maPrave2Sedmy || !jeHospodska) "Hra + 2×7" else "Hra + fal. 2×7"
                                     ZavazekMariase.STO -> "Stovka"
-                                    ZavazekMariase.STO_A_SEDMA -> if (maPravou7) "100 + 7" else "100 + fal. 7"
-                                    ZavazekMariase.STO_A_DVE_SEDMY -> if (maPrave2Sedmy) "100 + 2×7" else "100 + fal. 2×7"
+                                    ZavazekMariase.STO_A_SEDMA -> if (maPravou7 || !jeHospodska) "100 + 7" else "100 + fal. 7"
+                                    ZavazekMariase.STO_A_DVE_SEDMY -> if (maPrave2Sedmy || !jeHospodska) "100 + 2×7" else "100 + fal. 2×7"
                                     else -> moznost.nazev
                                 }
                                 MaleAkcniTlacitko(
@@ -1522,7 +1751,7 @@ private fun StredStoluMarias(
                             }
                         }
 
-                        if (planovanyZavazek.hlasiDveSedmy && !maPrave2Sedmy) {
+                        if (jeHospodska && aktualniPlan.hlasiDveSedmy && !maPrave2Sedmy) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "Pozor: nemáš obě sedmy — hlásíš falešné dvě sedmy (blaf)!",
@@ -1531,7 +1760,7 @@ private fun StredStoluMarias(
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center
                             )
-                        } else if (planovanyZavazek.hlasiSedmu && !maPravou7) {
+                        } else if (jeHospodska && aktualniPlan.hlasiSedmu && !maPravou7) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "Pozor: nemáš trumfovou sedmu — hlásíš falešnou sedmu (blaf)!",
@@ -1555,7 +1784,7 @@ private fun StredStoluMarias(
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
                         ) {
                             Text(
-                                text = "Odložit talon a hlásit ${planovanyZavazek.nazev}",
+                                text = "Odložit talon a hlásit ${aktualniPlan.nazev}",
                                 color = Color(0xFF05200E),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.ExtraBold,
@@ -1652,18 +1881,29 @@ private fun StredStoluMarias(
             }
 
             FazeMariase.SEHRAVKA, FazeMariase.KONEC -> {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "${stav.cisloStychu}. štych • Forhont ${stav.bodyKaretForhont + stav.hlaskyForhont} : Obrana ${stav.bodyKaretObrana + stav.hlaskyObrana}",
-                        color = Color(0xFFFFF59D),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
+                val stychNaPlose = when {
+                    stav.aktualniStych.isNotEmpty() -> stav.aktualniStych
+                    zobrazitUzavrenyStych && stav.posledniUzavrenyStych.isNotEmpty() -> stav.posledniUzavrenyStych
+                    else -> emptyList()
+                }
+                val jeNahledSebraneho = stav.aktualniStych.isEmpty() && stychNaPlose.isNotEmpty()
+                val sirkaTalonuMarias = (sirkaKarty.value * 0.86f).dp
+
+                @Composable
+                fun KresliTalonMariase() {
+                    KartaRubComposable(
+                        sirka = sirkaTalonuMarias,
+                        pocetVBalicku = stav.talon.size.takeIf { it > 0 } ?: 2,
+                        popisek = "TALON"
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    if (stav.aktualniStych.isEmpty()) {
+                }
+
+                @Composable
+                fun KresliKartyStychuMariase() {
+                    if (stychNaPlose.isEmpty()) {
                         Box(
                             modifier = Modifier
-                                .size(width = sirkaKarty * 1.85f, height = sirkaKarty * 1.48f)
+                                .size(width = sirkaKarty * 1.85f, height = sirkaKarty * 1.54f)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(Color(0x33000000))
                                 .border(1.2.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp)),
@@ -1677,19 +1917,47 @@ private fun StredStoluMarias(
                         }
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            for (hrana in stav.aktualniStych) {
+                            for (hrana in stychNaPlose) {
+                                val bereTento = jeNahledSebraneho && hrana.indexHrace == stav.posledniUzavrenyVitez
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
                                         text = hrana.jmenoHrace,
-                                        color = Color(0xFFFFF59D),
+                                        color = if (bereTento) Color(0xFF69F0AE) else Color(0xFFFFF59D),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    KartaLiceComposable(karta = hrana.karta, sirka = sirkaKarty)
+                                    KartaLiceComposable(
+                                        karta = hrana.karta,
+                                        sirka = sirkaKarty,
+                                        stitekNavic = if (bereTento) "BERE ŠTYCH" else null
+                                    )
                                 }
                             }
+                        }
+                    }
+                }
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "${stav.cisloStychu}. štych • Forhont ${stav.bodyKaretForhont + stav.hlaskyForhont} : Obrana ${stav.bodyKaretObrana + stav.hlaskyObrana}",
+                        color = Color(0xFFFFF59D),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    if (talonNadStychem) {
+                        KresliTalonMariase()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        KresliKartyStychuMariase()
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            KresliTalonMariase()
+                            KresliKartyStychuMariase()
                         }
                     }
                 }
@@ -1735,7 +2003,10 @@ private fun SpodniRukaHrace(
                 !mujTah -> "Čekáš na tah soupeře"
                 s?.aktivniSedmyPocet ?: 0 > 0 ->
                     "Aktivní sedma: přebij sedmičkou, nebo lízni ${sklonujKartyAkuzativ((s?.aktivniSedmyPocet ?: 1) * 2)}"
-                s?.aktivniEsoStoji == true -> "Aktivní eso: přebij esem, nebo stůj 1 kolo"
+                s?.aktivniEsoStoji == true && s.variantaPravidel == VariantaPravidel.HOSPODSKA ->
+                    "Aktivní eso: přebij esem či Červenou sedmou, nebo stůj 1 kolo"
+                s?.aktivniEsoStoji == true ->
+                    "Aktivní eso: přebij esem, nebo stůj 1 kolo"
                 povolene.isEmpty() -> "Nemáš vhodnou kartu — klepni na balíček pro líznutí"
                 else -> "Jsi na tahu — klepni na zeleně zvýrazněnou kartu"
             }
@@ -1750,7 +2021,10 @@ private fun SpodniRukaHrace(
             zvyraznitPanelRuky = mujTah
             popisPovinnosti = when {
                 !mujTah -> "Čekáš na tah u stolu"
-                s?.muzePustitStych == true -> "Můžeš vrátit přebití zvýrazněnou kartou, nebo štych pustit"
+                s?.muzePustitStych == true && s.prozatimBereHrac == lokalniIndex ->
+                    "Držíš štych — můžeš vynést další stejnou kartu, nebo štych vzít"
+                s?.muzePustitStych == true ->
+                    "Soupeř přebil — můžeš přebít zpět zvýrazněnou kartou, nebo štych pustit"
                 else -> "Jsi na tahu — štítek BERE značí kartu, která přebíjí štych"
             }
         }

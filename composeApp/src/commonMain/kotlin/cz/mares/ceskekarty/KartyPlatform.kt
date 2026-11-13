@@ -34,6 +34,8 @@ expect fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHla
 
 expect fun zastavMluveniPlatforma()
 
+expect fun probihaMluveniPlatforma(): Boolean
+
 expect fun prehrajZvukovyEfektPlatforma(efekt: EfektStolu)
 
 expect suspend fun provedSitovyDotaz(
@@ -271,6 +273,7 @@ private const val KLIC_PIN_OTISK = "ck_saved_pin_hash_v1"
 private const val KLIC_TEREZIANY = "ck_local_elo_v1"
 private const val KLIC_DENNI_ODMENA_DEN = "ck_daily_reward_day_v1"
 private const val KLIC_ZVUK_HLASKY = "ck_sound_voice_enabled_v1"
+private const val KLIC_VARIANTA_PRAVIDEL = "ck_rules_variant_v1"
 
 fun jeZvukAHlaskyZapnuty(): Boolean {
     return nactiTextZUloziste(KLIC_ZVUK_HLASKY, "1") != "0"
@@ -281,6 +284,16 @@ fun nastavZvukAHlasky(zapnuto: Boolean) {
     if (!zapnuto) {
         zastavMluveniPlatforma()
     }
+}
+
+fun nactiVychoziVariantuPravidel(): VariantaPravidel {
+    return VariantaPravidel.dleKodu(
+        nactiTextZUloziste(KLIC_VARIANTA_PRAVIDEL, VariantaPravidel.HOSPODSKA.kod)
+    )
+}
+
+fun ulozVychoziVariantuPravidel(varianta: VariantaPravidel) {
+    ulozTextDoUloziste(KLIC_VARIANTA_PRAVIDEL, varianta.kod)
 }
 
 fun ziskejUnikatniIdZarizeni(): String {

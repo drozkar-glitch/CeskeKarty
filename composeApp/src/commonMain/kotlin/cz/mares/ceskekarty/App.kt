@@ -73,9 +73,15 @@ fun App() {
         var aktualniTereziany by remember { mutableStateOf(nactiLokalniTereziany()) }
         var dostupnaDenniOdmena by remember { mutableStateOf(muzeVyzvednoutDenniOdmenu()) }
         var zvukZapnut by remember { mutableStateOf(jeZvukAHlaskyZapnuty()) }
+        var vybranaPravidla by remember { mutableStateOf(nactiVychoziVariantuPravidel()) }
 
         var vybranyOfflineKonfig by remember { mutableStateOf<KonfiguraceOfflineHry?>(null) }
         var aktivniOnlineStul by remember { mutableStateOf<OnlineStul?>(null) }
+
+        fun nastavVariantuPravidel(nova: VariantaPravidel) {
+            vybranaPravidla = nova
+            ulozVychoziVariantuPravidel(nova)
+        }
 
         LaunchedEffect(ulozenaPrezdivka, ulozenyPinOtisk) {
             if (ulozenaPrezdivka.isNotEmpty() && ulozenyPinOtisk.isNotEmpty()) {
@@ -119,6 +125,8 @@ fun App() {
 
                 ObrazovkaHerny.TRENINK_VYBER -> ZelenyKaretniStulBox(zobrazitStredovyKruh = false) {
                     VyberTreninkuObrazovka(
+                        vybranaVarianta = vybranaPravidla,
+                        onZmenaVarianty = { nastavVariantuPravidel(it) },
                         onZpet = { aktualniObrazovka = ObrazovkaHerny.DOMOV },
                         onSpustitOffline = { konfig ->
                             vybranyOfflineKonfig = konfig
@@ -130,6 +138,8 @@ fun App() {
 
                 ObrazovkaHerny.ONLINE_LOBBY -> ZelenyKaretniStulBox(zobrazitStredovyKruh = false) {
                     OnlineLobbyObrazovka(
+                        vybranaVarianta = vybranaPravidla,
+                        onZmenaVarianty = { nastavVariantuPravidel(it) },
                         onZpet = { aktualniObrazovka = ObrazovkaHerny.DOMOV },
                         onVstoupitDoStolu = { stul ->
                             aktivniOnlineStul = stul
@@ -165,11 +175,14 @@ fun App() {
 
                 ObrazovkaHerny.TURNAJE -> ZelenyKaretniStulBox(zobrazitStredovyKruh = false) {
                     TurnajovaSinObrazovka(
+                        vybranaVarianta = vybranaPravidla,
+                        onZmenaVarianty = { nastavVariantuPravidel(it) },
                         onZpet = { aktualniObrazovka = ObrazovkaHerny.DOMOV },
-                        onSpustitOfflinePohar = { typ ->
+                        onSpustitOfflinePohar = { typ, varianta ->
                             vybranyOfflineKonfig = KonfiguraceOfflineHry(
                                 typHry = typ,
                                 pocetHracu = typ.povolenePoctyHracu.first(),
+                                variantaPravidel = varianta,
                                 jeOfflinePohar = true,
                                 celkemRozdani = 3
                             )
@@ -222,6 +235,100 @@ fun App() {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun PrepinacPravidelPanel(
+    vybrana: VariantaPravidel,
+    onZmena: (VariantaPravidel) -> Unit,
+    zobrazitPodrobnyPopis: Boolean = true
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xD9082916))
+            .border(1.2.dp, Color(0x99D4AF37), RoundedCornerShape(14.dp))
+            .padding(12.dp)
+    ) {
+        Text(
+            text = "Varianta pravidel hry:",
+            color = Color(0xFFFFD54F),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.ExtraBold
+        )
+        Spacer(modifier = Modifier.height(7.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            for (varianta in VariantaPravidel.entries) {
+                val aktivni = vybrana == varianta
+                val ikona = if (varianta == VariantaPravidel.HOSPODSKA) "🍺" else "🏛️"
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (aktivni) Color(0xFFD4AF37) else Color(0xFF194D2F))
+                        .border(
+                            width = if (aktivni) 1.5.dp else 1.dp,
+                            color = if (aktivni) Color(0xFFFFF59D) else Color(0x55D4AF37),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .clickable {
+                            jemnaHaptika()
+                            onZmena(varianta)
+                        }
+                        .padding(horizontal = 8.dp, vertical = 9.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "$ikona ${varianta.kratkyNazev} pravidla",
+                        color = if (aktivni) Color(0xFF072312) else Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+        if (zobrazitPodrobnyPopis) {
+            Spacer(modifier = Modifier.height(7.dp))
+            Text(
+                text = vybrana.popisVyberu,
+                color = Color(0xFFB9F6CA),
+                fontSize = 11.sp,
+                lineHeight = 15.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun StitekPravidelBadge(varianta: VariantaPravidel) {
+    val jeHospodska = varianta == VariantaPravidel.HOSPODSKA
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (jeHospodska) Color(0xFF3E2723) else Color(0xFF1A3E5C))
+            .border(
+                width = 0.8.dp,
+                color = if (jeHospodska) Color(0xFFFFCC80) else Color(0xFF90CAF9),
+                shape = RoundedCornerShape(6.dp)
+            )
+            .padding(horizontal = 7.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = if (jeHospodska) "🍺 Hospodská" else "🏛️ Svazová",
+            color = if (jeHospodska) Color(0xFFFFE082) else Color(0xFFE3F2FD),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false
+        )
     }
 }
 
@@ -326,7 +433,7 @@ private fun DomovskaObrazovka(
             fontWeight = FontWeight.ExtraBold
         )
         Text(
-            text = "Mariáš • Prší • Sedma — online herna o tereziány",
+            text = "Mariáš • Prší • Sedma — hospodská i svazová pravidla",
             color = Color(0xFFDCE775),
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
@@ -647,7 +754,7 @@ private fun DomovskaObrazovka(
 
         MenuKartaTlacitko(
             nadpis = "Živá online herna (proti hráčům)",
-            popis = "Veřejné stoly i soukromé stoly na PIN, kontrolka spojení a vyúčtování v tereziánech.",
+            popis = "Veřejné i soukromé stoly s volbou hospodských či svazových pravidel a hrou o tereziány.",
             zvyraznena = true,
             onClick = {
                 if (ulozenaPrezdivka.isEmpty()) {
@@ -665,7 +772,7 @@ private fun DomovskaObrazovka(
 
         MenuKartaTlacitko(
             nadpis = "Turnajová síň a poháry",
-            popis = "Vyřazovací pavouk pro Prší a Sedmu, bodovaná série Mariáše i okamžitý pohár s boty.",
+            popis = "Hospodské i svazové turnaje: pavouk pro Prší a Sedmu, bodovaná série Mariáše i pohár s boty.",
             zvyraznena = false,
             onClick = onOtevritTurnaje
         )
@@ -673,7 +780,7 @@ private fun DomovskaObrazovka(
 
         MenuKartaTlacitko(
             nadpis = "Trénink proti botům (Offline)",
-            popis = "Okamžitá hra Mariáše, Prší nebo Sedmy s hospodskými hláškami i bez internetu.",
+            popis = "Okamžitá hra Mariáše, Prší nebo Sedmy podle hospodských či svazových pravidel i bez internetu.",
             zvyraznena = false,
             onClick = onOtevritTrenink
         )
@@ -694,7 +801,7 @@ private fun DomovskaObrazovka(
             Box(modifier = Modifier.weight(1f)) {
                 MenuKartaTlacitko(
                     nadpis = "Pravidla a měna",
-                    popis = "Česká pravidla her a obnova tereziánů.",
+                    popis = "Rozdíly hospodských a svazových pravidel.",
                     zvyraznena = false,
                     onClick = onOtevritPravidla
                 )
@@ -798,6 +905,8 @@ private fun ZahlaviPodobrazovky(nadpis: String, onZpet: () -> Unit) {
 
 @Composable
 private fun VyberTreninkuObrazovka(
+    vybranaVarianta: VariantaPravidel,
+    onZmenaVarianty: (VariantaPravidel) -> Unit,
     onZpet: () -> Unit,
     onSpustitOffline: (KonfiguraceOfflineHry) -> Unit
 ) {
@@ -809,6 +918,12 @@ private fun VyberTreninkuObrazovka(
     ) {
         ZahlaviPodobrazovky("Trénink proti botům", onZpet)
 
+        PrepinacPravidelPanel(
+            vybrana = vybranaVarianta,
+            onZmena = onZmenaVarianty
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
         for (typ in TypHry.entries) {
             Column(
                 modifier = Modifier
@@ -819,22 +934,32 @@ private fun VyberTreninkuObrazovka(
                     .border(1.dp, Color(0x77D4AF37), RoundedCornerShape(14.dp))
                     .padding(14.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IkonaBarvyKarty(
-                        barva = when (typ) {
-                            TypHry.MARIAS -> BarvaKarty.CERVENE
-                            TypHry.PRSI -> BarvaKarty.KULE
-                            TypHry.SEDMA -> BarvaKarty.ZELENE
-                        },
-                        velikost = 22.dp
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = typ.nazev,
-                        color = Color(0xFFFFD54F),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        IkonaBarvyKarty(
+                            barva = when (typ) {
+                                TypHry.MARIAS -> BarvaKarty.CERVENE
+                                TypHry.PRSI -> BarvaKarty.KULE
+                                TypHry.SEDMA -> BarvaKarty.ZELENE
+                            },
+                            velikost = 22.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = typ.nazev,
+                            color = Color(0xFFFFD54F),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                    StitekPravidelBadge(vybranaVarianta)
                 }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(typ.kratkyPopis, color = Color(0xFFE0E0E0), fontSize = 12.sp)
@@ -855,7 +980,13 @@ private fun VyberTreninkuObrazovka(
                         Button(
                             onClick = {
                                 jemnaHaptika()
-                                onSpustitOffline(KonfiguraceOfflineHry(typHry = typ, pocetHracu = pocet))
+                                onSpustitOffline(
+                                    KonfiguraceOfflineHry(
+                                        typHry = typ,
+                                        pocetHracu = pocet,
+                                        variantaPravidel = vybranaVarianta
+                                    )
+                                )
                             },
                             modifier = Modifier
                                 .weight(1f)
@@ -884,11 +1015,13 @@ private fun VyberTreninkuObrazovka(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun OnlineLobbyObrazovka(
+    vybranaVarianta: VariantaPravidel,
+    onZmenaVarianty: (VariantaPravidel) -> Unit,
     onZpet: () -> Unit,
     onVstoupitDoStolu: (OnlineStul) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    var stoly by remember { mutableStateOf<List<OnlineStul>>(emptyList()) }
+    var stoly by remember { mutableStateOf(emptyList<OnlineStul>()) }
     var nacitaSe by remember { mutableStateOf(true) }
     var zpravaChyby by remember { mutableStateOf("") }
 
@@ -986,6 +1119,39 @@ private fun OnlineLobbyObrazovka(
 
             Spacer(modifier = Modifier.height(8.dp))
             Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                for (varianta in VariantaPravidel.entries) {
+                    val akt = vybranaVarianta == varianta
+                    val ikona = if (varianta == VariantaPravidel.HOSPODSKA) "🍺" else "🏛️"
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (akt) Color(0xFF69F0AE) else Color(0xFF18492D))
+                            .clickable {
+                                jemnaHaptika()
+                                onZmenaVarianty(varianta)
+                            }
+                            .padding(horizontal = 8.dp, vertical = 7.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "$ikona ${varianta.kratkyNazev} pravidla",
+                            color = if (akt) Color(0xFF062111) else Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -1011,7 +1177,8 @@ private fun OnlineLobbyObrazovka(
                                 nazevStolu = "${vybranaHraZalozeni.nazev} (${nactiUlozenouPrezdivku()})",
                                 typHry = vybranaHraZalozeni,
                                 pocetHracu = vybranyPocetZalozeni,
-                                pinKod = soukromyPin
+                                pinKod = soukromyPin,
+                                variantaPravidel = vybranaVarianta
                             )
                             if (vytvoreny != null) {
                                 onVstoupitDoStolu(vytvoreny)
@@ -1023,7 +1190,13 @@ private fun OnlineLobbyObrazovka(
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
                 ) {
-                    Text("Otevřít stůl", color = Color(0xFF04210E), fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false)
+                    Text(
+                        text = "Otevřít stůl",
+                        color = Color(0xFF04210E),
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
         }
@@ -1069,12 +1242,22 @@ private fun OnlineLobbyObrazovka(
                                 .weight(1f)
                                 .padding(end = 8.dp)
                         ) {
-                            Text(
-                                text = (if (stul.jeSoukromy) "🔒 " else "") + stul.nazevStolu,
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = (if (stul.jeSoukromy) "🔒 " else "") + stul.nazevStolu,
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                StitekPravidelBadge(stul.variantaPravidel)
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "Hráči (${stul.hraci.size}/${stul.maxHracu}): " +
                                     stul.hraci.joinToString(", ") { it.prezdivka },
@@ -1185,6 +1368,8 @@ private fun CekarnaStoluObrazovka(
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(6.dp))
+        StitekPravidelBadge(stul.variantaPravidel)
+        Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = "Čekání na spoluhráče (${stul.hraci.size}/${stul.maxHracu})" +
                 if (stul.jeSoukromy) " • PIN: ${stul.pinKod}" else "",
@@ -1244,14 +1429,16 @@ private fun CekarnaStoluObrazovka(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TurnajovaSinObrazovka(
+    vybranaVarianta: VariantaPravidel,
+    onZmenaVarianty: (VariantaPravidel) -> Unit,
     onZpet: () -> Unit,
-    onSpustitOfflinePohar: (TypHry) -> Unit,
+    onSpustitOfflinePohar: (TypHry, VariantaPravidel) -> Unit,
     onVstoupitDoZapasuTurnaje: (OnlineStul) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val mojeId = remember { ziskejUnikatniIdZarizeni() }
     val ulozenyNick = remember { nactiUlozenouPrezdivku() }
-    var turnaje by remember { mutableStateOf<List<OnlineTurnaj>>(emptyList()) }
+    var turnaje by remember { mutableStateOf(emptyList<OnlineTurnaj>()) }
     var hlaska by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
@@ -1269,6 +1456,12 @@ private fun TurnajovaSinObrazovka(
     ) {
         ZahlaviPodobrazovky("Turnajová síň", onZpet)
 
+        PrepinacPravidelPanel(
+            vybrana = vybranaVarianta,
+            onZmena = onZmenaVarianty
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1278,7 +1471,7 @@ private fun TurnajovaSinObrazovka(
                 .padding(14.dp)
         ) {
             Text(
-                text = "Rychlý pohár proti botům (série 3 rozdání)",
+                text = "Rychlý pohár proti botům (${vybranaVarianta.kratkyNazev.lowercase()} • 3 rozdání)",
                 color = Color(0xFFFFD54F),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold
@@ -1292,7 +1485,7 @@ private fun TurnajovaSinObrazovka(
                     Button(
                         onClick = {
                             jemnaHaptika()
-                            onSpustitOfflinePohar(typ)
+                            onSpustitOfflinePohar(typ, vybranaVarianta)
                         },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(10.dp),
@@ -1322,7 +1515,12 @@ private fun TurnajovaSinObrazovka(
                 .border(1.2.dp, Color(0xFFD4AF37), RoundedCornerShape(14.dp))
                 .padding(14.dp)
         ) {
-            Text("Založit živý online turnaj", color = Color(0xFFFFD54F), fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = "Založit živý online turnaj (${vybranaVarianta.kratkyNazev.lowercase()} pravidla)",
+                color = Color(0xFFFFD54F),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold
+            )
             Text(
                 text = "Prší a Sedma běží jako vyřazovací pavouk pro 4 hráče (Semifinále → Finále), Mariáš jako turnajový stůl na 3 rozdání.",
                 color = Color(0xFFB9F6CA),
@@ -1346,7 +1544,11 @@ private fun TurnajovaSinObrazovka(
                                 return@Button
                             }
                             scope.launch {
-                                val novy = OnlineManager.vytvorTurnaj("Online Pohár: ${typ.nazev}", typ)
+                                val novy = OnlineManager.vytvorTurnaj(
+                                    nazev = "Online Pohár (${vybranaVarianta.kratkyNazev}): ${typ.nazev}",
+                                    typHry = typ,
+                                    variantaPravidel = vybranaVarianta
+                                )
                                 if (novy != null) turnaje = OnlineManager.nactiTurnaje()
                             }
                         },
@@ -1391,12 +1593,23 @@ private fun TurnajovaSinObrazovka(
                         .border(1.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp))
                         .padding(12.dp)
                 ) {
-                    Text(
-                        text = "${t.nazev} (${t.ucastnici.size}/${t.kapacita})",
-                        color = Color(0xFFFFD54F),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${t.nazev} (${t.ucastnici.size}/${t.kapacita})",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(end = 6.dp)
+                        )
+                        StitekPravidelBadge(t.variantaPravidel)
+                    }
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = "Účastníci: " + t.ucastnici.joinToString(", ") { it.prezdivka },
                         color = Color.White,
@@ -1443,7 +1656,14 @@ private fun TurnajovaSinObrazovka(
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
                                     ) {
-                                        Text("Hrát zápas", color = Color(0xFF04210E), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                                        Text(
+                                            text = "Hrát zápas",
+                                            color = Color(0xFF04210E),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
                                     }
                                 }
                             }
@@ -1489,7 +1709,7 @@ private fun TurnajovaSinObrazovka(
 
 @Composable
 private fun ZebricekObrazovka(onZpet: () -> Unit) {
-    var polozky by remember { mutableStateOf<List<ZaznamZebricku>>(emptyList()) }
+    var polozky by remember { mutableStateOf(emptyList<ZaznamZebricku>()) }
     var nacita by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
@@ -1561,24 +1781,28 @@ private fun PravidlaObrazovka(onZpet: () -> Unit) {
         ZahlaviPodobrazovky("Pravidla a měna", onZpet)
 
         BlokPravidel(
+            nadpis = "Volba pravidel: Hospodská vs. Svazová",
+            text = "Před spuštěním tréninku, při zakládání živého online stolu i při vytváření turnaje si můžeš zvolit mezi Hospodskými a Svazovými (klasickými soutěžními) pravidly. Zvolená varianta je viditelná na štítku u každého stolu i turnaje a platí stejně pro všechny spoluhráče u stolu."
+        )
+        BlokPravidel(
+            nadpis = "Sedma — Hospodská vs. Svazová pravidla",
+            text = "Štych bere karta stejné hodnoty jako první vynesená nebo libovolná sedmička; počítají se desítky, esa a poslední štych po 10 bodech.\n• Svazová (klasická) pravidla: V duelu 1 na 1 končí štych po nepřebité dvojici (třetí kartou lze pokračovat jen tehdy, když soupeř štych přebil). Spálená (4×) platí pouze za 4 stejné karty odehrané v jednom štychu na stole.\n• Hospodská pravidla: Spálená (4×) platí jak ve štychu na stole, tak i při 4 stejných kartách na ruce (tlačítko Hlásit spálenou z ruky v 1 na 1 i ve čtyřhře). V duelu 1 na 1 navíc může vynášející natahovat štych dalšími kartami stejné hodnoty nebo sedmičkou i tehdy, když soupeř nepřebil, případně štych kdykoliv sebrat tlačítkem Vzít štych."
+        )
+        BlokPravidel(
+            nadpis = "Volený Mariáš — Hospodská vs. Svazová pravidla",
+            text = "Forhont volí trumf ze 7 karet (nebo naslepo z talonu) a po dobrání odkládá 2 karty mimo es a desítek. Kromě Hry, Betlu a Durchu lze hlásit Stovku (100), Sedmu i Dvě sedmy (9. štych vedlejší sedmičkou a 10. štych trumfovou sedmičkou). Nehlášená trumfová sedma v 10. štychu platí jako tichá sedma (při přebití jako zabitá tichá sedma). Červené trumfy platí dvojnásobně, hlášky 20/40 platí straně s alespoň jedním štychem a flekovat lze v řadě Flek (2×), Re (4×), Tutti (8×), Boty (16×) až Kalhoty (32×).\n• Svazová pravidla: Sedmu i Dvě sedmy smí forhont hlásit pouze tehdy, když příslušné sedmičky po odložení talonu skutečně drží v ruce (zákaz blafování).\n• Hospodská pravidla: Forhont smí ohlásit i tzv. falešnou sedmu nebo falešné dvě sedmy jako blaf, i když trumfovou sedmu v ruce nemá."
+        )
+        BlokPravidel(
+            nadpis = "Prší — Hospodská vs. Svazová pravidla",
+            text = "Přikládá se stejná barva nebo hodnota. Sedmička nutí dalšího líznout 2 karty (lze přebíjet další sedmičkou na 4, 6 či 8 karet), eso zastavuje na 1 kolo a svršek mění barvu.\n• Svazová (klasická) pravidla: Aktivní stojící eso lze přebít výhradně dalším esem.\n• Hospodská pravidla: Aktivní stojící eso lze přebít nejen dalším esem, ale také Červenou sedmou, která přebije stání a rovnou pošle dalšímu hráči líznutí 2 karet."
+        )
+        BlokPravidel(
             nadpis = "Měna tereziány a obnova účtu přes PIN",
             text = "Každý nový hráč dostává do začátku měšec s 1000 tereziány. Jednou denně si na hlavní obrazovce můžeš vyzvednout denní odměnu +100 tereziánů. Klesne-li tvůj měšec pod 100 tereziánů, tlačítko Císařská podpora ti ho zdarma dorovná na 200 tereziánů, případně si můžeš kdykoliv přivydělat v tréninku s boty. Díky 4místnému PINu si celý svůj účet i měšec obnovíš po přeinstalaci nebo v novém telefonu."
         )
         BlokPravidel(
-            nadpis = "Hospodské hlášky a zvuky stolu",
-            text = "Během partie doprovázejí hru české hospodské hlášky s odlišenými hlasy spoluhráčů a zvukem karet na plátně. Ozvučení i hlasové komentáře můžeš kdykoliv jedním klepnutím zapnout nebo ztišit tlačítkem reproduktoru vpravo nahoře na hlavní obrazovce i přímo u karetního stolu."
-        )
-        BlokPravidel(
-            nadpis = "Volený Mariáš — kompletní česká pravidla",
-            text = "Forhont volí trumf ze 7 karet (nebo naslepo z talonu) a po dobrání odkládá 2 karty mimo es a desítek. Kromě Hry, Betlu a Durchu lze hlásit Stovku (100), Sedmu i Dvě sedmy (9. štych vedlejší sedmičkou a 10. štych trumfovou sedmičkou) — včetně falešné sedmy jako blafu. Nehlášená trumfová sedma v 10. štychu platí jako tichá sedma (při přebití v posledním štychu jako zabitá tichá sedma) a uhraná stovka z obyčejné hry jako tichá stovka. Červené trumfy platí dvojnásobně, hlášky 20/40 platí straně s alespoň jedním štychem a flekovat lze v celé řadě Flek (2×), Re (4×), Tutti (8×), Boty (16×) až Kalhoty (32×) zvlášť na hru i na sedmu."
-        )
-        BlokPravidel(
-            nadpis = "Prší (2 až 4 hráči)",
-            text = "Přikládá se stejná barva nebo hodnota. Sedmička nutí dalšího líznout 2 karty (lze přebíjet další sedmičkou na 4, 6 či 8 karet), eso zastavuje na 1 kolo (lze přebít esem) a svršek mění barvu."
-        )
-        BlokPravidel(
-            nadpis = "Sedma (1 na 1 i čtyřhra 2 na 2 do kříže)",
-            text = "Štych bere karta stejné hodnoty jako první vynesená nebo libovolná sedmička. Počítají se desítky, esa a poslední štych po 10 bodech. Čtveřice stejných karet ve štychu znamená spálenou a okamžitou výhru."
+            nadpis = "Hospodské hlášky a přehledný stůl",
+            text = "Během partie doprovázejí hru české hospodské hlášky a zvuk karet na plátně, přičemž každý dohraný štych zůstane na stole chvíli viditelný před sebráním, abys měl přehled o každé odhozené kartě. Zvuky i hlášky můžeš kdykoliv zapnout nebo ztišit tlačítkem reproduktoru vpravo nahoře."
         )
         BlokPravidel(
             nadpis = "Živé online stoly bez botů",
@@ -1604,6 +1828,6 @@ private fun BlokPravidel(nadpis: String, text: String) {
     ) {
         Text(nadpis, color = Color(0xFFFFD54F), fontSize = 15.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(4.dp))
-        Text(text, color = Color(0xFFE0E0E0), fontSize = 12.sp)
+        Text(text, color = Color(0xFFE0E0E0), fontSize = 12.sp, lineHeight = 17.sp)
     }
 }

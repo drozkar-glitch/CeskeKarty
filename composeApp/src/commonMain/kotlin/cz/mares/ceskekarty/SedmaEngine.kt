@@ -18,7 +18,11 @@ data class StavSedma(
     val spalenaTym: Int,
     val posledniHlaska: String,
     val jeKonec: Boolean,
-    val cisloTahu: Int
+    val cisloTahu: Int,
+    val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA,
+    val spalenaZRuky: Boolean = false,
+    val posledniUzavrenyStych: List<HranaKartaStolu> = emptyList(),
+    val posledniUzavrenyVitez: Int = -1
 ) {
     fun tymHrace(indexHrace: Int): Int = indexHrace % 2
 
@@ -52,6 +56,10 @@ data class StavSedma(
         pole.add("hl" to posledniHlaska)
         pole.add("kon" to if (jeKonec) "1" else "0")
         pole.add("ct" to cisloTahu.toString())
+        pole.add("vp" to variantaPravidel.kod)
+        pole.add("szr" to if (spalenaZRuky) "1" else "0")
+        pole.add("pus" to stychNaRetezec(posledniUzavrenyStych))
+        pole.add("puv" to posledniUzavrenyVitez.toString())
         return serializujMapuPoli(pole)
     }
 
@@ -83,7 +91,11 @@ data class StavSedma(
                 spalenaTym = r.cislo("sp", -1),
                 posledniHlaska = r.text("hl"),
                 jeKonec = r.pravda("kon", false),
-                cisloTahu = r.cislo("ct", 1)
+                cisloTahu = r.cislo("ct", 1),
+                variantaPravidel = VariantaPravidel.dleKodu(r.text("vp", VariantaPravidel.HOSPODSKA.kod)),
+                spalenaZRuky = r.pravda("szr", false),
+                posledniUzavrenyStych = retezecNaStych(r.text("pus")),
+                posledniUzavrenyVitez = r.cislo("puv", -1)
             )
         }
     }
@@ -102,7 +114,8 @@ object SedmaEngine {
     fun novaHra(
         jmenaHracu: List<String>,
         predmichanyBalicek: List<Karta>? = null,
-        zacinajiciHrac: Int = 0
+        zacinajiciHrac: Int = 0,
+        variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
     ): StavSedma {
         val pocet = if (jmenaHracu.size >= 4) 4 else 2
         val balicek = (predmichanyBalicek ?: Karta.vytvorZamichanyBalicek()).toMutableList()
@@ -114,6 +127,7 @@ object SedmaEngine {
             Karta.seradRuku(ruka)
         }
         val startIndex = zacinajiciHrac.mod(pocet)
+        val rezimText = variantaPravidel.kratkyNazev.lowercase()
         return StavSedma(
             pocetHracu = pocet,
             jmenaHracu = jmenaHracu.take(pocet),
@@ -131,12 +145,56 @@ object SedmaEngine {
             posledniStychTym = -1,
             spalenaTym = -1,
             posledniHlaska = if (pocet == 4) {
-                "Čtyřhra do kříže! Vynáší ${jmenaHracu[startIndex]}."
+                "Čtyřhra do kříže ($rezimText)! Vynáší ${jmenaHracu[startIndex]}."
             } else {
-                "Sedma 1 na 1! Vynáší ${jmenaHracu[startIndex]}."
+                "Sedma 1 na 1 ($rezimText)! Vynáší ${jmenaHracu[startIndex]}."
             },
             jeKonec = false,
-            cisloTahu = 1
+            cisloTahu = 1,
+            variantaPravidel = variantaPravidel,
+            spalenaZRuky = false,
+            posledniUzavrenyStych = emptyList(),
+            posledniUzavrenyVitez = -1
+        )
+    }
+
+    /**
+     * V hospodských pravidlech lze hlásit Spálenou i při 4 kartách stejné hodnoty na ruce.
+     */
+    fun zjistiSpalenouVRuce(stav: StavSedma, indexHrace: Int): HodnotaKarty? {
+        if (stav.jeKonec || stav.variantaPravidel != VariantaPravidel.HOSPODSKA) return null
+        if (stav.naTahu != indexHrace && stav.aktualniStych.isNotEmpty()) return null
+        val ruka = stav.ruceHracu.getOrNull(indexHrace) ?: return null
+        if (ruka.size < 4) return null
+        val prvniHodnota = ruka.first().hodnota
+        return if (ruka.count { it.hodnota == prvniHodnota } == 4) prvniHodnota else null
+    }
+
+    fun nahlasSpalenouZRuky(stav: StavSedma, indexHrace: Int): StavSedma {
+        val hodnotaCtyrky = zjistiSpalenouVRuce(stav, indexHrace) ?: return stav
+        val ruka = stav.ruceHracu[indexHrace]
+        val ctyriKarty = ruka.filter { it.hodnota == hodnotaCtyrky }
+        val jmeno = stav.jmenaHracu[indexHrace]
+        val vylozenyStych = ctyriKarty.map { HranaKartaStolu(indexHrace, jmeno, it) }
+        val noveRuce = stav.ruceHracu.mapIndexed { idx, r ->
+            if (idx == indexHrace) r.filterNot { it.hodnota == hodnotaCtyrky } else r
+        }
+        val viteznyTym = stav.tymHrace(indexHrace)
+        return stav.copy(
+            ruceHracu = noveRuce,
+            aktualniStych = vylozenyStych,
+            vedouciHodnota = hodnotaCtyrky,
+            prozatimBereHrac = indexHrace,
+            naTahu = indexHrace,
+            muzePustitStych = false,
+            spalenaTym = viteznyTym,
+            spalenaZRuky = true,
+            posledniStychTym = viteznyTym,
+            posledniUzavrenyStych = vylozenyStych,
+            posledniUzavrenyVitez = indexHrace,
+            posledniHlaska = "SPÁLENÁ Z RUKY! $jmeno vykládá čtveřici (${hodnotaCtyrky.ceskyNazev}) a okamžitě vyhrává!",
+            jeKonec = true,
+            cisloTahu = stav.cisloTahu + 1
         )
     }
 
@@ -148,7 +206,8 @@ object SedmaEngine {
     fun zjistiPovoleneKarty(stav: StavSedma, indexHrace: Int): Set<Karta> {
         if (stav.jeKonec || stav.naTahu != indexHrace) return emptySet()
         val ruka = stav.ruceHracu.getOrNull(indexHrace) ?: return emptySet()
-        // Když se ve 2 hráčích vrací tah na vynášejícího po přebití, smí pokračovat jen přebíjející kartou
+        // Když se ve 2 hráčích vrací tah na vynášejícího (přebití zpět nebo hospodské natahování štychu),
+        // smí pokračovat pouze kartou vedoucí hodnoty nebo sedmičkou.
         if (stav.muzePustitStych) {
             return ruka.filter { kartaPrebijiStych(stav, it) }.toSet()
         }
@@ -170,7 +229,7 @@ object SedmaEngine {
         val novyDrzitel = if (prebiji) indexHrace else stav.prozatimBereHrac
         val novyStych = stav.aktualniStych + HranaKartaStolu(indexHrace, jmeno, karta)
 
-        // Kontrola Spálené (4 karty stejné hodnoty v jednom štychu)
+        // Kontrola Spálené ve štychu (4 karty stejné hodnoty po sobě na stole)
         if (novyStych.size >= 4) {
             val posledniCtyri = novyStych.takeLast(4)
             val prvniHod = posledniCtyri.first().karta.hodnota
@@ -183,7 +242,10 @@ object SedmaEngine {
                     prozatimBereHrac = novyDrzitel,
                     muzePustitStych = false,
                     spalenaTym = viteznyTym,
+                    spalenaZRuky = false,
                     posledniStychTym = viteznyTym,
+                    posledniUzavrenyStych = novyStych,
+                    posledniUzavrenyVitez = novyDrzitel,
                     posledniHlaska = "SPÁLENÁ! $jmeno zkompletoval čtveřici (${karta.hodnota.ceskyNazev}) a okamžitě vyhrává!",
                     jeKonec = true,
                     cisloTahu = stav.cisloTahu + 1
@@ -204,6 +266,8 @@ object SedmaEngine {
                     prozatimBereHrac = novyDrzitel,
                     naTahu = dalsiHrac,
                     muzePustitStych = false,
+                    posledniUzavrenyStych = emptyList(),
+                    posledniUzavrenyVitez = -1,
                     posledniHlaska = "$jmeno $popisAkce ${karta.celyNazev()}.",
                     cisloTahu = stav.cisloTahu + 1
                 )
@@ -220,8 +284,9 @@ object SedmaEngine {
             }
         }
 
-        // Hra 2 hráčů (1 na 1): sudý počet karet uzavírá kolo štychu, pokud soupeř nepřebil nebo nelze vrátit
+        // Hra 2 hráčů (1 na 1)
         if (novyStych.size % 2 == 1) {
+            val sloveso = if (novyStych.size == 1) "vynáší" else "natahuje štych kartou"
             return stav.copy(
                 ruceHracu = noveRuce,
                 aktualniStych = novyStych,
@@ -229,18 +294,21 @@ object SedmaEngine {
                 prozatimBereHrac = novyDrzitel,
                 naTahu = dalsiHrac,
                 muzePustitStych = false,
-                posledniHlaska = "$jmeno vynáší ${karta.celyNazev()}.",
+                posledniUzavrenyStych = emptyList(),
+                posledniUzavrenyVitez = -1,
+                posledniHlaska = "$jmeno $sloveso ${karta.celyNazev()}.",
                 cisloTahu = stav.cisloTahu + 1
             )
         } else {
             val vynasejici = novyStych.first().indexHrace
+            val odpovidajici = (vynasejici + 1) % 2
             val souperPrebil = novyDrzitel != vynasejici
             val rukaVynasejiciho = noveRuce[vynasejici]
-            val maCimVratit = rukaVynasejiciho.any {
+            val maCimPokracovat = rukaVynasejiciho.any {
                 it.hodnota == vedouci || it.hodnota == HodnotaKarty.R7
-            }
+            } && noveRuce[odpovidajici].isNotEmpty()
 
-            return if (souperPrebil && maCimVratit) {
+            return if (souperPrebil && maCimPokracovat) {
                 stav.copy(
                     ruceHracu = noveRuce,
                     aktualniStych = novyStych,
@@ -248,7 +316,24 @@ object SedmaEngine {
                     prozatimBereHrac = novyDrzitel,
                     naTahu = vynasejici,
                     muzePustitStych = true,
+                    posledniUzavrenyStych = emptyList(),
+                    posledniUzavrenyVitez = -1,
                     posledniHlaska = "$jmeno přebil kartou ${karta.celyNazev()} — ${stav.jmenaHracu[vynasejici]} může přebít zpět nebo štych pustit!",
+                    cisloTahu = stav.cisloTahu + 1
+                )
+            } else if (!souperPrebil && stav.variantaPravidel == VariantaPravidel.HOSPODSKA && maCimPokracovat) {
+                // Hospodská pravidla: vynášející štych drží a má v ruce další stejnou kartu (nebo sedmu),
+                // takže může štych natáhnout a přinutit soupeře odhodit další kartu, nebo štych vzít.
+                stav.copy(
+                    ruceHracu = noveRuce,
+                    aktualniStych = novyStych,
+                    vedouciHodnota = vedouci,
+                    prozatimBereHrac = novyDrzitel,
+                    naTahu = vynasejici,
+                    muzePustitStych = true,
+                    posledniUzavrenyStych = emptyList(),
+                    posledniUzavrenyVitez = -1,
+                    posledniHlaska = "$jmeno odhodil ${karta.celyNazev()} — ${stav.jmenaHracu[vynasejici]} může vynést další stejnou kartu, nebo štych vzít!",
                     cisloTahu = stav.cisloTahu + 1
                 )
             } else {
@@ -273,7 +358,8 @@ object SedmaEngine {
     private fun uzavriStychADober(stav: StavSedma): StavSedma {
         val vitezStychu = stav.prozatimBereHrac
         val viteznyTym = stav.tymHrace(vitezStychu)
-        val bodyVeStychu = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
+        val ulozenyStych = stav.aktualniStych
+        val bodyVeStychu = ulozenyStych.sumOf { it.karta.hodnota.bodyMariasSedma }
 
         val lizaci = stav.lizaciBalicek.toMutableList()
         val ruceMut = stav.ruceHracu.map { it.toMutableList() }
@@ -314,6 +400,8 @@ object SedmaEngine {
             pocetStychuTym0 = noveStychy0,
             pocetStychuTym1 = noveStychy1,
             posledniStychTym = if (vsechnyPrazdne) viteznyTym else stav.posledniStychTym,
+            posledniUzavrenyStych = ulozenyStych,
+            posledniUzavrenyVitez = vitezStychu,
             posledniHlaska = hlaska,
             jeKonec = vsechnyPrazdne,
             cisloTahu = stav.cisloTahu + 1
@@ -323,27 +411,53 @@ object SedmaEngine {
     fun provedTahBota(stav: StavSedma): StavSedma {
         if (stav.jeKonec) return stav
         val idx = stav.naTahu
+
+        // V hospodských pravidlech bot okamžitě ohlásí Spálenou, pokud drží 4 stejné karty na ruce
+        if (zjistiSpalenouVRuce(stav, idx) != null) {
+            return nahlasSpalenouZRuky(stav, idx)
+        }
+
         val ruka = stav.ruceHracu[idx]
         if (ruka.isEmpty()) return stav
 
         if (stav.muzePustitStych) {
-            val bodyNaStole = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
             val povolene = zjistiPovoleneKarty(stav, idx)
-            val bezSedmy = povolene.firstOrNull { it.hodnota != HodnotaKarty.R7 }
-            return if (bezSedmy != null) {
-                zahrajKartu(stav, idx, bezSedmy)
-            } else if (bodyNaStole >= 10 && povolene.isNotEmpty()) {
-                zahrajKartu(stav, idx, povolene.first())
+            if (stav.prozatimBereHrac == idx) {
+                // Hospodská pravidla: bot už štych drží -> natáhne ho další kartou stejné hodnoty (neplýtvá sedmou)
+                val dalsiStejnaBezSedmy = povolene.firstOrNull { it.hodnota != HodnotaKarty.R7 }
+                return if (dalsiStejnaBezSedmy != null) {
+                    zahrajKartu(stav, idx, dalsiStejnaBezSedmy)
+                } else {
+                    pustStych(stav, idx)
+                }
             } else {
-                pustStych(stav, idx)
+                // Soupeř štych přebil -> bot zváží, zda vrátit přebití nebo štych pustit
+                val bodyNaStole = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
+                val bezSedmy = povolene.firstOrNull { it.hodnota != HodnotaKarty.R7 }
+                return if (bezSedmy != null) {
+                    zahrajKartu(stav, idx, bezSedmy)
+                } else if (bodyNaStole >= 10 && povolene.isNotEmpty()) {
+                    zahrajKartu(stav, idx, povolene.first())
+                } else {
+                    pustStych(stav, idx)
+                }
             }
         }
 
         if (stav.aktualniStych.isEmpty()) {
-            // Při výnosu neplýtvá sedmičkou ani nechráněnou desítkou
-            val kandidat = ruka.firstOrNull {
-                it.hodnota != HodnotaKarty.R7 && it.hodnota.bodyMariasSedma == 0
-            } ?: ruka.firstOrNull { it.hodnota != HodnotaKarty.R7 } ?: ruka.first()
+            // V hospodských pravidlech bot rád vynese hodnotu, od které drží více kusů v ruce (mimo sedmiček)
+            val bezSedmy = ruka.filter { it.hodnota != HodnotaKarty.R7 }
+            val kandidat = if (stav.variantaPravidel == VariantaPravidel.HOSPODSKA && stav.pocetHracu == 2 && bezSedmy.isNotEmpty()) {
+                bezSedmy.maxByOrNull { k ->
+                    val pocetStejnych = bezSedmy.count { it.hodnota == k.hodnota }
+                    val penalizaceNechranene10 = if (k.hodnota.bodyMariasSedma == 10 && pocetStejnych == 1) -3 else 0
+                    pocetStejnych * 4 + penalizaceNechranene10
+                } ?: bezSedmy.first()
+            } else {
+                ruka.firstOrNull {
+                    it.hodnota != HodnotaKarty.R7 && it.hodnota.bodyMariasSedma == 0
+                } ?: ruka.firstOrNull { it.hodnota != HodnotaKarty.R7 } ?: ruka.first()
+            }
             return zahrajKartu(stav, idx, kandidat)
         }
 
@@ -385,7 +499,11 @@ object SedmaEngine {
         if (spalena >= 0) {
             viteznyTym = spalena
             nasobekZapasu = 4
-            duvodNasobku = "Spálená (4 stejné karty ve štychu) — 4× násobek"
+            duvodNasobku = if (stav.spalenaZRuky) {
+                "Spálená z ruky (4 stejné karty v ruce) — 4× násobek"
+            } else {
+                "Spálená (4 stejné karty ve štychu) — 4× násobek"
+            }
         } else {
             viteznyTym = if (stav.uhraneBodyTym0 > stav.uhraneBodyTym1) 0 else 1
             val bodyViteze = if (viteznyTym == 0) stav.uhraneBodyTym0 else stav.uhraneBodyTym1
@@ -436,7 +554,7 @@ object SedmaEngine {
         return VysledekPartie(
             typHry = TypHry.SEDMA,
             nadpis = "Vítězí ${stav.nazevTymu(viteznyTym)}!",
-            podnadpis = duvodNasobku,
+            podnadpis = "$duvodNasobku • ${stav.variantaPravidel.kratkyNazev} pravidla",
             polozky = polozky,
             hraci = hraciZmeny
         )
