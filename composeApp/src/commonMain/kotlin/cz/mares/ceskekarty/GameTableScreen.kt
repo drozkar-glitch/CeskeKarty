@@ -185,7 +185,7 @@ fun GameTableScreen(
         )
     }
 
-    var vybraneKartyDoTalonu by remember { mutableStateOf<List<Karta>>(emptyList()) }
+    var vybraneKartyDoTalonu by remember { mutableStateOf(emptyList<Karta>()) }
     var planovanyZavazekMariase by remember { mutableStateOf(ZavazekMariase.HRA) }
     var zapoctenaVerzeVysledku by remember { mutableStateOf(-1) }
 
@@ -610,7 +610,7 @@ fun GameTableScreen(
                     onKlikKartaMarias = { karta ->
                         val s = stavMarias ?: return@SpodniRukaHrace
                         if (s.faze == FazeMariase.ODKLADANI_TALONU && s.naTahu == lokalniIndex) {
-                            vybraneKartyDoTalonu = if (karta in vybraneDoTalonu) {
+                            vybraneKartyDoTalonu = if (karta in vybraneKartyDoTalonu) {
                                 vybraneKartyDoTalonu - karta
                             } else if (vybraneKartyDoTalonu.size < 2) {
                                 vybraneKartyDoTalonu + karta

@@ -9,18 +9,14 @@ import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.jetbrains.skia.Image
-import platform.AVFAudio.AVAudioPlayer
-import platform.AVFAudio.AVSpeechBoundary
-import platform.AVFAudio.AVSpeechSynthesisVoice
-import platform.AVFAudio.AVSpeechSynthesizer
-import platform.AVFAudio.AVSpeechUtterance
+import platform.AVFAudio.*
 import platform.Foundation.*
 import platform.UIKit.UIImpactFeedbackGenerator
-import platform.UIKit.UIImpactFeedbackStyle
-import platform.UIKit.UINotificationFeedbackGenerator
-import platform.UIKit.UINotificationFeedbackType
+import platform.darwin.DISPATCH_TIME_NOW
+import platform.darwin.dispatch_after
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
+import platform.darwin.dispatch_time
 import platform.posix.memcpy
 
 private val iosSyntezatorReci: AVSpeechSynthesizer by lazy { AVSpeechSynthesizer() }
@@ -42,7 +38,7 @@ actual fun nactiTextZUloziste(klic: String, vychozi: String): String {
 
 actual fun jemnaHaptika() {
     dispatch_async(dispatch_get_main_queue()) {
-        val generator = UIImpactFeedbackGenerator(style = UIImpactFeedbackStyle.UIImpactFeedbackStyleMedium)
+        val generator = UIImpactFeedbackGenerator()
         generator.prepare()
         generator.impactOccurred()
     }
@@ -50,9 +46,13 @@ actual fun jemnaHaptika() {
 
 actual fun silnaHaptika() {
     dispatch_async(dispatch_get_main_queue()) {
-        val generator = UINotificationFeedbackGenerator()
+        val generator = UIImpactFeedbackGenerator()
         generator.prepare()
-        generator.notificationOccurred(UINotificationFeedbackType.UINotificationFeedbackTypeSuccess)
+        generator.impactOccurredWithIntensity(1.0)
+        val druhyPulz = dispatch_time(DISPATCH_TIME_NOW, 75_000_000L)
+        dispatch_after(druhyPulz, dispatch_get_main_queue()) {
+            generator.impactOccurredWithIntensity(1.0)
+        }
     }
 }
 
@@ -67,15 +67,12 @@ actual fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHla
     if (text.isBlank()) return
     dispatch_async(dispatch_get_main_queue()) {
         try {
-            if (iosSyntezatorReci.isSpeaking()) {
-                iosSyntezatorReci.stopSpeakingAtBoundary(AVSpeechBoundary.AVSpeechBoundaryImmediate)
-            }
-            val vyrok = AVSpeechUtterance(string = text)
+            iosSyntezatorReci.stopSpeakingAtBoundary(AVSpeechBoundaryImmediate)
+            val vyrok = AVSpeechUtterance.speechUtteranceWithString(text)
             val hlas = AVSpeechSynthesisVoice.voiceWithLanguage("cs-CZ")
             if (hlas != null) {
                 vyrok.voice = hlas
                 vyrok.pitchMultiplier = vyskaHlasu.coerceIn(0.65f, 1.45f)
-                // AVSpeechUtterance pouziva zakladni tempo okolo 0.50f
                 vyrok.rate = (0.49f * rychlostHlasu).coerceIn(0.36f, 0.62f)
                 iosSyntezatorReci.speakUtterance(vyrok)
             }
@@ -87,9 +84,7 @@ actual fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHla
 actual fun zastavMluveniPlatforma() {
     dispatch_async(dispatch_get_main_queue()) {
         try {
-            if (iosSyntezatorReci.isSpeaking()) {
-                iosSyntezatorReci.stopSpeakingAtBoundary(AVSpeechBoundary.AVSpeechBoundaryImmediate)
-            }
+            iosSyntezatorReci.stopSpeakingAtBoundary(AVSpeechBoundaryImmediate)
         } catch (_: Throwable) {
         }
     }
@@ -104,7 +99,7 @@ actual fun prehrajZvukovyEfektPlatforma(efekt: EfektStolu) {
     dispatch_async(dispatch_get_main_queue()) {
         try {
             val nsData = bajtyNaNsData(wavBajty)
-            val prehravac = AVAudioPlayer(data = nsData, error = null)
+            val prehravac = AVAudioPlayer(nsData, null)
             prehravac.volume = 0.75f
             prehravac.prepareToPlay()
             prehravac.play()
@@ -173,7 +168,7 @@ actual suspend fun provedSitovyDotaz(
         }
         val httpOdpoved = odpoved as? NSHTTPURLResponse
         val kod = httpOdpoved?.statusCode?.toInt() ?: 200
-        val textOdpovedi = if (data != null) nsDataNaBajty(data) else ""
+        val textOdpovedi = if (data != null) nsDataNaRetezec(data) else ""
         pokracovani.resume(
             SitovaOdpoved(
                 stavovyKod = kod,
