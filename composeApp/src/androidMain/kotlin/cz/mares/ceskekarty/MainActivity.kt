@@ -9,9 +9,20 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         inicializujAndroidPlatformu(applicationContext)
+        zaregistrujHlavniAktivitu(this)
         enableEdgeToEdge()
         setContent {
             App()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        zaregistrujHlavniAktivitu(this)
+    }
+
+    override fun onDestroy() {
+        odregistrujHlavniAktivitu(this)
+        super.onDestroy()
     }
 }

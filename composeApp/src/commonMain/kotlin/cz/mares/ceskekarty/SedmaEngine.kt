@@ -91,6 +91,14 @@ data class StavSedma(
 
 object SedmaEngine {
 
+    private fun sklonujStychy(pocet: Int): String {
+        return when {
+            pocet == 1 -> "1 štych"
+            pocet in 2..4 -> "$pocet štychy"
+            else -> "$pocet štychů"
+        }
+    }
+
     fun novaHra(
         jmenaHracu: List<String>,
         predmichanyBalicek: List<Karta>? = null,
@@ -106,7 +114,6 @@ object SedmaEngine {
             Karta.seradRuku(ruka)
         }
         val startIndex = zacinajiciHrac.mod(pocet)
-
         return StavSedma(
             pocetHracu = pocet,
             jmenaHracu = jmenaHracu.take(pocet),
@@ -141,7 +148,6 @@ object SedmaEngine {
     fun zjistiPovoleneKarty(stav: StavSedma, indexHrace: Int): Set<Karta> {
         if (stav.jeKonec || stav.naTahu != indexHrace) return emptySet()
         val ruka = stav.ruceHracu.getOrNull(indexHrace) ?: return emptySet()
-
         // Když se ve 2 hráčích vrací tah na vynášejícího po přebití, smí pokračovat jen přebíjející kartou
         if (stav.muzePustitStych) {
             return ruka.filter { kartaPrebijiStych(stav, it) }.toSet()
@@ -161,7 +167,6 @@ object SedmaEngine {
         val prebiji = stav.aktualniStych.isEmpty() ||
             karta.hodnota == vedouci ||
             karta.hodnota == HodnotaKarty.R7
-
         val novyDrzitel = if (prebiji) indexHrace else stav.prozatimBereHrac
         val novyStych = stav.aktualniStych + HranaKartaStolu(indexHrace, jmeno, karta)
 
@@ -282,8 +287,8 @@ object SedmaEngine {
 
         val serazeneRuce = ruceMut.map { Karta.seradRuku(it) }
         val vsechnyPrazdne = serazeneRuce.all { it.isEmpty() }
-
         val bonusPosledniho = if (vsechnyPrazdne) 10 else 0
+
         val noveBody0 = stav.uhraneBodyTym0 + if (viteznyTym == 0) bodyVeStychu + bonusPosledniho else 0
         val noveBody1 = stav.uhraneBodyTym1 + if (viteznyTym == 1) bodyVeStychu + bonusPosledniho else 0
         val noveStychy0 = stav.pocetStychuTym0 + if (viteznyTym == 0) 1 else 0
@@ -403,8 +408,16 @@ object SedmaEngine {
 
         val zapasoveBody = nasobekZapasu * 10
         val polozky = listOf(
-            PolozkaVyuctovani(stav.nazevTymu(0), "${stav.uhraneBodyTym0} b. (${stav.pocetStychuTym0} štychů)", viteznyTym == 0),
-            PolozkaVyuctovani(stav.nazevTymu(1), "${stav.uhraneBodyTym1} b. (${stav.pocetStychuTym1} štychů)", viteznyTym == 1),
+            PolozkaVyuctovani(
+                stav.nazevTymu(0),
+                "${stav.uhraneBodyTym0} b. (${sklonujStychy(stav.pocetStychuTym0)})",
+                viteznyTym == 0
+            ),
+            PolozkaVyuctovani(
+                stav.nazevTymu(1),
+                "${stav.uhraneBodyTym1} b. (${sklonujStychy(stav.pocetStychuTym1)})",
+                viteznyTym == 1
+            ),
             PolozkaVyuctovani("Hodnocení hry", duvodNasobku, jeZvyraznena = true),
             PolozkaVyuctovani("Zápasové skóre", "+$zapasoveBody b.", jeZvyraznena = true)
         )

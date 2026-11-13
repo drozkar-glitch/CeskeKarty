@@ -79,6 +79,29 @@ data class StavPrsi(
 
 object PrsiEngine {
 
+    private fun sklonujKartyVRuce(pocet: Int): String {
+        return when {
+            pocet == 1 -> "1 karta v ruce"
+            pocet in 2..4 -> "$pocet karty v ruce"
+            else -> "$pocet karet v ruce"
+        }
+    }
+
+    private fun sklonujBereSeKaret(pocet: Int): String {
+        return when {
+            pocet in 2..4 -> "berou se $pocet karty"
+            else -> "bere se $pocet karet"
+        }
+    }
+
+    private fun sklonujKartyAkuzativ(pocet: Int): String {
+        return when {
+            pocet == 1 -> "1 kartu"
+            pocet in 2..4 -> "$pocet karty"
+            else -> "$pocet karet"
+        }
+    }
+
     fun novaHra(
         jmenaHracu: List<String>,
         predmichanyBalicek: List<Karta>? = null,
@@ -95,7 +118,6 @@ object PrsiEngine {
         }
         val prvniNaStole = balicek.removeAt(0)
         val startIndex = zacinajiciHrac.mod(pocet)
-
         return StavPrsi(
             pocetHracu = pocet,
             jmenaHracu = jmenaHracu.take(pocet),
@@ -129,7 +151,6 @@ object PrsiEngine {
 
         val platnaBarva = stav.aktualniPlatnaBarva
         val vrchniHodnota = stav.vrchniKarta.hodnota
-
         return ruka.filter { karta ->
             karta.hodnota == HodnotaKarty.SVRSEK ||
                 karta.barva == platnaBarva ||
@@ -182,9 +203,9 @@ object PrsiEngine {
 
         val hlaska = when {
             karta.hodnota == HodnotaKarty.R7 ->
-                "$jmeno hraje ${karta.celyNazev()} — líže se ${noveSedmy * 2} karet!"
+                "$jmeno hraje ${karta.celyNazev()} — ${sklonujBereSeKaret(noveSedmy * 2)}!"
             karta.hodnota == HodnotaKarty.ESO ->
-                "$jmeno hraje ${karta.celyNazev()} — další hráč stojí!"
+                "$jmeno hraje ${karta.celyNazev()} — další stojí!"
             karta.hodnota == HodnotaKarty.SVRSEK && barvaSvrskem != null ->
                 "$jmeno mění svrškem barvu na ${barvaSvrskem.ceskyNazev}!"
             else ->
@@ -250,9 +271,8 @@ object PrsiEngine {
 
         val novaRuka = Karta.seradRuku(stav.ruceHracu[indexHrace] + dobrane)
         val noveRuce = stav.ruceHracu.mapIndexed { idx, r -> if (idx == indexHrace) novaRuka else r }
-
         val hlaska = if (stav.aktivniSedmyPocet > 0) {
-            "$jmeno líže ${dobrane.size} karet za sedmičku."
+            "$jmeno líže ${sklonujKartyAkuzativ(dobrane.size)} za sedmičku."
         } else {
             "$jmeno si lízl kartu z balíčku."
         }
@@ -333,7 +353,7 @@ object PrsiEngine {
             val pocetKaret = stav.ruceHracu[i].size
             polozky.add(
                 PolozkaVyuctovani(
-                    popis = "${stav.jmenaHracu[i]} (${pocetKaret} karet v ruce)",
+                    popis = "${stav.jmenaHracu[i]} (${sklonujKartyVRuce(pocetKaret)})",
                     hodnotaText = if (i == vitez) "+$celkemOdSouperu b." else "-${trestneBody[i]} b.",
                     jeZvyraznena = i == vitez
                 )

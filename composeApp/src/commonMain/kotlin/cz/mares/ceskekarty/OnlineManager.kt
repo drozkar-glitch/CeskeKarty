@@ -365,6 +365,7 @@ object OnlineManager {
             .replace("$", "")
             .replace("[", "")
             .replace("]", "")
+
         if (cista.length < 3) {
             return VysledekRegistraceNicku.Chyba("Přezdívka musí mít alespoň 3 znaky.")
         }
@@ -374,7 +375,7 @@ object OnlineManager {
 
         val cistyPin = pin.trim()
         if (cistyPin.length != 4 || !cistyPin.all { it.isDigit() }) {
-            return VysledekRegistraceNicku.Chyba("Zadej prosím přesně 4 číslice PIN kódu.")
+            return VysledekRegistraceNicku.Chyba("Zadej prosím 4 číslice PIN kódu.")
         }
 
         val zadanyOtisk = vypoctiOtiskPinu(cista, cistyPin)
@@ -419,10 +420,9 @@ object OnlineManager {
                 hsTereziany >= 0 -> hsTereziany
                 else -> STARTOVNI_TEREZIANY
             }.coerceIn(0, 999_999)
-
             val posledniDen = ucetObj.cisloInt("lastDailyDay", nactiPosledniDenOdmeny())
-
             val nyni = ziskejAktualniCasMs()
+
             val teloUcet = """{"nick":${jsonEscape(kanonickyNick)},"pinHash":${jsonEscape(zadanyOtisk)},"deviceId":${jsonEscape(puvodniDeviceId)},"score":$obnoveneTereziany,"lastDailyDay":$posledniDen,"updatedAt":$nyni}"""
             val zapisUcet = dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
             if (!zapisUcet.uspesne) {
@@ -456,7 +456,6 @@ object OnlineManager {
             else -> -1
         }
         val hsDeviceId = (hsPrvek as? JsonPrvek.Objekt)?.retezec("deviceId", "") ?: ""
-
         if (hsPrvek is JsonPrvek.Objekt || hsPrvek is JsonPrvek.Cislo) {
             if (hsDeviceId.isNotEmpty() && hsDeviceId != mojeId) {
                 return VysledekRegistraceNicku.Chyba("Tato přezdívka je již obsazena jiným hráčem.")
@@ -474,7 +473,7 @@ object OnlineManager {
         val zapisUcet = dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
         if (!zapisUcet.uspesne) {
             return if (zapisUcet.stavovyKod == 401 || zapisUcet.stavovyKod == 403) {
-                VysledekRegistraceNicku.Chyba("Zápis účtu byl zamítnut databází — ulož prosím nová Rules ve Firebase.")
+                VysledekRegistraceNicku.Chyba("Zápis účtu byl zamítnut databází — ulož prosím nové Rules ve Firebase.")
             } else {
                 VysledekRegistraceNicku.Chyba("Nepodařilo se uložit účet na server — zkontroluj připojení.")
             }
@@ -585,10 +584,11 @@ object OnlineManager {
         if (!odpoved.uspesne || odpoved.telo.isBlank() || odpoved.telo.trim() == "null") {
             return emptyList()
         }
+
         val koren = parsujJsonText(odpoved.telo) as? JsonPrvek.Objekt ?: return emptyList()
         val mujNick = nactiUlozenouPrezdivku()
-
         val nactene = ArrayList<Pair<String, Int>>()
+
         for ((nick, hodnota) in koren.polozky) {
             val skore = when (hodnota) {
                 is JsonPrvek.Objekt -> hodnota.cisloInt("score", 0)
@@ -657,6 +657,7 @@ object OnlineManager {
         val metaText = obj.retezec("meta", "")
         if (metaText.isBlank()) return null
         val r = PoleStavuReader(metaText)
+
         val roomId = r.text("id", fallbackId)
         val typHry = TypHry.dleId(r.text("typ", "PRSI"))
         val stavText = obj.retezec("statusOverride", r.text("stav", "CEKANI"))
@@ -686,7 +687,6 @@ object OnlineManager {
         }
 
         val ukoncenoOverride = obj.retezec("abortedBy", r.text("uk", ""))
-
         return OnlineStul(
             roomId = roomId,
             nazevStolu = r.text("naz", "Stůl"),
@@ -723,9 +723,13 @@ object OnlineManager {
         for ((id, hodnota) in koren.polozky) {
             val obj = hodnota as? JsonPrvek.Objekt ?: continue
             val stul = parsujStulZJsonObjektu(id, obj) ?: continue
-
             val nejnovejsiTep = stul.tepyHracu.maxOfOrNull { it.casMs } ?: stul.vytvorenoMs
-            if (nyni - nejnovejsiTep > 20 * 60_000L || stul.stavMistnosti == StavMistnosti.DOHRANO) {
+            val limitNeaktivityMs = if (stul.stavMistnosti == StavMistnosti.CEKANI) {
+                90_000L
+            } else {
+                5 * 60_000L
+            }
+            if (nyni - nejnovejsiTep > limitNeaktivityMs || stul.stavMistnosti == StavMistnosti.DOHRANO) {
                 smazStul(stul.roomId)
                 continue
             }
@@ -744,6 +748,10 @@ object OnlineManager {
         return parsujStulZJsonObjektu(roomId, obj)
     }
 
+    /**
+     * Založení stolu s ochranou proti spamerům: běžný stůl má deterministický klíč podle deviceId zakladatele,
+     * takže jedno zařízení může mít v databázi otevřený vždy nejvýše jeden vlastní stůl.
+     */
     suspend fun vytvorStul(
         nazevStolu: String,
         typHry: TypHry,
@@ -758,10 +766,13 @@ object OnlineManager {
         val mujNick = nactiUlozenouPrezdivku().ifBlank { "Hráč" }
         val mojeTereziany = nactiLokalniTereziany()
         val nyni = ziskejAktualniCasMs()
-        val nahoda = Random.nextInt(1000, 9999)
-        val roomId = "stul_${nyni}_$nahoda"
-
+        val roomId = if (turnajId.isNotEmpty()) {
+            "turstul_${turnajId}_${slotZapasu.coerceAtLeast(0)}"
+        } else {
+            "stul_${mojeId}"
+        }
         val seznamHracu = predvyplneniHraci ?: listOf(HracUStolu(mojeId, mujNick, mojeTereziany))
+
         val stul = OnlineStul(
             roomId = roomId,
             nazevStolu = nazevStolu.ifBlank { "${typHry.nazev} — $mujNick" },
@@ -801,13 +812,12 @@ object OnlineManager {
     suspend fun prisedniKeStolu(roomId: String, zadanyPin: String = ""): Result<OnlineStul> {
         val aktualni = nactiKonkretniStul(roomId)
             ?: return Result.failure(Exception("Stůl již neexistuje."))
-
         val mojeId = ziskejUnikatniIdZarizeni()
+
         if (aktualni.hraci.any { it.deviceId == mojeId }) {
             odesliTepSpojeni(roomId)
             return Result.success(aktualni)
         }
-
         if (aktualni.stavMistnosti != StavMistnosti.CEKANI) {
             return Result.failure(Exception("Hra u tohoto stolu již probíhá."))
         }
@@ -815,16 +825,16 @@ object OnlineManager {
             return Result.failure(Exception("Stůl je již plně obsazen."))
         }
         if (aktualni.jeSoukromy && aktualni.pinKod != zadanyPin.trim()) {
-            return Result.failure(Exception("Nesprávný 4místný PIN soukromého stolu."))
+            return Result.failure(Exception("Nesprávný PIN soukromého stolu."))
         }
 
         val mujNick = nactiUlozenouPrezdivku().ifBlank { "Hráč" }
         val mojeTereziany = nactiLokalniTereziany()
         val noviHraci = aktualni.hraci + HracUStolu(mojeId, mujNick, mojeTereziany)
         val upraveny = aktualni.copy(hraci = noviHraci)
-
         val meta = serializujMetaStolu(upraveny)
         val patchTelo = """{"meta":${jsonEscape(meta)}}"""
+
         val zapis = dotazSOpakovanim("PATCH", "$FIREBASE_DB_ZAKLAD/card_rooms/$roomId.json", patchTelo)
         if (!zapis.uspesne) {
             return Result.failure(Exception("Nepodařilo se přisednout — zkontroluj připojení."))
@@ -835,8 +845,42 @@ object OnlineManager {
             val spusteny = rozdejASpustStul(upraveny, zacinajiciIndex = 0)
             if (spusteny != null) return Result.success(spusteny)
         }
-
         return Result.success(upraveny)
+    }
+
+    /**
+     * Korektní opuštění čekárny nebo dohraného stolu:
+     * pokud odchází zakladatel nebo poslední hráč, stůl se smaže; pokud odchází přísedící spoluhráč,
+     * uvolní se jeho židle a běžný stůl se vrátí do stavu CEKANI pro další zájemce.
+     */
+    suspend fun opustStul(roomId: String) {
+        if (roomId.isBlank()) return
+        val aktualni = nactiKonkretniStul(roomId) ?: return
+        val mojeId = ziskejUnikatniIdZarizeni()
+
+        if (aktualni.hostDeviceId == mojeId || aktualni.hraci.size <= 1 || aktualni.turnajId.isNotEmpty()) {
+            smazStul(roomId)
+            return
+        }
+
+        val zbyliHraci = aktualni.hraci.filterNot { it.deviceId == mojeId }
+        if (zbyliHraci.isEmpty()) {
+            smazStul(roomId)
+            return
+        }
+
+        provedSitovyDotaz("DELETE", "$FIREBASE_DB_ZAKLAD/card_rooms/$roomId/heartbeats/$mojeId.json")
+        val nyni = ziskejAktualniCasMs()
+        val upraveny = aktualni.copy(
+            stavMistnosti = StavMistnosti.CEKANI,
+            hraci = zbyliHraci,
+            serializovanyStavHry = "",
+            verzeStavu = aktualni.verzeStavu + 1,
+            zacatekTahuMs = nyni
+        )
+        val meta = serializujMetaStolu(upraveny)
+        val patch = """{"meta":${jsonEscape(meta)},"state":"","version":${upraveny.verzeStavu},"turnStartedAt":$nyni,"statusOverride":"CEKANI"}"""
+        dotazSOpakovanim("PATCH", "$FIREBASE_DB_ZAKLAD/card_rooms/$roomId.json", patch, pokusy = 2)
     }
 
     private suspend fun vygenerujBalicekPresWorkerNeboLokalne(
@@ -875,15 +919,14 @@ object OnlineManager {
         noveCisloRozdani: Int = stul.cisloRozdani,
         noveSouctyBodu: List<Int> = stul.soucetBoduHracu
     ): OnlineStul? {
+        if (stul.hraci.size < stul.maxHracu) return null
         val jmena = stul.hraci.map { it.prezdivka }
         val balicek = vygenerujBalicekPresWorkerNeboLokalne(stul.roomId, stul.typHry, stul.hraci)
-
         val stavRetezec = when (stul.typHry) {
             TypHry.PRSI -> PrsiEngine.novaHra(jmena, balicek, zacinajiciIndex).doKompaktnihoRetezce()
             TypHry.SEDMA -> SedmaEngine.novaHra(jmena, balicek, zacinajiciIndex).doKompaktnihoRetezce()
             TypHry.MARIAS -> MariasEngine.novaHra(jmena, zacinajiciIndex, balicek).doKompaktnihoRetezce()
         }
-
         val nyni = ziskejAktualniCasMs()
         val novyStul = stul.copy(
             stavMistnosti = StavMistnosti.HRAJE_SE,
@@ -1034,10 +1077,12 @@ object OnlineManager {
         val koren = parsujJsonText(odpoved.telo) as? JsonPrvek.Objekt ?: return emptyList()
         val nyni = ziskejAktualniCasMs()
         val seznam = ArrayList<OnlineTurnaj>()
+
         for ((id, prvek) in koren.polozky) {
             val obj = prvek as? JsonPrvek.Objekt ?: continue
             val turnaj = deserializujTurnaj(obj.retezec("payload", "")) ?: continue
-            if (nyni - turnaj.vytvorenoMs > 3 * 3600_000L) {
+            val limitTurnajeMs = if (turnaj.stav == "REGISTRACE") 30 * 60_000L else 3 * 3600_000L
+            if (nyni - turnaj.vytvorenoMs > limitTurnajeMs) {
                 provedSitovyDotaz("DELETE", "$FIREBASE_DB_ZAKLAD/card_tournaments/$id.json")
                 continue
             }
@@ -1048,12 +1093,18 @@ object OnlineManager {
 
     suspend fun vytvorTurnaj(nazev: String, typHry: TypHry): OnlineTurnaj? {
         val mojeId = ziskejUnikatniIdZarizeni()
+        val existujiciAktivni = nactiTurnaje().firstOrNull {
+            it.stav != "DOKONCENO" && it.ucastnici.firstOrNull()?.deviceId == mojeId
+        }
+        if (existujiciAktivni != null) {
+            return existujiciAktivni
+        }
+
         val mujNick = nactiUlozenouPrezdivku().ifBlank { "Hráč" }
         val mojeTereziany = nactiLokalniTereziany()
         val nyni = ziskejAktualniCasMs()
         val tid = "tur_${nyni}_${Random.nextInt(100, 999)}"
         val kapacita = if (typHry == TypHry.MARIAS) 3 else 4
-
         val turnaj = OnlineTurnaj(
             turnajId = tid,
             nazev = nazev.ifBlank { "Pohár: ${typHry.nazev}" },
@@ -1204,7 +1255,6 @@ object OnlineManager {
         val sfA = upraveneZapasy.firstOrNull { it.slot == 0 }
         val sfB = upraveneZapasy.firstOrNull { it.slot == 1 }
         val finale = upraveneZapasy.firstOrNull { it.slot == 2 }
-
         if (sfA != null && sfB != null && finale != null) {
             var noveFinale = finale.copy(
                 hrac1Id = sfA.vitezId.ifEmpty { finale.hrac1Id },
@@ -1230,7 +1280,6 @@ object OnlineManager {
             val idxFinale = upraveneZapasy.indexOfFirst { it.slot == 2 }
             if (idxFinale >= 0) upraveneZapasy[idxFinale] = noveFinale
         }
-
         ulozTurnaj(turnaj.copy(zapasy = upraveneZapasy))
     }
 }

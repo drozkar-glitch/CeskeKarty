@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +28,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -133,6 +135,7 @@ private fun sklonujKartyAkuzativ(pocet: Int): String {
 fun GameTableScreen(
     offlineKonfig: KonfiguraceOfflineHry?,
     pocatecniOnlineStul: OnlineStul?,
+    onVratitDoCekarny: (OnlineStul) -> Unit = {},
     onOpustitStul: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -144,6 +147,7 @@ fun GameTableScreen(
     var tikSekundyMs by remember { mutableStateOf(ziskejAktualniCasMs()) }
     var potvrditOdchod by remember { mutableStateOf(false) }
     var aktualniMesecTerezianu by remember { mutableStateOf(nactiLokalniTereziany()) }
+    var zvukZapnut by remember { mutableStateOf(jeZvukAHlaskyZapnuty()) }
 
     val aktivniTypHry = onlineStul?.typHry ?: offlineKonfig?.typHry ?: TypHry.PRSI
     val pocetHracu = onlineStul?.maxHracu ?: offlineKonfig?.pocetHracu ?: 3
@@ -193,6 +197,55 @@ fun GameTableScreen(
         }
     }
 
+    DisposableEffect(Unit) {
+        HospodaZvuk.pleskniKartou()
+        onDispose {
+            zastavMluveniPlatforma()
+        }
+    }
+
+    var sledovanyPrsi by remember { mutableStateOf(stavPrsi) }
+    LaunchedEffect(stavPrsi) {
+        val novy = stavPrsi ?: return@LaunchedEffect
+        val stary = sledovanyPrsi
+        if (stary != null && novy !== stary) {
+            if (novy.cisloTahu <= 1 && stary.cisloTahu > 1) {
+                HospodaZvuk.pleskniKartou()
+            } else {
+                HospodaZvuk.zpracujZmenuPrsi(stary, novy)
+            }
+        }
+        sledovanyPrsi = novy
+    }
+
+    var sledovanaSedma by remember { mutableStateOf(stavSedma) }
+    LaunchedEffect(stavSedma) {
+        val novy = stavSedma ?: return@LaunchedEffect
+        val stary = sledovanaSedma
+        if (stary != null && novy !== stary) {
+            if (novy.cisloTahu <= 1 && stary.cisloTahu > 1) {
+                HospodaZvuk.pleskniKartou()
+            } else {
+                HospodaZvuk.zpracujZmenuSedmy(stary, novy)
+            }
+        }
+        sledovanaSedma = novy
+    }
+
+    var sledovanyMarias by remember { mutableStateOf(stavMarias) }
+    LaunchedEffect(stavMarias) {
+        val novy = stavMarias ?: return@LaunchedEffect
+        val stary = sledovanyMarias
+        if (stary != null && novy !== stary) {
+            if (novy.cisloTahu <= 1 && stary.cisloTahu > 1) {
+                HospodaZvuk.pleskniKartou()
+            } else {
+                HospodaZvuk.zpracujZmenuMariase(stary, novy)
+            }
+        }
+        sledovanyMarias = novy
+    }
+
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000L)
@@ -212,59 +265,66 @@ fun GameTableScreen(
         val rid = onlineStul?.roomId ?: return@LaunchedEffect
         while (jeOnlineRezim) {
             val cerstvy = OnlineManager.nactiKonkretniStul(rid)
-            if (cerstvy != null) {
-                val zmenaStavu = cerstvy.verzeStavu != onlineStul?.verzeStavu ||
-                    cerstvy.serializovanyStavHry != onlineStul?.serializovanyStavHry
-                onlineStul = cerstvy
-                if (zmenaStavu && cerstvy.serializovanyStavHry.isNotBlank()) {
-                    when (cerstvy.typHry) {
-                        TypHry.PRSI -> StavPrsi.zKompaktnihoRetezce(cerstvy.serializovanyStavHry)?.let { stavPrsi = it }
-                        TypHry.SEDMA -> StavSedma.zKompaktnihoRetezce(cerstvy.serializovanyStavHry)?.let { stavSedma = it }
-                        TypHry.MARIAS -> StavMarias.zKompaktnihoRetezce(cerstvy.serializovanyStavHry)?.let {
-                            stavMarias = it
-                            if (it.faze != FazeMariase.ODKLADANI_TALONU) {
-                                vybraneKartyDoTalonu = emptyList()
-                            } else {
-                                planovanyZavazekMariase = it.zavazek
-                            }
+            if (cerstvy == null) {
+                onOpustitStul()
+                break
+            }
+            if (cerstvy.stavMistnosti == StavMistnosti.CEKANI && cerstvy.hraci.size < cerstvy.maxHracu) {
+                onVratitDoCekarny(cerstvy)
+                break
+            }
+
+            val zmenaStavu = cerstvy.verzeStavu != onlineStul?.verzeStavu ||
+                cerstvy.serializovanyStavHry != onlineStul?.serializovanyStavHry
+            onlineStul = cerstvy
+            if (zmenaStavu && cerstvy.serializovanyStavHry.isNotBlank()) {
+                when (cerstvy.typHry) {
+                    TypHry.PRSI -> StavPrsi.zKompaktnihoRetezce(cerstvy.serializovanyStavHry)?.let { stavPrsi = it }
+                    TypHry.SEDMA -> StavSedma.zKompaktnihoRetezce(cerstvy.serializovanyStavHry)?.let { stavSedma = it }
+                    TypHry.MARIAS -> StavMarias.zKompaktnihoRetezce(cerstvy.serializovanyStavHry)?.let {
+                        stavMarias = it
+                        if (it.faze != FazeMariase.ODKLADANI_TALONU) {
+                            vybraneKartyDoTalonu = emptyList()
+                        } else {
+                            planovanyZavazekMariase = it.zavazek
                         }
                     }
                 }
+            }
 
-                if (cerstvy.stavMistnosti == StavMistnosti.HRAJE_SE) {
-                    val nyni = ziskejAktualniCasMs()
-                    val jeHraHotova = when (cerstvy.typHry) {
-                        TypHry.PRSI -> stavPrsi?.jeKonec == true
-                        TypHry.SEDMA -> stavSedma?.jeKonec == true
-                        TypHry.MARIAS -> stavMarias?.faze == FazeMariase.KONEC
+            if (cerstvy.stavMistnosti == StavMistnosti.HRAJE_SE) {
+                val nyni = ziskejAktualniCasMs()
+                val jeHraHotova = when (cerstvy.typHry) {
+                    TypHry.PRSI -> stavPrsi?.jeKonec == true
+                    TypHry.SEDMA -> stavSedma?.jeKonec == true
+                    TypHry.MARIAS -> stavMarias?.faze == FazeMariase.KONEC
+                }
+                if (!jeHraHotova) {
+                    val odpojenyHrac = cerstvy.hraci.firstOrNull { hrac ->
+                        cerstvy.infoPripojeni(hrac.deviceId, nyni).stav == StavPripojeniHrace.ODPOJEN_CERVENA
                     }
-                    if (!jeHraHotova) {
-                        val odpojenyHrac = cerstvy.hraci.firstOrNull { hrac ->
-                            cerstvy.infoPripojeni(hrac.deviceId, nyni).stav == StavPripojeniHrace.ODPOJEN_CERVENA
+                    val prekrocenTah = nyni - cerstvy.zacatekTahuMs >= LIMIT_ODPOJENI_MS
+                    if (odpojenyHrac != null || prekrocenTah) {
+                        val kdoIndex = when (cerstvy.typHry) {
+                            TypHry.PRSI -> stavPrsi?.naTahu ?: 0
+                            TypHry.SEDMA -> stavSedma?.naTahu ?: 0
+                            TypHry.MARIAS -> stavMarias?.naTahu ?: 0
                         }
-                        val prekrocenTah = nyni - cerstvy.zacatekTahuMs >= LIMIT_ODPOJENI_MS
-                        if (odpojenyHrac != null || prekrocenTah) {
-                            val kdoIndex = when (cerstvy.typHry) {
-                                TypHry.PRSI -> stavPrsi?.naTahu ?: 0
-                                TypHry.SEDMA -> stavSedma?.naTahu ?: 0
-                                TypHry.MARIAS -> stavMarias?.naTahu ?: 0
-                            }
-                            val jmenoVinika = odpojenyHrac?.prezdivka
-                                ?: cerstvy.hraci.getOrNull(kdoIndex)?.prezdivka
-                                ?: "Hráč"
-                            val ukonceny = OnlineManager.ukonciStulProVypadek(cerstvy, jmenoVinika)
-                            onlineStul = ukonceny
+                        val jmenoVinika = odpojenyHrac?.prezdivka
+                            ?: cerstvy.hraci.getOrNull(kdoIndex)?.prezdivka
+                            ?: "Hráč"
+                        val ukonceny = OnlineManager.ukonciStulProVypadek(cerstvy, jmenoVinika)
+                        onlineStul = ukonceny
 
-                            if (cerstvy.turnajId.isNotEmpty() && odpojenyHrac?.deviceId != mojeDeviceId) {
-                                val pritomny = cerstvy.hraci.firstOrNull { it.deviceId != odpojenyHrac?.deviceId }
-                                if (pritomny != null) {
-                                    OnlineManager.zapisVysledekTurnajovehoZapasu(
-                                        turnajId = cerstvy.turnajId,
-                                        slotZapasu = cerstvy.slotZapasu,
-                                        vitezDeviceId = pritomny.deviceId,
-                                        vitezJmeno = pritomny.prezdivka
-                                    )
-                                }
+                        if (cerstvy.turnajId.isNotEmpty() && odpojenyHrac?.deviceId != mojeDeviceId) {
+                            val pritomny = cerstvy.hraci.firstOrNull { it.deviceId != odpojenyHrac?.deviceId }
+                            if (pritomny != null) {
+                                OnlineManager.zapisVysledekTurnajovehoZapasu(
+                                    turnajId = cerstvy.turnajId,
+                                    slotZapasu = cerstvy.slotZapasu,
+                                    vitezDeviceId = pritomny.deviceId,
+                                    vitezJmeno = pritomny.prezdivka
+                                )
                             }
                         }
                     }
@@ -282,25 +342,26 @@ fun GameTableScreen(
 
     LaunchedEffect(jeOnlineRezim, aktualniCisloTahu) {
         if (jeOnlineRezim) return@LaunchedEffect
+        val prodlevaBotaMs = if (zvukZapnut) 1050L else 700L
         when (aktivniTypHry) {
             TypHry.PRSI -> {
                 val s = stavPrsi ?: return@LaunchedEffect
                 if (!s.jeKonec && s.naTahu != 0) {
-                    delay(680L)
+                    delay(prodlevaBotaMs)
                     stavPrsi = PrsiEngine.provedTahBota(s)
                 }
             }
             TypHry.SEDMA -> {
                 val s = stavSedma ?: return@LaunchedEffect
                 if (!s.jeKonec && s.naTahu != 0) {
-                    delay(720L)
+                    delay(prodlevaBotaMs)
                     stavSedma = SedmaEngine.provedTahBota(s)
                 }
             }
             TypHry.MARIAS -> {
                 val s = stavMarias ?: return@LaunchedEffect
                 if (s.faze != FazeMariase.KONEC && s.naTahu != 0) {
-                    delay(760L)
+                    delay(prodlevaBotaMs)
                     stavMarias = MariasEngine.provedTahBota(s)
                 }
             }
@@ -404,11 +465,25 @@ fun GameTableScreen(
                         stavSedma = stavSedma,
                         stavMarias = stavMarias,
                         tikSekundyMs = tikSekundyMs,
+                        zvukZapnut = zvukZapnut,
+                        onPrepnoutZvuk = {
+                            val novyStav = !zvukZapnut
+                            zvukZapnut = novyStav
+                            HospodaZvuk.priPrepnutiZvuku(novyStav)
+                        },
                         onKlikZpet = {
                             if (jeOnlineRezim && onlineStul?.stavMistnosti == StavMistnosti.HRAJE_SE && vysledekPartie == null) {
                                 potvrditOdchod = true
                             } else {
-                                onOpustitStul()
+                                val stul = onlineStul
+                                if (stul != null) {
+                                    scope.launch {
+                                        OnlineManager.opustStul(stul.roomId)
+                                        onOpustitStul()
+                                    }
+                                } else {
+                                    onOpustitStul()
+                                }
                             }
                         }
                     )
@@ -535,7 +610,7 @@ fun GameTableScreen(
                     onKlikKartaMarias = { karta ->
                         val s = stavMarias ?: return@SpodniRukaHrace
                         if (s.faze == FazeMariase.ODKLADANI_TALONU && s.naTahu == lokalniIndex) {
-                            vybraneKartyDoTalonu = if (karta in vybraneKartyDoTalonu) {
+                            vybraneKartyDoTalonu = if (karta in vybraneDoTalonu) {
                                 vybraneKartyDoTalonu - karta
                             } else if (vybraneKartyDoTalonu.size < 2) {
                                 vybraneKartyDoTalonu + karta
@@ -594,10 +669,14 @@ fun GameTableScreen(
                     },
                     onZpetDoHerny = {
                         val stul = onlineStul
-                        if (stul != null && stul.hostDeviceId == mojeDeviceId) {
-                            scope.launch { OnlineManager.smazStul(stul.roomId) }
+                        if (stul != null) {
+                            scope.launch {
+                                OnlineManager.opustStul(stul.roomId)
+                                onOpustitStul()
+                            }
+                        } else {
+                            onOpustitStul()
                         }
-                        onOpustitStul()
                     }
                 )
             }
@@ -634,7 +713,11 @@ fun GameTableScreen(
                         )
                         Spacer(modifier = Modifier.height(18.dp))
                         Button(
-                            onClick = onOpustitStul,
+                            onClick = {
+                                jemnaHaptika()
+                                onOpustitStul()
+                            },
+                            shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
                         ) {
                             Text("Zpět do herny", color = Color(0xFF0A2916), fontWeight = FontWeight.Bold)
@@ -674,15 +757,25 @@ fun GameTableScreen(
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
                             Button(
-                                onClick = { potvrditOdchod = false },
+                                onClick = {
+                                    jemnaHaptika()
+                                    potvrditOdchod = false
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E6B47))
                             ) {
-                                Text("Zůstat u stolu", color = Color.White)
+                                Text("Zůstat u stolu", color = Color.White, maxLines = 1, softWrap = false, fontSize = 12.sp)
                             }
                             Button(
                                 onClick = {
+                                    jemnaHaptika()
                                     potvrditOdchod = false
                                     val stul = onlineStul
                                     if (stul != null) {
@@ -694,9 +787,12 @@ fun GameTableScreen(
                                         onOpustitStul()
                                     }
                                 },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
                             ) {
-                                Text("Ukončit a odejít", color = Color.White, fontWeight = FontWeight.Bold)
+                                Text("Ukončit a odejít", color = Color.White, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, fontSize = 12.sp)
                             }
                         }
                     }
@@ -717,6 +813,8 @@ private fun HorniListaStolu(
     stavSedma: StavSedma?,
     stavMarias: StavMarias?,
     tikSekundyMs: Long,
+    zvukZapnut: Boolean,
+    onPrepnoutZvuk: () -> Unit,
     onKlikZpet: () -> Unit
 ) {
     Row(
@@ -725,14 +823,17 @@ private fun HorniListaStolu(
             .clip(RoundedCornerShape(11.dp))
             .background(Color(0xB8062011))
             .border(1.dp, Color(0x66D4AF37), RoundedCornerShape(11.dp))
-            .padding(horizontal = 7.dp, vertical = 4.dp),
+            .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color(0xFF1D5836))
-                .clickable { onKlikZpet() }
+                .clickable {
+                    jemnaHaptika()
+                    onKlikZpet()
+                }
                 .padding(horizontal = 8.dp, vertical = 5.dp)
         ) {
             Text(
@@ -792,69 +893,98 @@ private fun HorniListaStolu(
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF144227))
-                .border(0.8.dp, Color(0x55E6C15A), RoundedCornerShape(8.dp))
-                .padding(horizontal = 7.dp, vertical = 4.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            when (typHry) {
-                TypHry.PRSI -> if (stavPrsi != null) {
-                    IkonaBarvyKarty(stavPrsi.aktualniPlatnaBarva, velikost = 14.dp)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = stavPrsi.aktualniPlatnaBarva.ceskyNazev,
-                        color = Color(0xFFFFF59D),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-
-                TypHry.SEDMA -> if (stavSedma != null) {
-                    Text(
-                        text = "${stavSedma.uhraneBodyTym0} : ${stavSedma.uhraneBodyTym1} b.",
-                        color = Color(0xFFFFF59D),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-
-                TypHry.MARIAS -> if (stavMarias != null) {
-                    if (stavMarias.trumf != null && !stavMarias.jeBetlNeboDurch) {
-                        IkonaBarvyKarty(stavMarias.trumf, velikost = 14.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF144227))
+                    .border(0.8.dp, Color(0x55E6C15A), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 6.dp, vertical = 4.dp)
+            ) {
+                when (typHry) {
+                    TypHry.PRSI -> if (stavPrsi != null) {
+                        IkonaBarvyKarty(stavPrsi.aktualniPlatnaBarva, velikost = 13.dp)
                         Spacer(modifier = Modifier.width(4.dp))
-                        val nasobkyText = if (stavMarias.zavazek.hlasiSedmu) {
-                            "${stavMarias.nasobekFlekHra}×/7:${stavMarias.nasobekFlekSedma}×"
-                        } else {
-                            "${stavMarias.nasobekFlekHra}×"
-                        }
                         Text(
-                            text = "${stavMarias.trumf.ceskyNazev} ($nasobkyText)",
+                            text = stavPrsi.aktualniPlatnaBarva.ceskyNazev,
                             color = Color(0xFFFFF59D),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             softWrap = false
                         )
-                    } else {
+                    }
+
+                    TypHry.SEDMA -> if (stavSedma != null) {
                         Text(
-                            text = when (stavMarias.zavazek) {
-                                ZavazekMariase.BETL -> "Betl (${stavMarias.nasobekFlekHra}×)"
-                                ZavazekMariase.DURCH -> "Durch (${stavMarias.nasobekFlekHra}×)"
-                                else -> "Volba"
-                            },
+                            text = "${stavSedma.uhraneBodyTym0} : ${stavSedma.uhraneBodyTym1} b.",
                             color = Color(0xFFFFF59D),
-                            fontSize = 11.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             softWrap = false
                         )
                     }
+
+                    TypHry.MARIAS -> if (stavMarias != null) {
+                        if (stavMarias.trumf != null && !stavMarias.jeBetlNeboDurch) {
+                            IkonaBarvyKarty(stavMarias.trumf, velikost = 13.dp)
+                            Spacer(modifier = Modifier.width(3.dp))
+                            val nasobkyText = if (stavMarias.zavazek.hlasiSedmu) {
+                                "${stavMarias.nasobekFlekHra}×/7:${stavMarias.nasobekFlekSedma}×"
+                            } else {
+                                "${stavMarias.nasobekFlekHra}×"
+                            }
+                            Text(
+                                text = "${stavMarias.trumf.ceskyNazev} ($nasobkyText)",
+                                color = Color(0xFFFFF59D),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        } else {
+                            Text(
+                                text = when (stavMarias.zavazek) {
+                                    ZavazekMariase.BETL -> "Betl (${stavMarias.nasobekFlekHra}×)"
+                                    ZavazekMariase.DURCH -> "Durch (${stavMarias.nasobekFlekHra}×)"
+                                    else -> "Volba"
+                                },
+                                color = Color(0xFFFFF59D),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
                 }
+            }
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (zvukZapnut) Color(0xFF1D5836) else Color(0xFF3E2723))
+                    .border(
+                        width = 0.9.dp,
+                        color = if (zvukZapnut) Color(0x8869F0AE) else Color(0x88FF8A80),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .clickable {
+                        jemnaHaptika()
+                        onPrepnoutZvuk()
+                    }
+                    .padding(horizontal = 7.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (zvukZapnut) "🔊" else "🔇",
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
     }
@@ -1048,7 +1178,8 @@ private fun StredStoluPrsi(
                     color = if (zvyraznitLiznuti) Color(0xFF072312) else Color.White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }
@@ -1056,8 +1187,10 @@ private fun StredStoluPrsi(
         if (jsemNaTahu && stav.cekaNaVolbuBarvy) {
             Spacer(modifier = Modifier.height(8.dp))
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
+                    .widthIn(max = 340.dp)
+                    .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xEB082815))
                     .border(1.5.dp, Color(0xFFD4AF37), RoundedCornerShape(12.dp))
@@ -1067,16 +1200,26 @@ private fun StredStoluPrsi(
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
+                            .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color(0xFF1C5435))
+                            .border(0.8.dp, Color(0x44FFD54F), RoundedCornerShape(8.dp))
                             .clickable {
                                 jemnaHaptika()
                                 onZvolitBarvuSvrskem(barva)
                             }
-                            .padding(horizontal = 9.dp, vertical = 5.dp)
+                            .padding(horizontal = 4.dp, vertical = 7.dp)
                     ) {
                         IkonaBarvyKarty(barva = barva, velikost = 20.dp)
-                        Text(barva.ceskyNazev, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = barva.ceskyNazev,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }
@@ -1177,7 +1320,9 @@ private fun StredStoluSedma(
                     text = "Pustit štych soupeři",
                     color = Color(0xFF082413),
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }
@@ -1224,6 +1369,8 @@ private fun StredStoluMarias(
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
+                            .widthIn(max = 360.dp)
+                            .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
                             .background(Color(0xEB082815))
                             .border(1.5.dp, Color(0xFFD4AF37), RoundedCornerShape(14.dp))
@@ -1233,39 +1380,65 @@ private fun StredStoluMarias(
                             text = "Jsi na forhontu — zvol trumf ze 7 karet:",
                             color = Color(0xFFFFD54F),
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Spacer(modifier = Modifier.height(7.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             for (b in BarvaKarty.entries) {
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     modifier = Modifier
+                                        .weight(1f)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(Color(0xFF1D5836))
+                                        .border(0.8.dp, Color(0x44FFD54F), RoundedCornerShape(8.dp))
                                         .clickable {
                                             jemnaHaptika()
                                             onVolbaTrumfu(b, false, ZavazekMariase.HRA)
                                         }
-                                        .padding(horizontal = 9.dp, vertical = 5.dp)
+                                        .padding(horizontal = 4.dp, vertical = 7.dp)
                                 ) {
                                     IkonaBarvyKarty(b, velikost = 19.dp)
-                                    Text(b.ceskyNazev, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = b.ceskyNazev,
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
                                 }
                             }
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        Spacer(modifier = Modifier.height(7.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            MaleAkcniTlacitko("Z talonu (naslepo)", Color(0xFF286040)) {
+                            MaleAkcniTlacitko(
+                                text = "Z talonu",
+                                barva = Color(0xFF286040),
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 onVolbaTrumfu(null, true, ZavazekMariase.HRA)
                             }
-                            MaleAkcniTlacitko("Rovnou Betl", Color(0xFF5D4037)) {
+                            MaleAkcniTlacitko(
+                                text = "Rovnou Betl",
+                                barva = Color(0xFF5D4037),
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 onVolbaTrumfu(null, false, ZavazekMariase.BETL)
                             }
-                            MaleAkcniTlacitko("Rovnou Durch", Color(0xFF6A1B9A)) {
+                            MaleAkcniTlacitko(
+                                text = "Rovnou Durch",
+                                barva = Color(0xFF6A1B9A),
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 onVolbaTrumfu(null, false, ZavazekMariase.DURCH)
                             }
                         }
@@ -1287,6 +1460,8 @@ private fun StredStoluMarias(
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
+                            .widthIn(max = 360.dp)
+                            .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
                             .background(Color(0xEB082815))
                             .border(1.5.dp, Color(0xFFD4AF37), RoundedCornerShape(14.dp))
@@ -1296,7 +1471,8 @@ private fun StredStoluMarias(
                             text = "Klepnutím v ruce vyber 2 karty do talonu (${vybraneDoTalonu.size}/2)",
                             color = Color(0xFFFFD54F),
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
                         )
                         if (!planovanyZavazek.jeBezTrumfu) {
                             Text(
@@ -1323,8 +1499,8 @@ private fun StredStoluMarias(
                         }
 
                         FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally),
-                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             for (moznost in moznosti) {
                                 val aktivni = planovanyZavazek == moznost
@@ -1366,17 +1542,25 @@ private fun StredStoluMarias(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(7.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Button(
-                            onClick = onPotvrditTalon,
+                            onClick = {
+                                jemnaHaptika()
+                                onPotvrditTalon()
+                            },
                             enabled = vybraneDoTalonu.size == 2,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
                         ) {
                             Text(
                                 text = "Odložit talon a hlásit ${planovanyZavazek.nazev}",
                                 color = Color(0xFF05200E),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.ExtraBold
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
@@ -1401,39 +1585,60 @@ private fun StredStoluMarias(
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier
+                            .widthIn(max = 360.dp)
                             .clip(RoundedCornerShape(14.dp))
                             .background(Color(0xEB082815))
                             .border(1.5.dp, Color(0xFFD4AF37), RoundedCornerShape(14.dp))
                             .padding(10.dp)
                     ) {
                         Button(
-                            onClick = { onOdpovedFleku(false, false) },
+                            onClick = {
+                                jemnaHaptika()
+                                onOdpovedFleku(false, false)
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
                         ) {
-                            Text("Dobrý", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Dobrý", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                         }
                         if (muzeHru) {
                             Button(
-                                onClick = { onOdpovedFleku(true, false) },
+                                onClick = {
+                                    jemnaHaptika()
+                                    onOdpovedFleku(true, false)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
                             ) {
-                                Text("$stupenHra na hru!", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                                Text("$stupenHra na hru!", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, maxLines = 1)
                             }
                         }
                         if (muzeSedmu) {
                             Button(
-                                onClick = { onOdpovedFleku(false, true) },
+                                onClick = {
+                                    jemnaHaptika()
+                                    onOdpovedFleku(false, true)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFAD1457))
                             ) {
-                                Text("$stupenSedma na $slovoSedma!", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                Text("$stupenSedma na $slovoSedma!", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                             }
                         }
                         if (muzeHru && muzeSedmu) {
                             Button(
-                                onClick = { onOdpovedFleku(true, true) },
+                                onClick = {
+                                    jemnaHaptika()
+                                    onOdpovedFleku(true, true)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
                             ) {
-                                Text("Zvednout obojí!", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp)
+                                Text("Zvednout obojí!", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, maxLines = 1)
                             }
                         }
                     }
@@ -1513,16 +1718,20 @@ private fun SpodniRukaHrace(
     val ruka: List<Karta>
     val povolene: Set<Karta>
     val aktivniKontrola: Boolean
+    val zvyraznitPanelRuky: Boolean
     val popisPovinnosti: String
 
     when (typHry) {
         TypHry.PRSI -> {
             val s = stavPrsi
             ruka = s?.ruceHracu?.getOrNull(lokalniIndex) ?: emptyList()
+            val voliBarvuSvrskem = s != null && !s.jeKonec && s.naTahu == lokalniIndex && s.cekaNaVolbuBarvy
             val mujTah = s != null && !s.jeKonec && s.naTahu == lokalniIndex && !s.cekaNaVolbuBarvy
             povolene = if (mujTah && s != null) PrsiEngine.zjistiPovoleneKarty(s, lokalniIndex) else emptySet()
             aktivniKontrola = mujTah
+            zvyraznitPanelRuky = mujTah || voliBarvuSvrskem
             popisPovinnosti = when {
+                voliBarvuSvrskem -> "Vynesl jsi svrška — zvol uprostřed novou barvu!"
                 !mujTah -> "Čekáš na tah soupeře"
                 s?.aktivniSedmyPocet ?: 0 > 0 ->
                     "Aktivní sedma: přebij sedmičkou, nebo lízni ${sklonujKartyAkuzativ((s?.aktivniSedmyPocet ?: 1) * 2)}"
@@ -1538,6 +1747,7 @@ private fun SpodniRukaHrace(
             val mujTah = s != null && !s.jeKonec && s.naTahu == lokalniIndex
             povolene = if (mujTah && s != null) SedmaEngine.zjistiPovoleneKarty(s, lokalniIndex) else emptySet()
             aktivniKontrola = mujTah
+            zvyraznitPanelRuky = mujTah
             popisPovinnosti = when {
                 !mujTah -> "Čekáš na tah u stolu"
                 s?.muzePustitStych == true -> "Můžeš vrátit přebití zvýrazněnou kartou, nebo štych pustit"
@@ -1558,6 +1768,7 @@ private fun SpodniRukaHrace(
                 else -> emptySet()
             }
             aktivniKontrola = odkladaTalon || hrajeStych
+            zvyraznitPanelRuky = voliTrumf || odkladaTalon || flekuje || hrajeStych
             popisPovinnosti = when {
                 voliTrumf -> "Prohlédni si svých 7 karet a nahoře zvol trumf"
                 odkladaTalon -> "Zvol 2 povolené karty do talonu"
@@ -1588,8 +1799,8 @@ private fun SpodniRukaHrace(
             .clip(RoundedCornerShape(15.dp))
             .background(Color(0xB8062011))
             .border(
-                width = if (aktivniKontrola) 1.6.dp else 1.dp,
-                color = if (aktivniKontrola) Color(0xFF69F0AE) else Color(0x55E6C15A),
+                width = if (zvyraznitPanelRuky) 1.6.dp else 1.dp,
+                color = if (zvyraznitPanelRuky) Color(0xFF69F0AE) else Color(0x55E6C15A),
                 shape = RoundedCornerShape(15.dp)
             )
             .padding(horizontal = 6.dp, vertical = if (naSirku) 4.dp else 6.dp),
@@ -1616,7 +1827,7 @@ private fun SpodniRukaHrace(
             }
             Text(
                 text = popisPovinnosti,
-                color = if (aktivniKontrola) Color(0xFF69F0AE) else Color(0xFFFFF8E1),
+                color = if (zvyraznitPanelRuky) Color(0xFF69F0AE) else Color(0xFFFFF8E1),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
@@ -1718,19 +1929,29 @@ private fun MaleAkcniTlacitko(
     text: String,
     barva: Color,
     barvaTextu: Color = Color.White,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(barva)
             .clickable {
                 jemnaHaptika()
                 onClick()
             }
-            .padding(horizontal = 9.dp, vertical = 5.dp)
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text(text = text, color = barvaTextu, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = text,
+            color = barvaTextu,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false,
+            textAlign = TextAlign.Center
+        )
     }
 }
 
@@ -1755,7 +1976,9 @@ private fun PanelVyuctovaniPartie(
         false
     }
 
-    val muzeSpustitDalsi = !jeTurnajHotovy && (!jeOnline || onlineStul?.hostDeviceId == mojeDeviceId)
+    val dostHracuUStolu = !jeOnline || (onlineStul != null && onlineStul.hraci.size >= onlineStul.maxHracu)
+    val muzeSpustitDalsi = !jeTurnajHotovy && dostHracuUStolu &&
+        (!jeOnline || onlineStul?.hostDeviceId == mojeDeviceId)
 
     Box(
         modifier = Modifier
@@ -1766,6 +1989,7 @@ private fun PanelVyuctovaniPartie(
     ) {
         Column(
             modifier = Modifier
+                .widthIn(max = 420.dp)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(18.dp))
                 .background(Color(0xFF103821))
@@ -1796,21 +2020,36 @@ private fun PanelVyuctovaniPartie(
                         .padding(vertical = 3.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (polozka.jeZvyraznena) Color(0xFF1A5232) else Color(0xFF0C2B19))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(polozka.popis, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text(
+                        text = polozka.popis,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
+                    )
                     Text(
                         text = polozka.hodnotaText,
                         color = if (polozka.jeZvyraznena) Color(0xFFFFE082) else Color(0xFFE0E0E0),
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
-            Text("Vyúčtování tereziánů:", color = Color(0xFFFFF59D), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = "Vyúčtování tereziánů:",
+                color = Color(0xFFFFF59D),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
             Spacer(modifier = Modifier.height(4.dp))
 
             for (h in vysledek.hraci) {
@@ -1818,23 +2057,29 @@ private fun PanelVyuctovaniPartie(
                     text = "${h.jmenoHrace}: ${formatujTereziany(h.zmenaTerezianu, seZnaminkem = true)}",
                     color = if (h.zmenaTerezianu >= 0) Color(0xFF69F0AE) else Color(0xFFFF8A80),
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
                     .background(Color(0xFF184A2C))
-                    .border(1.dp, Color(0x88FFD54F), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 5.dp)
+                    .border(1.dp, Color(0x88FFD54F), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "Tvůj měšec celkem: ${formatujTereziany(aktualniMesecTerezianu)}",
                     color = Color(0xFFFFD54F),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
@@ -1852,32 +2097,66 @@ private fun PanelVyuctovaniPartie(
                 )
             }
 
+            if (jeOnline && !jeTurnajHotovy && !muzeSpustitDalsi) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Čekání, zda zakladatel stolu spustí další rozdání…",
+                    color = Color(0xFFB9F6CA),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 if (muzeSpustitDalsi) {
                     Button(
-                        onClick = onDalsiRozdani,
+                        onClick = {
+                            jemnaHaptika()
+                            onDalsiRozdani()
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
                     ) {
-                        Text("Další rozdání", color = Color(0xFF04210E), fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            text = "Další rozdání",
+                            color = Color(0xFF04210E),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
-                } else if (jeOnline && !jeTurnajHotovy) {
-                    Text(
-                        text = "Čekání, zda zakladatel spustí další rozdání…",
-                        color = Color(0xFFB9F6CA),
-                        fontSize = 12.sp,
-                        modifier = Modifier.align(Alignment.CenterVertically)
-                    )
                 }
 
                 Button(
-                    onClick = onZpetDoHerny,
+                    onClick = {
+                        jemnaHaptika()
+                        onZpetDoHerny()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(46.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
                 ) {
                     Text(
-                        text = if (jeTurnajHotovy) "Zpět k pavouku turnaje" else "Zpět do herny",
+                        text = if (jeTurnajHotovy) "Zpět k turnaji" else "Zpět do herny",
                         color = Color(0xFF072312),
-                        fontWeight = FontWeight.Bold
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }

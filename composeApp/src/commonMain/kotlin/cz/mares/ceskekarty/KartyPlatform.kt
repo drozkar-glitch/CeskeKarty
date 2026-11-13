@@ -1,7 +1,10 @@
 package cz.mares.ceskekarty
 
 import androidx.compose.ui.graphics.ImageBitmap
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.sin
 import kotlin.random.Random
 
 data class SitovaOdpoved(
@@ -10,6 +13,11 @@ data class SitovaOdpoved(
     val uspesne: Boolean
 )
 
+enum class EfektStolu {
+    KARTA_NA_STUL,
+    SLAVNOSTNI_CINK
+}
+
 expect fun ziskejAktualniCasMs(): Long
 
 expect fun ulozTextDoUloziste(klic: String, hodnota: String)
@@ -17,6 +25,14 @@ expect fun ulozTextDoUloziste(klic: String, hodnota: String)
 expect fun nactiTextZUloziste(klic: String, vychozi: String = ""): String
 
 expect fun jemnaHaptika()
+
+expect fun silnaHaptika()
+
+expect fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHlasu: Float)
+
+expect fun zastavMluveniPlatforma()
+
+expect fun prehrajZvukovyEfektPlatforma(efekt: EfektStolu)
 
 expect suspend fun provedSitovyDotaz(
     metoda: String,
@@ -72,6 +88,98 @@ fun ziskejArchJednohlavychKaret(): ImageBitmap? {
     return nacteny
 }
 
+fun vygenerujPcm16Efektu(efekt: EfektStolu, vzorkovaciFrekvence: Int = 22050): ShortArray {
+    return when (efekt) {
+        EfektStolu.KARTA_NA_STUL -> {
+            val pocetVzorku = (vzorkovaciFrekvence * 0.068).toInt()
+            val vzorky = ShortArray(pocetVzorku)
+            var stavSumu = 0x5A3C91
+            var dolniPropust = 0.0
+            for (i in 0 until pocetVzorku) {
+                val t = i.toDouble() / vzorkovaciFrekvence
+                stavSumu = (stavSumu * 1103515245 + 12345) and 0x7FFFFFFF
+                val bilySum = (stavSumu.toDouble() / 1073741824.0) - 1.0
+                dolniPropust = dolniPropust * 0.68 + bilySum * 0.32
+                val obalkaSumu = exp(-t * 58.0)
+                val obalkarazu = exp(-t * 105.0)
+                val nizkeKlepnuti = sin(2.0 * PI * 145.0 * t) * obalkarazu * 0.62
+                val svistPapiru = dolniPropust * obalkaSumu * 0.58
+                val hodnota = ((nizkeKlepnuti + svistPapiru) * 24000.0)
+                    .coerceIn(-32000.0, 32000.0)
+                vzorky[i] = hodnota.toInt().toShort()
+            }
+            vzorky
+        }
+
+        EfektStolu.SLAVNOSTNI_CINK -> {
+            val pocetVzorku = (vzorkovaciFrekvence * 0.24).toInt()
+            val vzorky = ShortArray(pocetVzorku)
+            for (i in 0 until pocetVzorku) {
+                val t = i.toDouble() / vzorkovaciFrekvence
+                val obalka1 = exp(-t * 14.0)
+                val ton1 = sin(2.0 * PI * 1046.5 * t) * obalka1 * 0.40
+                val ton2 = if (t >= 0.065) {
+                    val t2 = t - 0.065
+                    sin(2.0 * PI * 1318.5 * t2) * exp(-t2 * 11.0) * 0.46
+                } else {
+                    0.0
+                }
+                val hodnota = ((ton1 + ton2) * 23000.0).coerceIn(-32000.0, 32000.0)
+                vzorky[i] = hodnota.toInt().toShort()
+            }
+            vzorky
+        }
+    }
+}
+
+fun vygenerujWavBajtyEfektu(efekt: EfektStolu, vzorkovaciFrekvence: Int = 22050): ByteArray {
+    val pcm = vygenerujPcm16Efektu(efekt, vzorkovaciFrekvence)
+    val velikostDat = pcm.size * 2
+    val celkovaVelikost = 44 + velikostDat
+    val wav = ByteArray(celkovaVelikost)
+
+    fun zapisAscii(pos: Int, txt: String) {
+        for (i in txt.indices) {
+            wav[pos + i] = txt[i].code.toByte()
+        }
+    }
+
+    fun zapisInt32LE(pos: Int, hodnota: Int) {
+        wav[pos] = (hodnota and 0xFF).toByte()
+        wav[pos + 1] = ((hodnota ushr 8) and 0xFF).toByte()
+        wav[pos + 2] = ((hodnota ushr 16) and 0xFF).toByte()
+        wav[pos + 3] = ((hodnota ushr 24) and 0xFF).toByte()
+    }
+
+    fun zapisInt16LE(pos: Int, hodnota: Int) {
+        wav[pos] = (hodnota and 0xFF).toByte()
+        wav[pos + 1] = ((hodnota ushr 8) and 0xFF).toByte()
+    }
+
+    zapisAscii(0, "RIFF")
+    zapisInt32LE(4, 36 + velikostDat)
+    zapisAscii(8, "WAVE")
+    zapisAscii(12, "fmt ")
+    zapisInt32LE(16, 16)
+    zapisInt16LE(20, 1)
+    zapisInt16LE(22, 1)
+    zapisInt32LE(24, vzorkovaciFrekvence)
+    zapisInt32LE(28, vzorkovaciFrekvence * 2)
+    zapisInt16LE(32, 2)
+    zapisInt16LE(34, 16)
+    zapisAscii(36, "data")
+    zapisInt32LE(40, velikostDat)
+
+    var p = 44
+    for (vzorek in pcm) {
+        val v = vzorek.toInt()
+        wav[p] = (v and 0xFF).toByte()
+        wav[p + 1] = ((v ushr 8) and 0xFF).toByte()
+        p += 2
+    }
+    return wav
+}
+
 const val STARTOVNI_TEREZIANY = 1000
 const val DENNI_ODMENA_TEREZIANY = 100
 const val HRANICE_PODPORY_TEREZIANY = 100
@@ -82,6 +190,18 @@ private const val KLIC_PREZDIVKA = "ck_saved_nick_v1"
 private const val KLIC_PIN_OTISK = "ck_saved_pin_hash_v1"
 private const val KLIC_TEREZIANY = "ck_local_elo_v1"
 private const val KLIC_DENNI_ODMENA_DEN = "ck_daily_reward_day_v1"
+private const val KLIC_ZVUK_HLASKY = "ck_sound_voice_enabled_v1"
+
+fun jeZvukAHlaskyZapnuty(): Boolean {
+    return nactiTextZUloziste(KLIC_ZVUK_HLASKY, "1") != "0"
+}
+
+fun nastavZvukAHlasky(zapnuto: Boolean) {
+    ulozTextDoUloziste(KLIC_ZVUK_HLASKY, if (zapnuto) "1" else "0")
+    if (!zapnuto) {
+        zastavMluveniPlatforma()
+    }
+}
 
 fun ziskejUnikatniIdZarizeni(): String {
     val ulozene = nactiTextZUloziste(KLIC_ID_ZARIZENI, "")
