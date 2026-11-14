@@ -408,6 +408,15 @@ object SedmaEngine {
         )
     }
 
+    private fun najdiKartuProSpalenouVeStychu(stav: StavSedma, kandidati: Collection<Karta>): Karta? {
+        if (stav.aktualniStych.size < 3) return null
+        val posledniTri = stav.aktualniStych.takeLast(3)
+        val hledanaHodnota = posledniTri.first().karta.hodnota
+        if (hledanaHodnota != stav.vedouciHodnota && hledanaHodnota != HodnotaKarty.R7) return null
+        if (!posledniTri.all { it.karta.hodnota == hledanaHodnota }) return null
+        return kandidati.firstOrNull { it.hodnota == hledanaHodnota }
+    }
+
     fun provedTahBota(stav: StavSedma): StavSedma {
         if (stav.jeKonec) return stav
         val idx = stav.naTahu
@@ -420,74 +429,160 @@ object SedmaEngine {
         val ruka = stav.ruceHracu[idx]
         if (ruka.isEmpty()) return stav
 
+        val bodyVeStychu = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
+        val jePosledniStychHry = stav.lizaciBalicek.isEmpty() && ruka.size == 1
+
+        // 1. Návrat tahu ve dvou hráčích (možnost štych vzít/pustit nebo pokračovat)
         if (stav.muzePustitStych) {
             val povolene = zjistiPovoleneKarty(stav, idx)
+            val spalenaKarta = najdiKartuProSpalenouVeStychu(stav, povolene)
+            if (spalenaKarta != null) {
+                return zahrajKartu(stav, idx, spalenaKarta)
+            }
+
+            val souperIdx = (idx + 1) % stav.pocetHracu
+            val karetSoupere = stav.ruceHracu.getOrElse(souperIdx) { emptyList() }.size
+
             if (stav.prozatimBereHrac == idx) {
-                // Hospodská pravidla: bot už štych drží -> natáhne ho další kartou stejné hodnoty (neplýtvá sedmou)
+                // Bot už štych drží (hospodská pravidla):
+                // Pokud jsou ve štychu body (10 nebo Eso), štych vezme a netiskne další 10/Eso do pasti —
+                // natáhne ho jen tehdy, má-li soupeř aspoň 2 karty a bot v ruce silné krytí na přebití zpět.
                 val dalsiStejnaBezSedmy = povolene.firstOrNull { it.hodnota != HodnotaKarty.R7 }
-                return if (dalsiStejnaBezSedmy != null) {
+                if (dalsiStejnaBezSedmy == null) {
+                    return pustStych(stav, idx)
+                }
+                val vedouciBodovana = dalsiStejnaBezSedmy.hodnota.bodyMariasSedma >= 10
+                if (!vedouciBodovana && bodyVeStychu == 0) {
+                    return zahrajKartu(stav, idx, dalsiStejnaBezSedmy)
+                }
+                val pocetVedoucichVRuce = ruka.count {
+                    it.hodnota == stav.vedouciHodnota && it.hodnota != HodnotaKarty.R7
+                }
+                val pocetSedemVRuce = ruka.count { it.hodnota == HodnotaKarty.R7 }
+                val maSilneKrytiProPast = karetSoupere >= 2 &&
+                    (pocetSedemVRuce >= 2 || (pocetVedoucichVRuce >= 2 && pocetSedemVRuce >= 1))
+
+                return if (maSilneKrytiProPast) {
                     zahrajKartu(stav, idx, dalsiStejnaBezSedmy)
                 } else {
                     pustStych(stav, idx)
                 }
             } else {
-                // Soupeř štych přebil -> bot zváží, zda vrátit přebití nebo štych pustit
-                val bodyNaStole = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
+                // Soupeř štych přebil -> vrať přebití stejnou hodnotou bez plýtvání sedmou,
+                // sedmičku použij jen o body nebo v boji o poslední štych (+10 b.).
                 val bezSedmy = povolene.firstOrNull { it.hodnota != HodnotaKarty.R7 }
-                return if (bezSedmy != null) {
-                    zahrajKartu(stav, idx, bezSedmy)
-                } else if (bodyNaStole >= 10 && povolene.isNotEmpty()) {
-                    zahrajKartu(stav, idx, povolene.first())
+                if (bezSedmy != null) {
+                    return zahrajKartu(stav, idx, bezSedmy)
+                }
+                val sedmicka = povolene.firstOrNull { it.hodnota == HodnotaKarty.R7 }
+                val maSmyslPrebitSedmou = bodyVeStychu >= 10 ||
+                    jePosledniStychHry ||
+                    (stav.lizaciBalicek.isEmpty() && ruka.all { it.hodnota == HodnotaKarty.R7 })
+                return if (sedmicka != null && maSmyslPrebitSedmou) {
+                    zahrajKartu(stav, idx, sedmicka)
                 } else {
                     pustStych(stav, idx)
                 }
             }
         }
 
+        // 2. Výnos do prázdného štychu
         if (stav.aktualniStych.isEmpty()) {
-            // V hospodských pravidlech bot rád vynese hodnotu, od které drží více kusů v ruce (mimo sedmiček)
-            val bezSedmy = ruka.filter { it.hodnota != HodnotaKarty.R7 }
-            val kandidat = if (stav.variantaPravidel == VariantaPravidel.HOSPODSKA && stav.pocetHracu == 2 && bezSedmy.isNotEmpty()) {
-                bezSedmy.maxByOrNull { k ->
-                    val pocetStejnych = bezSedmy.count { it.hodnota == k.hodnota }
-                    val penalizaceNechranene10 = if (k.hodnota.bodyMariasSedma == 10 && pocetStejnych == 1) -3 else 0
-                    pocetStejnych * 4 + penalizaceNechranene10
-                } ?: bezSedmy.first()
-            } else {
-                ruka.firstOrNull {
-                    it.hodnota != HodnotaKarty.R7 && it.hodnota.bodyMariasSedma == 0
-                } ?: ruka.firstOrNull { it.hodnota != HodnotaKarty.R7 } ?: ruka.first()
+            val nuloveBezSedmy = ruka.filter {
+                it.hodnota != HodnotaKarty.R7 && it.hodnota.bodyMariasSedma == 0
             }
-            return zahrajKartu(stav, idx, kandidat)
+            val bodovane = ruka.filter { it.hodnota.bodyMariasSedma >= 10 }
+            val pocetSedem = ruka.count { it.hodnota == HodnotaKarty.R7 }
+
+            // Dobrovolně vynést 10 nebo Eso přes nebodované karty jen při trojici (nebo dvojici kryté dvěma sedmami)
+            val silnaBodovana = bodovane.firstOrNull { k ->
+                val pocetStejnych = bodovane.count { it.hodnota == k.hodnota }
+                pocetStejnych >= 3 ||
+                    (stav.variantaPravidel == VariantaPravidel.HOSPODSKA &&
+                        stav.pocetHracu == 2 &&
+                        pocetStejnych >= 2 &&
+                        pocetSedem >= 2)
+            }
+            if (silnaBodovana != null) {
+                return zahrajKartu(stav, idx, silnaBodovana)
+            }
+
+            if (nuloveBezSedmy.isNotEmpty()) {
+                val vybranaNulova = if (stav.variantaPravidel == VariantaPravidel.HOSPODSKA) {
+                    nuloveBezSedmy.maxByOrNull { k ->
+                        nuloveBezSedmy.count { it.hodnota == k.hodnota }
+                    } ?: nuloveBezSedmy.first()
+                } else {
+                    nuloveBezSedmy.first()
+                }
+                return zahrajKartu(stav, idx, vybranaNulova)
+            }
+
+            if (bodovane.isNotEmpty()) {
+                val nejlepeKrytaBodovana = bodovane.maxByOrNull { k ->
+                    bodovane.count { it.hodnota == k.hodnota }
+                } ?: bodovane.first()
+                return zahrajKartu(stav, idx, nejlepeKrytaBodovana)
+            }
+
+            return zahrajKartu(stav, idx, ruka.first())
+        }
+
+        // 3. Odpověď do rozehraného štychu
+        val spalenaVeStychu = najdiKartuProSpalenouVeStychu(stav, ruka)
+        if (spalenaVeStychu != null) {
+            return zahrajKartu(stav, idx, spalenaVeStychu)
         }
 
         val mujTym = stav.tymHrace(idx)
         val tymDrzitele = stav.tymHrace(stav.prozatimBereHrac)
-        val bodyVeStychu = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
+        val nuloveOdhozy = ruka.filter {
+            it.hodnota.bodyMariasSedma == 0 && it.hodnota != HodnotaKarty.R7
+        }
+        val nejlepsiNulovyOdhoz = nuloveOdhozy.minByOrNull { k ->
+            nuloveOdhozy.count { it.hodnota == k.hodnota }
+        }
 
         if (mujTym == tymDrzitele && stav.pocetHracu == 4) {
-            // Parťák zatím bere štych -> namaž mu desítku nebo eso!
-            val namazat = ruka.firstOrNull {
-                it.hodnota.bodyMariasSedma == 10 && it.hodnota != stav.vedouciHodnota
-            } ?: ruka.firstOrNull { it.hodnota != HodnotaKarty.R7 && it.hodnota.bodyMariasSedma == 0 }
+            // Parťák drží štych: na poslední 4. pozici namaž 10/Eso vždy, na 3. pozici jen při krytí sedmou nebo nouzi
+            val jsemPosledniVeStychu = stav.aktualniStych.size == 3
+            val partakDrziSedmou = stav.aktualniStych.lastOrNull {
+                it.indexHrace == stav.prozatimBereHrac
+            }?.karta?.hodnota == HodnotaKarty.R7
+
+            if (jsemPosledniVeStychu || partakDrziSedmou || nejlepsiNulovyOdhoz == null) {
+                val namazat = ruka.firstOrNull {
+                    it.hodnota.bodyMariasSedma >= 10 && it.hodnota != stav.vedouciHodnota
+                } ?: ruka.firstOrNull { it.hodnota.bodyMariasSedma >= 10 }
+                if (namazat != null) {
+                    return zahrajKartu(stav, idx, namazat)
+                }
+            }
+            val odhozPartakovi = nejlepsiNulovyOdhoz
+                ?: ruka.firstOrNull { it.hodnota != HodnotaKarty.R7 }
                 ?: ruka.first()
-            return zahrajKartu(stav, idx, namazat)
+            return zahrajKartu(stav, idx, odhozPartakovi)
         }
 
-        // Soupeř bere štych -> zkus přebít stejnou hodnotou, případně sedmou, pokud jsou ve štychu body
-        val stejnaHodnota = ruka.firstOrNull { it.hodnota == stav.vedouciHodnota }
-        if (stejnaHodnota != null) {
-            return zahrajKartu(stav, idx, stejnaHodnota)
+        // Soupeř prozatím bere štych -> přebij stejnou hodnotou (bez plýtvání sedmou na cizí sedmu za 0 b.)
+        val stejnaBezSedmy = ruka.firstOrNull {
+            it.hodnota == stav.vedouciHodnota && it.hodnota != HodnotaKarty.R7
         }
+        if (stejnaBezSedmy != null) {
+            return zahrajKartu(stav, idx, stejnaBezSedmy)
+        }
+
+        // Sedmičkou ber bodovaný štych, poslední štych (+10 b.), nebo zachraň vlastní 10/Eso před nuceným odhozem
         val sedmicka = ruka.firstOrNull { it.hodnota == HodnotaKarty.R7 }
-        if (sedmicka != null && bodyVeStychu >= 10) {
+        val hroziNucenyOdhozBodu = nejlepsiNulovyOdhoz == null && ruka.any { it.hodnota.bodyMariasSedma >= 10 }
+        if (sedmicka != null && (bodyVeStychu >= 10 || jePosledniStychHry || hroziNucenyOdhozBodu)) {
             return zahrajKartu(stav, idx, sedmicka)
         }
 
-        val odhozBezBodu = ruka.firstOrNull {
-            it.hodnota.bodyMariasSedma == 0 && it.hodnota != HodnotaKarty.R7
-        } ?: ruka.first()
-        return zahrajKartu(stav, idx, odhozBezBodu)
+        val odhoz = nejlepsiNulovyOdhoz
+            ?: ruka.firstOrNull { it.hodnota != HodnotaKarty.R7 }
+            ?: ruka.first()
+        return zahrajKartu(stav, idx, odhoz)
     }
 
     fun vyhodnotVysledek(stav: StavSedma): VysledekPartie {
