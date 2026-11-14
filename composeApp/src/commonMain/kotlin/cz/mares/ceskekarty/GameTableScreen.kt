@@ -44,6 +44,15 @@ import kotlin.math.min
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+internal fun PrsiEngine.zKompaktnihoRetezce(data: String): StavPrsi? =
+    StavPrsi.zKompaktnihoRetezce(data)
+
+internal fun SedmaEngine.zKompaktnihoRetezce(data: String): StavSedma? =
+    StavSedma.zKompaktnihoRetezce(data)
+
+internal fun MariasEngine.zKompaktnihoRetezce(data: String): StavMarias? =
+    StavMarias.zKompaktnihoRetezce(data)
+
 data class KonfiguraceOfflineHry(
     val typHry: TypHry,
     val pocetHracu: Int,
@@ -133,8 +142,9 @@ fun GameTableScreen(
     val scope = rememberCoroutineScope()
     val mojeDeviceId = remember { ziskejUnikatniIdZarizeni() }
     val mojePrezdivka = remember { nactiUlozenouPrezdivku().ifBlank { "Ty" } }
-    val jeOnlineRezim = pocatecniOnlineStul != null
+    val casVstupuKeStoluMs = remember { ziskejAktualniCasMs() }
 
+    val jeOnlineRezim = pocatecniOnlineStul != null
     var onlineStul by remember { mutableStateOf(pocatecniOnlineStul) }
     var tikSekundyMs by remember { mutableStateOf(ziskejAktualniCasMs()) }
     var potvrditOdchod by remember { mutableStateOf(false) }
@@ -258,7 +268,6 @@ fun GameTableScreen(
     }
 
     val aktualniRozdaniCislo = onlineStul?.cisloRozdani ?: cisloOfflineRozdani
-
     val klicUzavrenehoStychuSedma = aktualniRozdaniCislo * 100 +
         ((stavSedma?.pocetStychuTym0 ?: 0) + (stavSedma?.pocetStychuTym1 ?: 0))
     var skrytyStychKlicSedma by remember { mutableStateOf(klicUzavrenehoStychuSedma) }
@@ -320,14 +329,19 @@ fun GameTableScreen(
                 onOpustitStul()
                 break
             }
+            if (cerstvy.indexLokalnihoHrace(mojeDeviceId) < 0) {
+                onOpustitStul()
+                break
+            }
             if (cerstvy.stavMistnosti == StavMistnosti.CEKANI && cerstvy.hraci.size < cerstvy.maxHracu) {
                 onVratitDoCekarny(cerstvy)
                 break
             }
-
             val zmenaStavu = cerstvy.verzeStavu != onlineStul?.verzeStavu ||
-                cerstvy.serializovanyStavHry != onlineStul?.serializovanyStavHry
+                cerstvy.serializovanyStavHry != onlineStul?.serializovanyStavHry ||
+                cerstvy.hraci != onlineStul?.hraci
             onlineStul = cerstvy
+
             if (zmenaStavu && cerstvy.serializovanyStavHry.isNotBlank()) {
                 when (cerstvy.typHry) {
                     TypHry.PRSI -> StavPrsi.zKompaktnihoRetezce(cerstvy.serializovanyStavHry)?.let { stavPrsi = it }
@@ -351,32 +365,42 @@ fun GameTableScreen(
                     TypHry.MARIAS -> stavMarias?.faze == FazeMariase.KONEC
                 }
                 if (!jeHraHotova) {
-                    val odpojenyHrac = cerstvy.hraci.firstOrNull { hrac ->
-                        cerstvy.infoPripojeni(hrac.deviceId, nyni).stav == StavPripojeniHrace.ODPOJEN_CERVENA
+                    val maJinehoZivehoHrace = cerstvy.hraci.any {
+                        it.deviceId != mojeDeviceId && !jeBotDeviceId(it.deviceId)
                     }
-                    val prekrocenTah = nyni - cerstvy.zacatekTahuMs >= LIMIT_ODPOJENI_MS
-                    if (odpojenyHrac != null || prekrocenTah) {
-                        val kdoIndex = when (cerstvy.typHry) {
-                            TypHry.PRSI -> stavPrsi?.naTahu ?: 0
-                            TypHry.SEDMA -> stavSedma?.naTahu ?: 0
-                            TypHry.MARIAS -> stavMarias?.naTahu ?: 0
-                        }
-                        val jmenoVinika = odpojenyHrac?.prezdivka
-                            ?: cerstvy.hraci.getOrNull(kdoIndex)?.prezdivka
-                            ?: "Hráč"
-                        val ukonceny = OnlineManager.ukonciStulProVypadek(cerstvy, jmenoVinika)
-                        onlineStul = ukonceny
+                    val odpojenyHrac = cerstvy.hraci.firstOrNull { hrac ->
+                        !jeBotDeviceId(hrac.deviceId) &&
+                            cerstvy.infoPripojeni(hrac.deviceId, nyni).stav == StavPripojeniHrace.ODPOJEN_CERVENA
+                    }
+                    val efektivniStartTahu = if (cerstvy.verzeStavu <= 1) {
+                        max(cerstvy.zacatekTahuMs, casVstupuKeStoluMs)
+                    } else {
+                        cerstvy.zacatekTahuMs
+                    }
+                    val kdoIndex = when (cerstvy.typHry) {
+                        TypHry.PRSI -> stavPrsi?.naTahu ?: 0
+                        TypHry.SEDMA -> stavSedma?.naTahu ?: 0
+                        TypHry.MARIAS -> stavMarias?.naTahu ?: 0
+                    }
+                    val hracNaTahuObj = cerstvy.hraci.getOrNull(kdoIndex)
+                    val prekrocenTah = maJinehoZivehoHrace &&
+                        hracNaTahuObj != null &&
+                        !jeBotDeviceId(hracNaTahuObj.deviceId) &&
+                        nyni - efektivniStartTahu >= LIMIT_ODPOJENI_MS
 
-                        if (cerstvy.turnajId.isNotEmpty() && odpojenyHrac?.deviceId != mojeDeviceId) {
-                            val pritomny = cerstvy.hraci.firstOrNull { it.deviceId != odpojenyHrac?.deviceId }
-                            if (pritomny != null) {
-                                OnlineManager.zapisVysledekTurnajovehoZapasu(
-                                    turnajId = cerstvy.turnajId,
-                                    slotZapasu = cerstvy.slotZapasu,
-                                    vitezDeviceId = pritomny.deviceId,
-                                    vitezJmeno = pritomny.prezdivka
-                                )
+                    if (odpojenyHrac != null || prekrocenTah) {
+                        val vinik = odpojenyHrac ?: hracNaTahuObj
+                        if (cerstvy.turnajId.isNotEmpty() && vinik != null && !jeBotDeviceId(vinik.deviceId)) {
+                            if (vinik.deviceId != mojeDeviceId) {
+                                val seZaskokem = OnlineManager.nahradNepritomnehoHraceBotemUStolu(cerstvy, vinik.deviceId)
+                                if (seZaskokem != null) {
+                                    onlineStul = seZaskokem
+                                }
                             }
+                        } else if (cerstvy.turnajId.isEmpty()) {
+                            val jmenoVinika = vinik?.prezdivka ?: "Hráč"
+                            val ukonceny = OnlineManager.ukonciStulProVypadek(cerstvy, jmenoVinika)
+                            onlineStul = ukonceny
                         }
                     }
                 }
@@ -391,8 +415,39 @@ fun GameTableScreen(
         TypHry.MARIAS -> stavMarias?.cisloTahu ?: 0
     }
 
-    LaunchedEffect(jeOnlineRezim, aktualniCisloTahu) {
-        if (jeOnlineRezim) return@LaunchedEffect
+    LaunchedEffect(
+        jeOnlineRezim,
+        onlineStul?.roomId,
+        onlineStul?.verzeStavu,
+        aktualniCisloTahu,
+        stavPrsi?.cekaNaVolbuBarvy
+    ) {
+        val indexNaTahu = when (aktivniTypHry) {
+            TypHry.PRSI -> stavPrsi?.naTahu ?: 0
+            TypHry.SEDMA -> stavSedma?.naTahu ?: 0
+            TypHry.MARIAS -> stavMarias?.naTahu ?: 0
+        }
+
+        if (jeOnlineRezim) {
+            val stul = onlineStul ?: return@LaunchedEffect
+            if (stul.stavMistnosti != StavMistnosti.HRAJE_SE) return@LaunchedEffect
+            val hracNaTahu = stul.hraci.getOrNull(indexNaTahu) ?: return@LaunchedEffect
+            if (!jeBotDeviceId(hracNaTahu.deviceId)) return@LaunchedEffect
+
+            val nyni = ziskejAktualniCasMs()
+            val hostZivy = stul.hraci.firstOrNull {
+                it.deviceId == stul.hostDeviceId &&
+                    !jeBotDeviceId(it.deviceId) &&
+                    stul.infoPripojeni(it.deviceId, nyni).stav != StavPripojeniHrace.ODPOJEN_CERVENA
+            }?.deviceId
+            val prvniZivy = hostZivy ?: stul.hraci.firstOrNull {
+                !jeBotDeviceId(it.deviceId) &&
+                    stul.infoPripojeni(it.deviceId, nyni).stav != StavPripojeniHrace.ODPOJEN_CERVENA
+            }?.deviceId
+            if (prvniZivy != mojeDeviceId) return@LaunchedEffect
+        } else if (indexNaTahu == 0) {
+            return@LaunchedEffect
+        }
 
         suspend fun pockejNaStulAHlasku(praveUzavrenStych: Boolean) {
             val startMs = ziskejAktualniCasMs()
@@ -417,27 +472,45 @@ fun GameTableScreen(
         when (aktivniTypHry) {
             TypHry.PRSI -> {
                 val s = stavPrsi ?: return@LaunchedEffect
-                if (!s.jeKonec && s.naTahu != 0) {
+                if (!s.jeKonec && s.naTahu == indexNaTahu) {
                     pockejNaStulAHlasku(praveUzavrenStych = false)
-                    stavPrsi = PrsiEngine.provedTahBota(s)
+                    val novy = PrsiEngine.provedTahBota(s)
+                    stavPrsi = novy
+                    if (jeOnlineRezim) {
+                        onlineStul?.let { st ->
+                            OnlineManager.odesliTahHry(st, novy.doKompaktnihoRetezce())?.let { onlineStul = it }
+                        }
+                    }
                 }
             }
             TypHry.SEDMA -> {
                 val s = stavSedma ?: return@LaunchedEffect
-                if (!s.jeKonec && s.naTahu != 0) {
+                if (!s.jeKonec && s.naTahu == indexNaTahu) {
                     val uzavrenStych = s.aktualniStych.isEmpty() && s.posledniUzavrenyStych.isNotEmpty()
                     pockejNaStulAHlasku(praveUzavrenStych = uzavrenStych)
-                    stavSedma = SedmaEngine.provedTahBota(s)
+                    val novy = SedmaEngine.provedTahBota(s)
+                    stavSedma = novy
+                    if (jeOnlineRezim) {
+                        onlineStul?.let { st ->
+                            OnlineManager.odesliTahHry(st, novy.doKompaktnihoRetezce())?.let { onlineStul = it }
+                        }
+                    }
                 }
             }
             TypHry.MARIAS -> {
                 val s = stavMarias ?: return@LaunchedEffect
-                if (s.faze != FazeMariase.KONEC && s.naTahu != 0) {
+                if (s.faze != FazeMariase.KONEC && s.naTahu == indexNaTahu) {
                     val uzavrenStych = s.faze == FazeMariase.SEHRAVKA &&
                         s.aktualniStych.isEmpty() &&
                         s.posledniUzavrenyStych.isNotEmpty()
                     pockejNaStulAHlasku(praveUzavrenStych = uzavrenStych)
-                    stavMarias = MariasEngine.provedTahBota(s)
+                    val novy = MariasEngine.provedTahBota(s)
+                    stavMarias = novy
+                    if (jeOnlineRezim) {
+                        onlineStul?.let { st ->
+                            OnlineManager.odesliTahHry(st, novy.doKompaktnihoRetezce())?.let { onlineStul = it }
+                        }
+                    }
                 }
             }
         }
@@ -484,7 +557,6 @@ fun GameTableScreen(
                 aktualniMesecTerezianu = novyZustatek
                 OnlineManager.odesliAktualniTerezianyDoZebricku(novyZustatek)
             }
-
             if (!jeOnlineRezim) {
                 soucetBoduOffline = soucetBoduOffline.mapIndexed { idx, stary ->
                     stary + (vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.bodyZapasu ?: 0)
@@ -496,18 +568,36 @@ fun GameTableScreen(
                         stary + (vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.bodyZapasu ?: 0)
                     }
                     if (stul.cisloRozdani >= stul.celkemRozdani) {
-                        val vitezZapasuIdx = if (stul.celkemRozdani > 1) {
-                            noveSoucty.indices.maxByOrNull { noveSoucty[it] } ?: 0
+                        val serazeneIndexy = if (stul.celkemRozdani > 1) {
+                            stul.hraci.indices.sortedWith(
+                                compareByDescending<Int> { noveSoucty.getOrElse(it) { 0 } }
+                                    .thenByDescending { idx ->
+                                        vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.jeVitez == true
+                                    }
+                                    .thenByDescending { idx ->
+                                        !jeBotDeviceId(stul.hraci[idx].deviceId)
+                                    }
+                            )
                         } else {
-                            vysledekPartie.hraci.firstOrNull { it.jeVitez }?.indexHrace ?: 0
+                            stul.hraci.indices.sortedByDescending { idx ->
+                                vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.jeVitez == true
+                            }
                         }
-                        val vitezHrac = stul.hraci.getOrNull(vitezZapasuIdx)
-                        if (vitezHrac != null && stul.hostDeviceId == mojeDeviceId) {
+                        val vitezHrac = serazeneIndexy.getOrNull(0)?.let { stul.hraci.getOrNull(it) }
+                        val druhyHrac = serazeneIndexy.getOrNull(1)?.let { stul.hraci.getOrNull(it) }
+                        val prvniZivy = stul.hraci.firstOrNull { !jeBotDeviceId(it.deviceId) }?.deviceId
+                        val mamZapsatVysledek = stul.hostDeviceId == mojeDeviceId ||
+                            prvniZivy == mojeDeviceId ||
+                            vitezHrac?.deviceId == mojeDeviceId
+
+                        if (vitezHrac != null && mamZapsatVysledek) {
                             OnlineManager.zapisVysledekTurnajovehoZapasu(
                                 turnajId = stul.turnajId,
                                 slotZapasu = stul.slotZapasu,
                                 vitezDeviceId = vitezHrac.deviceId,
-                                vitezJmeno = vitezHrac.prezdivka
+                                vitezJmeno = vitezHrac.prezdivka,
+                                druhyDeviceId = druhyHrac?.deviceId ?: "",
+                                druhyJmeno = druhyHrac?.prezdivka ?: ""
                             )
                         }
                     }
@@ -560,6 +650,8 @@ fun GameTableScreen(
                         stavSedma = stavSedma,
                         stavMarias = stavMarias,
                         tikSekundyMs = tikSekundyMs,
+                        mojeDeviceId = mojeDeviceId,
+                        casVstupuKeStoluMs = casVstupuKeStoluMs,
                         zvukZapnut = zvukZapnut,
                         onPrepnoutZvuk = {
                             val novyStav = !zvukZapnut
@@ -573,7 +665,11 @@ fun GameTableScreen(
                                 val stul = onlineStul
                                 if (stul != null) {
                                     scope.launch {
-                                        OnlineManager.opustStul(stul.roomId)
+                                        if (stul.turnajId.isNotEmpty() && stul.cisloRozdani >= stul.celkemRozdani) {
+                                            OnlineManager.smazStul(stul.roomId)
+                                        } else {
+                                            OnlineManager.opustStul(stul.roomId)
+                                        }
                                         onOpustitStul()
                                     }
                                 } else {
@@ -792,7 +888,11 @@ fun GameTableScreen(
                         val stul = onlineStul
                         if (stul != null) {
                             scope.launch {
-                                OnlineManager.opustStul(stul.roomId)
+                                if (stul.turnajId.isNotEmpty() && stul.cisloRozdani >= stul.celkemRozdani) {
+                                    OnlineManager.smazStul(stul.roomId)
+                                } else {
+                                    OnlineManager.opustStul(stul.roomId)
+                                }
                                 onOpustitStul()
                             }
                         } else {
@@ -848,6 +948,7 @@ fun GameTableScreen(
             }
 
             if (potvrditOdchod) {
+                val jeTurnajovyStul = onlineStul?.turnajId?.isNotEmpty() == true
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -865,14 +966,18 @@ fun GameTableScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "Opustit rozehraný stůl?",
+                            text = if (jeTurnajovyStul) "Opustit turnajový zápas?" else "Opustit rozehraný stůl?",
                             color = Color(0xFFFFD54F),
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Opuštěním živého stolu se partie ostatním spoluhráčům ukončí.",
+                            text = if (jeTurnajovyStul) {
+                                "Pokud odejdeš z rozehraného turnajového zápasu, tvé místo u stolu dokončí turnajový bot."
+                            } else {
+                                "Opuštěním živého stolu se partie ostatním spoluhráčům ukončí."
+                            },
                             color = Color(0xFFE0E0E0),
                             fontSize = 14.sp,
                             textAlign = TextAlign.Center
@@ -901,7 +1006,29 @@ fun GameTableScreen(
                                     val stul = onlineStul
                                     if (stul != null) {
                                         scope.launch {
-                                            OnlineManager.ukonciStulProVypadek(stul, mojePrezdivka)
+                                            if (stul.turnajId.isNotEmpty()) {
+                                                val jiniZivi = stul.hraci.any {
+                                                    it.deviceId != mojeDeviceId && !jeBotDeviceId(it.deviceId)
+                                                }
+                                                if (jiniZivi) {
+                                                    OnlineManager.nahradNepritomnehoHraceBotemUStolu(stul, mojeDeviceId)
+                                                } else {
+                                                    val souperBot = stul.hraci.firstOrNull { it.deviceId != mojeDeviceId }
+                                                    if (souperBot != null) {
+                                                        OnlineManager.zapisVysledekTurnajovehoZapasu(
+                                                            turnajId = stul.turnajId,
+                                                            slotZapasu = stul.slotZapasu,
+                                                            vitezDeviceId = souperBot.deviceId,
+                                                            vitezJmeno = souperBot.prezdivka,
+                                                            druhyDeviceId = mojeDeviceId,
+                                                            druhyJmeno = mojePrezdivka
+                                                        )
+                                                    }
+                                                    OnlineManager.smazStul(stul.roomId)
+                                                }
+                                            } else {
+                                                OnlineManager.ukonciStulProVypadek(stul, mojePrezdivka)
+                                            }
                                             onOpustitStul()
                                         }
                                     } else {
@@ -935,10 +1062,16 @@ private fun HorniListaStolu(
     stavSedma: StavSedma?,
     stavMarias: StavMarias?,
     tikSekundyMs: Long,
+    mojeDeviceId: String,
+    casVstupuKeStoluMs: Long,
     zvukZapnut: Boolean,
     onPrepnoutZvuk: () -> Unit,
     onKlikZpet: () -> Unit
 ) {
+    val maJinehoZivehoSouper = onlineStul?.hraci?.any {
+        it.deviceId != mojeDeviceId && !jeBotDeviceId(it.deviceId)
+    } == true
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -949,59 +1082,73 @@ private fun HorniListaStolu(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFF1D5836))
-                .clickable {
-                    jemnaHaptika()
-                    onKlikZpet()
-                }
-                .padding(horizontal = 8.dp, vertical = 5.dp)
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.CenterStart
         ) {
-            Text(
-                text = "← Odchod",
-                color = Color(0xFFFFE082),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                softWrap = false
-            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF1D5836))
+                    .clickable {
+                        jemnaHaptika()
+                        onKlikZpet()
+                    }
+                    .padding(horizontal = 8.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    text = "← Odchod",
+                    color = Color(0xFFFFE082),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
         }
 
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 4.dp),
+            modifier = Modifier.padding(horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val stitekRezimu = when {
-                onlineStul != null && onlineStul.turnajId.isNotEmpty() ->
-                    "TURNAJ (${onlineStul.cisloRozdani}/${onlineStul.celkemRozdani}) • ${variantaPravidel.stitekUStolu}"
-                jeOnline ->
-                    "ŽIVÝ STŮL • ${variantaPravidel.stitekUStolu}"
+                onlineStul != null && onlineStul.turnajId.isNotEmpty() -> {
+                    if (onlineStul.celkemRozdani > 1) {
+                        "TURNAJ ${onlineStul.cisloRozdani}/${onlineStul.celkemRozdani}"
+                    } else {
+                        "TURNAJ • ${variantaPravidel.stitekUStolu}"
+                    }
+                }
+                jeOnline -> variantaPravidel.stitekUStolu
                 offlineKonfig?.jeOfflinePohar == true ->
-                    "POHÁR ($cisloOfflineRozdani/${offlineKonfig.celkemRozdani}) • ${variantaPravidel.stitekUStolu}"
-                else ->
-                    "TRÉNINK • ${variantaPravidel.stitekUStolu}"
+                    "POHÁR $cisloOfflineRozdani/${offlineKonfig.celkemRozdani}"
+                else -> variantaPravidel.stitekUStolu
             }
+
             Text(
                 text = typHry.nazev,
                 color = Color.White,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                softWrap = false,
                 textAlign = TextAlign.Center
             )
-            if (jeOnline && onlineStul != null && onlineStul.stavMistnosti == StavMistnosti.HRAJE_SE) {
-                val zbyvaTahu = max(0L, (LIMIT_ODPOJENI_MS - (tikSekundyMs - onlineStul.zacatekTahuMs)) / 1000L)
+
+            if (jeOnline && onlineStul != null && onlineStul.stavMistnosti == StavMistnosti.HRAJE_SE && maJinehoZivehoSouper) {
+                val zakladTahu = if (onlineStul.verzeStavu <= 1) {
+                    max(onlineStul.zacatekTahuMs, casVstupuKeStoluMs)
+                } else {
+                    onlineStul.zacatekTahuMs
+                }
+                val zbyvaTahu = max(0L, (LIMIT_ODPOJENI_MS - (tikSekundyMs - zakladTahu)) / 1000L)
                 Text(
                     text = "$stitekRezimu • ${zbyvaTahu}s",
                     color = if (zbyvaTahu <= 15L) Color(0xFFFF8A65) else Color(0xFFA5D6A7),
                     fontSize = 9.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    softWrap = false,
+                    textAlign = TextAlign.Center
                 )
             } else {
                 Text(
@@ -1010,72 +1157,34 @@ private fun HorniListaStolu(
                     fontSize = 9.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    softWrap = false,
+                    textAlign = TextAlign.Center
                 )
             }
         }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        Box(
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.CenterEnd
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF144227))
-                    .border(0.8.dp, Color(0x55E6C15A), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                when (typHry) {
-                    TypHry.PRSI -> if (stavPrsi != null) {
-                        IkonaBarvyKarty(stavPrsi.aktualniPlatnaBarva, velikost = 13.dp)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = stavPrsi.aktualniPlatnaBarva.ceskyNazev,
-                            color = Color(0xFFFFF59D),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-
-                    TypHry.SEDMA -> if (stavSedma != null) {
-                        Text(
-                            text = "${stavSedma.uhraneBodyTym0} : ${stavSedma.uhraneBodyTym1} b.",
-                            color = Color(0xFFFFF59D),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-
-                    TypHry.MARIAS -> if (stavMarias != null) {
-                        if (stavMarias.trumf != null && !stavMarias.jeBetlNeboDurch) {
-                            IkonaBarvyKarty(stavMarias.trumf, velikost = 13.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF144227))
+                        .border(0.8.dp, Color(0x55E6C15A), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 6.dp, vertical = 4.dp)
+                ) {
+                    when (typHry) {
+                        TypHry.PRSI -> if (stavPrsi != null) {
+                            IkonaBarvyKarty(stavPrsi.aktualniPlatnaBarva, velikost = 12.dp)
                             Spacer(modifier = Modifier.width(3.dp))
-                            val nasobkyText = if (stavMarias.zavazek.hlasiSedmu) {
-                                "${stavMarias.nasobekFlekHra}×/7:${stavMarias.nasobekFlekSedma}×"
-                            } else {
-                                "${stavMarias.nasobekFlekHra}×"
-                            }
                             Text(
-                                text = "${stavMarias.trumf.ceskyNazev} ($nasobkyText)",
-                                color = Color(0xFFFFF59D),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        } else {
-                            Text(
-                                text = when (stavMarias.zavazek) {
-                                    ZavazekMariase.BETL -> "Betl (${stavMarias.nasobekFlekHra}×)"
-                                    ZavazekMariase.DURCH -> "Durch (${stavMarias.nasobekFlekHra}×)"
-                                    else -> "Volba"
-                                },
+                                text = stavPrsi.aktualniPlatnaBarva.ceskyNazev,
                                 color = Color(0xFFFFF59D),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1083,32 +1192,76 @@ private fun HorniListaStolu(
                                 softWrap = false
                             )
                         }
+
+                        TypHry.SEDMA -> if (stavSedma != null) {
+                            Text(
+                                text = "${stavSedma.uhraneBodyTym0} : ${stavSedma.uhraneBodyTym1} b.",
+                                color = Color(0xFFFFF59D),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+
+                        TypHry.MARIAS -> if (stavMarias != null) {
+                            if (stavMarias.trumf != null && !stavMarias.jeBetlNeboDurch) {
+                                IkonaBarvyKarty(stavMarias.trumf, velikost = 12.dp)
+                                Spacer(modifier = Modifier.width(3.dp))
+                                val nasobkyText = if (stavMarias.zavazek.hlasiSedmu && stavMarias.nasobekFlekSedma > 1) {
+                                    "${stavMarias.nasobekFlekHra}×/7:${stavMarias.nasobekFlekSedma}×"
+                                } else {
+                                    "${stavMarias.nasobekFlekHra}×"
+                                }
+                                Text(
+                                    text = "${stavMarias.trumf.ceskyNazev} ($nasobkyText)",
+                                    color = Color(0xFFFFF59D),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            } else {
+                                Text(
+                                    text = when (stavMarias.zavazek) {
+                                        ZavazekMariase.BETL -> "Betl (${stavMarias.nasobekFlekHra}×)"
+                                        ZavazekMariase.DURCH -> "Durch (${stavMarias.nasobekFlekHra}×)"
+                                        else -> "Volba"
+                                    },
+                                    color = Color(0xFFFFF59D),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
                     }
                 }
-            }
 
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (zvukZapnut) Color(0xFF1D5836) else Color(0xFF3E2723))
-                    .border(
-                        width = 0.9.dp,
-                        color = if (zvukZapnut) Color(0x8869F0AE) else Color(0x88FF8A80),
-                        shape = RoundedCornerShape(8.dp)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (zvukZapnut) Color(0xFF1D5836) else Color(0xFF3E2723))
+                        .border(
+                            width = 0.9.dp,
+                            color = if (zvukZapnut) Color(0x8869F0AE) else Color(0x88FF8A80),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        .clickable {
+                            jemnaHaptika()
+                            onPrepnoutZvuk()
+                        }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (zvukZapnut) "🔊" else "🔇",
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false
                     )
-                    .clickable {
-                        jemnaHaptika()
-                        onPrepnoutZvuk()
-                    }
-                    .padding(horizontal = 7.dp, vertical = 4.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (zvukZapnut) "🔊" else "🔇",
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    softWrap = false
-                )
+                }
             }
         }
     }
@@ -1158,6 +1311,7 @@ private fun PruhySouperu(
             }
             val hracNaTahu = naTahu == idx
             val onlineHrac = onlineStul?.hraci?.getOrNull(idx)
+            val jeOnlineBot = onlineHrac != null && jeBotDeviceId(onlineHrac.deviceId)
             val infoSpojeni = if (onlineStul != null && onlineHrac != null) {
                 onlineStul.infoPripojeni(onlineHrac.deviceId, nyniMs)
             } else null
@@ -1175,10 +1329,11 @@ private fun PruhySouperu(
                     )
                     .padding(horizontal = 8.dp, vertical = 5.dp)
             ) {
-                val barvaTecky = when (infoSpojeni?.stav) {
-                    StavPripojeniHrace.ONLINE_ZELENA, null -> Color(0xFF00E676)
-                    StavPripojeniHrace.VYPADEK_ZLUTA -> Color(0xFFFFCA28)
-                    StavPripojeniHrace.ODPOJEN_CERVENA -> Color(0xFFFF5252)
+                val barvaTecky = when {
+                    jeOnlineBot -> Color(0xFF90CAF9)
+                    infoSpojeni?.stav == StavPripojeniHrace.VYPADEK_ZLUTA -> Color(0xFFFFCA28)
+                    infoSpojeni?.stav == StavPripojeniHrace.ODPOJEN_CERVENA -> Color(0xFFFF5252)
+                    else -> Color(0xFF00E676)
                 }
                 Box(
                     modifier = Modifier

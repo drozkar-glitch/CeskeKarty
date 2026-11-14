@@ -845,16 +845,16 @@ internal fun SpodniRukaHrace(
             aktivniKontrola = mujTah
             zvyraznitPanelRuky = mujTah || voliBarvuSvrskem
             popisPovinnosti = when {
-                voliBarvuSvrskem -> "Vynesl jsi svrška — zvol uprostřed novou barvu!"
+                voliBarvuSvrskem -> "Vynesl jsi svrška — zvol novou barvu!"
                 !mujTah -> "Čekáš na tah soupeře"
                 s?.aktivniSedmyPocet ?: 0 > 0 ->
-                    "Aktivní sedma: přebij sedmičkou, nebo lízni ${sklonujKartyAkuzativ((s?.aktivniSedmyPocet ?: 1) * 2)}"
+                    "Přebij sedmičkou, nebo lízni ${sklonujKartyAkuzativ((s?.aktivniSedmyPocet ?: 1) * 2)}"
                 s?.aktivniEsoStoji == true && s.variantaPravidel == VariantaPravidel.HOSPODSKA ->
-                    "Aktivní eso: přebij esem či Červenou sedmou, nebo stůj 1 kolo"
+                    "Přebij esem či Červenou 7, nebo stůj 1 kolo"
                 s?.aktivniEsoStoji == true ->
-                    "Aktivní eso: přebij esem, nebo stůj 1 kolo"
-                povolene.isEmpty() -> "Nemáš vhodnou kartu — klepni na balíček pro líznutí"
-                else -> "Jsi na tahu — klepni na zeleně zvýrazněnou kartu"
+                    "Aktivní eso — přebij esem, nebo stůj 1 kolo"
+                povolene.isEmpty() -> "Nemáš kartu — klepni na balíček pro líznutí"
+                else -> "Jsi na tahu — zahraj zvýrazněnou kartu"
             }
         }
 
@@ -868,10 +868,10 @@ internal fun SpodniRukaHrace(
             popisPovinnosti = when {
                 !mujTah -> "Čekáš na tah u stolu"
                 s?.muzePustitStych == true && s.prozatimBereHrac == lokalniIndex ->
-                    "Držíš štych — můžeš vynést další stejnou kartu, nebo štych vzít"
+                    "Držíš štych — přilož další, nebo štych vezmi"
                 s?.muzePustitStych == true ->
-                    "Soupeř přebil — můžeš přebít zpět zvýrazněnou kartou, nebo štych pustit"
-                else -> "Jsi na tahu — štítek BERE značí kartu, která přebíjí štych"
+                    "Soupeř přebil — přebij zpět, nebo štych pusť"
+                else -> "Jsi na tahu — štítek BERE přebíjí štych"
             }
         }
 
@@ -890,9 +890,9 @@ internal fun SpodniRukaHrace(
             aktivniKontrola = odkladaTalon || hrajeStych
             zvyraznitPanelRuky = voliTrumf || odkladaTalon || flekuje || hrajeStych
             popisPovinnosti = when {
-                voliTrumf -> "Prohlédni si svých 7 karet a nahoře zvol trumf"
-                odkladaTalon -> "Zvol 2 povolené karty do talonu"
-                flekuje -> "Prohlédni si list a nahoře zvol Dobrý nebo Flek"
+                voliTrumf -> "Prohlédni si 7 karet a nahoře zvol trumf"
+                odkladaTalon -> "Vyber 2 povolené karty do talonu"
+                flekuje -> "Zvol nahoře Dobrý nebo Flek"
                 !hrajeStych -> "Sleduj stůl"
                 s?.aktualniStych?.isEmpty() == true -> "Vynášíš do štychu"
                 else -> {
@@ -900,8 +900,8 @@ internal fun SpodniRukaHrace(
                     val maBarvu = vynosBarva != null && ruka.any { it.barva == vynosBarva }
                     val maTrumf = s?.trumf != null && !s.jeBetlNeboDurch && ruka.any { it.barva == s.trumf }
                     when {
-                        maBarvu -> "Povinnost přiznat (a přebít) barvu ${vynosBarva?.ceskyNazev}"
-                        maTrumf -> "Nemáš barvu — povinnost trumfovat (${s?.trumf?.ceskyNazev})!"
+                        maBarvu -> "Povinnost přiznat (a přebít) ${vynosBarva?.ceskyNazev}"
+                        maTrumf -> "Nemáš barvu — trumfuj (${s?.trumf?.ceskyNazev})!"
                         else -> "Nemáš barvu ani trumf — volný odhoz"
                     }
                 }
@@ -951,7 +951,8 @@ internal fun SpodniRukaHrace(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
-                maxLines = 2,
+                maxLines = 1,
+                softWrap = false,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -1089,8 +1090,9 @@ internal fun PanelVyuctovaniPartie(
     onDalsiRozdani: () -> Unit,
     onZpetDoHerny: () -> Unit
 ) {
-    val jeTurnajHotovy = if (onlineStul != null && onlineStul.turnajId.isNotEmpty()) {
-        onlineStul.cisloRozdani >= onlineStul.celkemRozdani
+    val jeOnlineTurnaj = onlineStul != null && onlineStul.turnajId.isNotEmpty()
+    val jeTurnajHotovy = if (jeOnlineTurnaj) {
+        onlineStul!!.cisloRozdani >= onlineStul.celkemRozdani
     } else if (offlineKonfig?.jeOfflinePohar == true) {
         cisloOfflineRozdani >= offlineKonfig.celkemRozdani
     } else {
@@ -1098,8 +1100,12 @@ internal fun PanelVyuctovaniPartie(
     }
 
     val dostHracuUStolu = !jeOnline || (onlineStul != null && onlineStul.hraci.size >= onlineStul.maxHracu)
+    val odpovednyHostId = onlineStul?.hraci?.firstOrNull {
+        it.deviceId == onlineStul.hostDeviceId && !jeBotDeviceId(it.deviceId)
+    }?.deviceId ?: onlineStul?.hraci?.firstOrNull { !jeBotDeviceId(it.deviceId) }?.deviceId
+
     val muzeSpustitDalsi = !jeTurnajHotovy && dostHracuUStolu &&
-        (!jeOnline || onlineStul?.hostDeviceId == mojeDeviceId)
+        (!jeOnline || odpovednyHostId == mojeDeviceId)
 
     Box(
         modifier = Modifier
@@ -1204,7 +1210,20 @@ internal fun PanelVyuctovaniPartie(
                 )
             }
 
-            if (offlineKonfig?.jeOfflinePohar == true) {
+            if (jeOnlineTurnaj && onlineStul!!.celkemRozdani > 1) {
+                Spacer(modifier = Modifier.height(8.dp))
+                val poradiTurnaj = vysledek.hraci.map { hr ->
+                    val celkem = (onlineStul.soucetBoduHracu.getOrElse(hr.indexHrace) { 0 }) + hr.bodyZapasu
+                    hr.jmenoHrace to celkem
+                }.sortedByDescending { it.second }
+                Text(
+                    text = "Pořadí u turnajového stolu (${onlineStul.cisloRozdani}/${onlineStul.celkemRozdani}): " +
+                        poradiTurnaj.joinToString(", ") { "${it.first} (${it.second} b.)" },
+                    color = Color(0xFFFFE082),
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center
+                )
+            } else if (offlineKonfig?.jeOfflinePohar == true) {
                 Spacer(modifier = Modifier.height(8.dp))
                 val poradiPohar = vysledek.hraci.mapIndexed { idx, hr ->
                     hr.jmenoHrace to (soucetBoduOffline.getOrElse(idx) { 0 })
@@ -1221,7 +1240,7 @@ internal fun PanelVyuctovaniPartie(
             if (jeOnline && !jeTurnajHotovy && !muzeSpustitDalsi) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Čekání, zda zakladatel stolu spustí další rozdání…",
+                    text = "Čekání, než spoluhráč u stolu spustí další rozdání…",
                     color = Color(0xFFB9F6CA),
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center
@@ -1270,8 +1289,13 @@ internal fun PanelVyuctovaniPartie(
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
                 ) {
+                    val popisekZpet = when {
+                        jeOnlineTurnaj && jeTurnajHotovy -> "Zpět k pavouku"
+                        jeTurnajHotovy -> "Zpět k turnaji"
+                        else -> "Zpět do herny"
+                    }
                     Text(
-                        text = if (jeTurnajHotovy) "Zpět k turnaji" else "Zpět do herny",
+                        text = popisekZpet,
                         color = Color(0xFF072312),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.ExtraBold,

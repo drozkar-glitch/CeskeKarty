@@ -1,7 +1,7 @@
 /**
  * Cloudflare Worker pro Ceske karty (cz.mares.ceskekarty)
  * Bezpecne michani 32 mariasovych karet mimo webhosting uzivatele,
- * kontrola 60s neaktivity bez nahrazovani zivych hracu botem a sprava turnaju.
+ * presny serverovy cas pro planovane turnaje a kontrola 60s neaktivity.
  * Nasazeni zdarma na https://workers.cloudflare.com (promenna prostredi FIREBASE_DB_URL).
  */
 
@@ -43,8 +43,13 @@ export default {
 
     const fbBase = (env.FIREBASE_DB_URL || DEFAULT_FB_URL).replace(/\/$/, "");
     const url = new URL(request.url);
+    const nowMs = Date.now();
 
     try {
+      if (url.pathname === "/time") {
+        return Response.json({ ok: true, nowMs }, { headers: corsHeaders() });
+      }
+
       if (url.pathname === "/deal" && request.method === "POST") {
         const body = await request.json();
         const roomId = String(body.roomId || "").replace(/[^a-zA-Z0-9_-]/g, "");
@@ -84,27 +89,37 @@ export default {
             hands,
             topCard,
             stock: remainingStock,
-            dealtAt: Date.now()
+            dealtAt: nowMs
           })
         });
 
-        return Response.json({ ok: true, topCard, dealtCount: cursor }, { headers: corsHeaders() });
+        return Response.json({ ok: true, topCard, dealtCount: cursor, nowMs }, { headers: corsHeaders() });
       }
 
       if (url.pathname === "/check-timeout" && request.method === "POST") {
         const body = await request.json();
         const roomId = String(body.roomId || "").replace(/[^a-zA-Z0-9_-]/g, "");
-        const nowMs = Date.now();
+        if (!roomId) {
+          return Response.json({ ok: false, error: "Chybi roomId" }, { status: 400, headers: corsHeaders() });
+        }
 
         const roomRes = await fetch(`${fbBase}/card_rooms/${roomId}.json`);
         const room = await roomRes.json();
-        if (!room || room.status !== "PLAYING") {
-          return Response.json({ ok: true, terminated: false }, { headers: corsHeaders() });
+        const metaStr = room && typeof room.meta === "string" ? room.meta : "";
+        const statusVal = room ? String(room.statusOverride || room.status || "") : "";
+        const isPlaying =
+          statusVal === "PLAYING" ||
+          statusVal === "HRAJE_SE" ||
+          (!statusVal && metaStr.includes("stav=HRAJE_SE"));
+
+        if (!room || !isPlaying) {
+          return Response.json({ ok: true, terminated: false, nowMs }, { headers: corsHeaders() });
         }
 
         const heartbeats = room.heartbeats || {};
         let timedOutPlayer = "";
         for (const [pid, ts] of Object.entries(heartbeats)) {
+          if (String(pid).startsWith("bot_")) continue;
           if (nowMs - Number(ts) > 60000) {
             timedOutPlayer = pid;
             break;
@@ -117,17 +132,18 @@ export default {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               status: "ABORTED_TIMEOUT",
+              statusOverride: "ABORTED_TIMEOUT",
               abortedBy: timedOutPlayer,
               finishedAt: nowMs
             })
           });
-          return Response.json({ ok: true, terminated: true, abortedBy: timedOutPlayer }, { headers: corsHeaders() });
+          return Response.json({ ok: true, terminated: true, abortedBy: timedOutPlayer, nowMs }, { headers: corsHeaders() });
         }
 
-        return Response.json({ ok: true, terminated: false }, { headers: corsHeaders() });
+        return Response.json({ ok: true, terminated: false, nowMs }, { headers: corsHeaders() });
       }
 
-      return Response.json({ ok: true, service: "CeskeKarty Cloudflare Worker" }, { headers: corsHeaders() });
+      return Response.json({ ok: true, service: "CeskeKarty Cloudflare Worker", nowMs }, { headers: corsHeaders() });
     } catch (err) {
       return Response.json({ ok: false, error: String(err) }, { status: 500, headers: corsHeaders() });
     }

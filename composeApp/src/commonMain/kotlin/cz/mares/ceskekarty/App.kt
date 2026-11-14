@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -72,7 +73,6 @@ fun App() {
         var ulozenyPinOtisk by remember { mutableStateOf(nactiUlozenyPinOtisk()) }
         var aktualniTereziany by remember { mutableStateOf(nactiLokalniTereziany()) }
         var dostupnaDenniOdmena by remember { mutableStateOf(muzeVyzvednoutDenniOdmenu()) }
-        var zvukZapnut by remember { mutableStateOf(jeZvukAHlaskyZapnuty()) }
         var vybranaPravidla by remember { mutableStateOf(nactiVychoziVariantuPravidel()) }
 
         var vybranyOfflineKonfig by remember { mutableStateOf<KonfiguraceOfflineHry?>(null) }
@@ -81,6 +81,13 @@ fun App() {
         fun nastavVariantuPravidel(nova: VariantaPravidel) {
             vybranaPravidla = nova
             ulozVychoziVariantuPravidel(nova)
+        }
+
+        fun obnovStavUctuAMesce() {
+            ulozenaPrezdivka = nactiUlozenouPrezdivku()
+            ulozenyPinOtisk = nactiUlozenyPinOtisk()
+            aktualniTereziany = nactiLokalniTereziany()
+            dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
         }
 
         LaunchedEffect(ulozenaPrezdivka, ulozenyPinOtisk) {
@@ -103,18 +110,7 @@ fun App() {
                         ulozenyPinOtisk = ulozenyPinOtisk,
                         aktualniTereziany = aktualniTereziany,
                         dostupnaDenniOdmena = dostupnaDenniOdmena,
-                        zvukZapnut = zvukZapnut,
-                        onPrepnoutZvuk = {
-                            val novy = !zvukZapnut
-                            zvukZapnut = novy
-                            HospodaZvuk.priPrepnutiZvuku(novy)
-                        },
-                        onUcetNeboMesecZmenen = {
-                            ulozenaPrezdivka = nactiUlozenouPrezdivku()
-                            ulozenyPinOtisk = nactiUlozenyPinOtisk()
-                            aktualniTereziany = nactiLokalniTereziany()
-                            dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
-                        },
+                        onUcetNeboMesecZmenen = { obnovStavUctuAMesce() },
                         onOtevritZivouHernu = { aktualniObrazovka = ObrazovkaHerny.ONLINE_LOBBY },
                         onOtevritTurnaje = { aktualniObrazovka = ObrazovkaHerny.TURNAJE },
                         onOtevritTrenink = { aktualniObrazovka = ObrazovkaHerny.TRENINK_VYBER },
@@ -166,18 +162,27 @@ fun App() {
                                 aktualniObrazovka = ObrazovkaHerny.HERNI_STUL
                             },
                             onZrusit = {
+                                val bylTurnaj = aktivniOnlineStul?.turnajId?.isNotEmpty() == true
                                 aktivniOnlineStul = null
-                                aktualniObrazovka = ObrazovkaHerny.ONLINE_LOBBY
+                                aktualniObrazovka = if (bylTurnaj) {
+                                    ObrazovkaHerny.TURNAJE
+                                } else {
+                                    ObrazovkaHerny.ONLINE_LOBBY
+                                }
                             }
                         )
                     }
                 }
 
                 ObrazovkaHerny.TURNAJE -> ZelenyKaretniStulBox(zobrazitStredovyKruh = false) {
-                    TurnajovaSinObrazovka(
+                    TournamentHallScreen(
                         vybranaVarianta = vybranaPravidla,
                         onZmenaVarianty = { nastavVariantuPravidel(it) },
-                        onZpet = { aktualniObrazovka = ObrazovkaHerny.DOMOV },
+                        onZpet = {
+                            obnovStavUctuAMesce()
+                            aktualniObrazovka = ObrazovkaHerny.DOMOV
+                        },
+                        onUcetNeboMesecZmenen = { obnovStavUctuAMesce() },
                         onSpustitOfflinePohar = { typ, varianta ->
                             vybranyOfflineKonfig = KonfiguraceOfflineHry(
                                 typHry = typ,
@@ -192,7 +197,11 @@ fun App() {
                         onVstoupitDoZapasuTurnaje = { stul ->
                             aktivniOnlineStul = stul
                             vybranyOfflineKonfig = null
-                            aktualniObrazovka = ObrazovkaHerny.HERNI_STUL
+                            aktualniObrazovka = if (stul.stavMistnosti == StavMistnosti.HRAJE_SE) {
+                                ObrazovkaHerny.HERNI_STUL
+                            } else {
+                                ObrazovkaHerny.CEKARNA_STOLU
+                            }
                         }
                     )
                 }
@@ -213,17 +222,15 @@ fun App() {
                     offlineKonfig = vybranyOfflineKonfig,
                     pocatecniOnlineStul = aktivniOnlineStul,
                     onVratitDoCekarny = { upravenyStul ->
-                        zvukZapnut = jeZvukAHlaskyZapnuty()
-                        aktualniTereziany = nactiLokalniTereziany()
+                        obnovStavUctuAMesce()
                         aktivniOnlineStul = upravenyStul
                         vybranyOfflineKonfig = null
                         aktualniObrazovka = ObrazovkaHerny.CEKARNA_STOLU
                     },
                     onOpustitStul = {
-                        zvukZapnut = jeZvukAHlaskyZapnuty()
-                        aktualniTereziany = nactiLokalniTereziany()
-                        dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
-                        val navratDoTurnaje = aktivniOnlineStul?.turnajId?.isNotEmpty() == true
+                        obnovStavUctuAMesce()
+                        val navratDoTurnaje = aktivniOnlineStul?.turnajId?.isNotEmpty() == true ||
+                            vybranyOfflineKonfig?.jeOfflinePohar == true
                         aktivniOnlineStul = null
                         vybranyOfflineKonfig = null
                         aktualniObrazovka = if (navratDoTurnaje) {
@@ -284,9 +291,9 @@ private fun PrepinacPravidelPanel(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "$ikona ${varianta.kratkyNazev} pravidla",
+                        text = "$ikona ${varianta.kratkyNazev}",
                         color = if (aktivni) Color(0xFF072312) else Color.White,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.ExtraBold,
                         maxLines = 1,
                         softWrap = false,
@@ -339,8 +346,6 @@ private fun DomovskaObrazovka(
     ulozenyPinOtisk: String,
     aktualniTereziany: Int,
     dostupnaDenniOdmena: Boolean,
-    zvukZapnut: Boolean,
-    onPrepnoutZvuk: () -> Unit,
     onUcetNeboMesecZmenen: () -> Unit,
     onOtevritZivouHernu: () -> Unit,
     onOtevritTurnaje: () -> Unit,
@@ -362,67 +367,36 @@ private fun DomovskaObrazovka(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy((-18).dp),
-                verticalAlignment = Alignment.CenterVertically,
+        Row(
+            horizontalArrangement = Arrangement.spacedBy((-18).dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(top = 4.dp)
+        ) {
+            KartaLiceComposable(
+                karta = Karta(BarvaKarty.ZALUDY, HodnotaKarty.KRAL),
+                sirka = 62.dp,
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(top = 4.dp)
-            ) {
-                KartaLiceComposable(
-                    karta = Karta(BarvaKarty.ZALUDY, HodnotaKarty.KRAL),
-                    sirka = 62.dp,
-                    modifier = Modifier
-                        .zIndex(1f)
-                        .graphicsLayer {
-                            rotationZ = -13f
-                            translationY = 8f
-                        }
-                )
-                KartaLiceComposable(
-                    karta = Karta(BarvaKarty.CERVENE, HodnotaKarty.ESO),
-                    sirka = 68.dp,
-                    modifier = Modifier.zIndex(3f)
-                )
-                KartaLiceComposable(
-                    karta = Karta(BarvaKarty.KULE, HodnotaKarty.SVRSEK),
-                    sirka = 62.dp,
-                    modifier = Modifier
-                        .zIndex(2f)
-                        .graphicsLayer {
-                            rotationZ = 13f
-                            translationY = 8f
-                        }
-                )
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (zvukZapnut) Color(0xD9164B2C) else Color(0xD93E2723))
-                    .border(
-                        width = 1.dp,
-                        color = if (zvukZapnut) Color(0x8869F0AE) else Color(0x88FF8A80),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                    .clickable {
-                        jemnaHaptika()
-                        onPrepnoutZvuk()
+                    .zIndex(1f)
+                    .graphicsLayer {
+                        rotationZ = -13f
+                        translationY = 8f
                     }
-                    .padding(horizontal = 9.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    text = if (zvukZapnut) "🔊 Hlášky" else "🔇 Ztišeno",
-                    color = if (zvukZapnut) Color(0xFFFFF59D) else Color(0xFFFFCCBC),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
+            )
+            KartaLiceComposable(
+                karta = Karta(BarvaKarty.CERVENE, HodnotaKarty.ESO),
+                sirka = 68.dp,
+                modifier = Modifier.zIndex(3f)
+            )
+            KartaLiceComposable(
+                karta = Karta(BarvaKarty.KULE, HodnotaKarty.SVRSEK),
+                sirka = 62.dp,
+                modifier = Modifier
+                    .zIndex(2f)
+                    .graphicsLayer {
+                        rotationZ = 13f
+                        translationY = 8f
+                    }
+            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -562,7 +536,9 @@ private fun DomovskaObrazovka(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
                     ) {
                         Box(
                             modifier = Modifier
@@ -582,9 +558,12 @@ private fun DomovskaObrazovka(
                             )
                             if (ulozenyPinOtisk.isNotEmpty()) {
                                 Text(
-                                    text = "Účet chráněn PINem",
+                                    text = "Chráněno PINem",
                                     color = Color(0xFFA5D6A7),
-                                    fontSize = 10.sp
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -596,12 +575,12 @@ private fun DomovskaObrazovka(
                             .clip(RoundedCornerShape(10.dp))
                             .background(Color(0xFF15492B))
                             .border(1.dp, Color(0xAAFFD54F), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .padding(horizontal = 9.dp, vertical = 5.dp)
                     ) {
                         Text(
                             text = formatujTereziany(aktualniTereziany),
                             color = Color(0xFFFFD54F),
-                            fontSize = 14.sp,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 1,
                             softWrap = false
@@ -772,7 +751,7 @@ private fun DomovskaObrazovka(
 
         MenuKartaTlacitko(
             nadpis = "Turnajová síň a poháry",
-            popis = "Hospodské i svazové turnaje: pavouk pro Prší a Sedmu, bodovaná série Mariáše i pohár s boty.",
+            popis = "Denní rozvrh turnajů s pavoukem (19:00 Prší, 20:00 Sedma, 20:30 Mariáš) i rychlý pohár s boty.",
             zvyraznena = false,
             onClick = onOtevritTurnaje
         )
@@ -857,7 +836,8 @@ private fun MenuKartaTlacitko(
         Text(
             text = popis,
             color = Color(0xFFC8E6C9),
-            fontSize = 12.sp
+            fontSize = 12.sp,
+            lineHeight = 16.sp
         )
     }
 }
@@ -941,7 +921,9 @@ private fun VyberTreninkuObrazovka(
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp)
                     ) {
                         IkonaBarvyKarty(
                             barva = when (typ) {
@@ -956,13 +938,20 @@ private fun VyberTreninkuObrazovka(
                             text = typ.nazev,
                             color = Color(0xFFFFD54F),
                             fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                     StitekPravidelBadge(vybranaVarianta)
                 }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(typ.kratkyPopis, color = Color(0xFFE0E0E0), fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = typ.kratkyPopis,
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
@@ -1028,7 +1017,6 @@ private fun OnlineLobbyObrazovka(
     var vybranaHraZalozeni by remember { mutableStateOf(TypHry.MARIAS) }
     var vybranyPocetZalozeni by remember { mutableStateOf(3) }
     var soukromyPin by remember { mutableStateOf("") }
-    var zadavanyPinProVstup by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -1138,9 +1126,9 @@ private fun OnlineLobbyObrazovka(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "$ikona ${varianta.kratkyNazev} pravidla",
+                            text = "$ikona ${varianta.kratkyNazev}",
                             color = if (akt) Color(0xFF062111) else Color.White,
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 1,
                             softWrap = false,
@@ -1221,93 +1209,96 @@ private fun OnlineLobbyObrazovka(
         } else {
             val mojeId = ziskejUnikatniIdZarizeni()
             for (stul in stoly) {
-                val jsemUvnitr = stul.hraci.any { it.deviceId == mojeId }
-                val muzePrisednout = stul.stavMistnosti == StavMistnosti.CEKANI || jsemUvnitr
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xD9082916))
-                        .border(1.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp))
-                        .padding(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                key(stul.roomId) {
+                    var zadavanyPinProVstup by remember { mutableStateOf("") }
+                    val jsemUvnitr = stul.hraci.any { it.deviceId == mojeId }
+                    val muzePrisednout = stul.stavMistnosti == StavMistnosti.CEKANI || jsemUvnitr
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xD9082916))
+                            .border(1.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp))
+                            .padding(12.dp)
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 8.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp)
                             ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = (if (stul.jeSoukromy) "🔒 " else "") + stul.nazevStolu,
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    StitekPravidelBadge(stul.variantaPravidel)
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = (if (stul.jeSoukromy) "🔒 " else "") + stul.nazevStolu,
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
+                                    text = "Hráči (${stul.hraci.size}/${stul.maxHracu}): " +
+                                        stul.hraci.joinToString(", ") { it.prezdivka },
+                                    color = Color(0xFFA5D6A7),
+                                    fontSize = 12.sp
                                 )
-                                StitekPravidelBadge(stul.variantaPravidel)
                             }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Hráči (${stul.hraci.size}/${stul.maxHracu}): " +
-                                    stul.hraci.joinToString(", ") { it.prezdivka },
-                                color = Color(0xFFA5D6A7),
-                                fontSize = 12.sp
+                            if (muzePrisednout) {
+                                Button(
+                                    onClick = {
+                                        jemnaHaptika()
+                                        scope.launch {
+                                            val vys = OnlineManager.prisedniKeStolu(stul.roomId, zadavanyPinProVstup)
+                                            vys.onSuccess { onVstoupitDoStolu(it) }
+                                                .onFailure { zpravaChyby = it.message ?: "Nelze přisednout." }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
+                                ) {
+                                    Text(
+                                        text = if (jsemUvnitr) "Vrátit se" else "Přisednout",
+                                        color = Color(0xFF072312),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            } else {
+                                Text("Hraje se", color = Color(0xFFFFCC80), fontSize = 12.sp)
+                            }
+                        }
+
+                        if (stul.jeSoukromy && !jsemUvnitr && stul.stavMistnosti == StavMistnosti.CEKANI) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            OutlinedTextField(
+                                value = zadavanyPinProVstup,
+                                onValueChange = { zadavanyPinProVstup = it.filter { c -> c.isDigit() }.take(4) },
+                                singleLine = true,
+                                placeholder = { Text("Zadej 4místný PIN stolu", color = Color(0x88FFFFFF), fontSize = 12.sp) },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White,
+                                    focusedBorderColor = Color(0xFFD4AF37),
+                                    unfocusedBorderColor = Color(0x44FFFFFF)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
-                        if (muzePrisednout) {
-                            Button(
-                                onClick = {
-                                    jemnaHaptika()
-                                    scope.launch {
-                                        val vys = OnlineManager.prisedniKeStolu(stul.roomId, zadavanyPinProVstup)
-                                        vys.onSuccess { onVstoupitDoStolu(it) }
-                                            .onFailure { zpravaChyby = it.message ?: "Nelze přisednout." }
-                                    }
-                                },
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
-                            ) {
-                                Text(
-                                    text = if (jsemUvnitr) "Vrátit se" else "Přisednout",
-                                    color = Color(0xFF072312),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                        } else {
-                            Text("Hraje se", color = Color(0xFFFFCC80), fontSize = 12.sp)
-                        }
-                    }
-
-                    if (stul.jeSoukromy && !jsemUvnitr && stul.stavMistnosti == StavMistnosti.CEKANI) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        OutlinedTextField(
-                            value = zadavanyPinProVstup,
-                            onValueChange = { zadavanyPinProVstup = it.filter { c -> c.isDigit() }.take(4) },
-                            singleLine = true,
-                            placeholder = { Text("Zadej 4místný PIN stolu", color = Color(0x88FFFFFF), fontSize = 12.sp) },
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedBorderColor = Color(0xFFD4AF37),
-                                unfocusedBorderColor = Color(0x44FFFFFF)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
                     }
                 }
             }
@@ -1324,6 +1315,7 @@ private fun CekarnaStoluObrazovka(
     val scope = rememberCoroutineScope()
     var stul by remember { mutableStateOf(pocatecniStul) }
     var nyniMs by remember { mutableStateOf(ziskejAktualniCasMs()) }
+    var probihaRozdavani by remember { mutableStateOf(false) }
     val mojeId = remember { ziskejUnikatniIdZarizeni() }
 
     LaunchedEffect(stul.roomId) {
@@ -1341,8 +1333,16 @@ private fun CekarnaStoluObrazovka(
                 onHraOdstartovana(cerstvy)
                 break
             }
-            if (cerstvy.hraci.size == cerstvy.maxHracu && cerstvy.hostDeviceId == mojeId) {
+            val odpovednyHostId = cerstvy.hraci.firstOrNull { it.deviceId == cerstvy.hostDeviceId }?.deviceId
+                ?: cerstvy.hraci.firstOrNull { !jeBotDeviceId(it.deviceId) }?.deviceId
+            if (!probihaRozdavani &&
+                cerstvy.stavMistnosti == StavMistnosti.CEKANI &&
+                cerstvy.hraci.size == cerstvy.maxHracu &&
+                odpovednyHostId == mojeId
+            ) {
+                probihaRozdavani = true
                 val spusteny = OnlineManager.rozdejASpustStul(cerstvy, zacinajiciIndex = 0)
+                probihaRozdavani = false
                 if (spusteny != null) {
                     silnaHaptika()
                     onHraOdstartovana(spusteny)
@@ -1421,288 +1421,7 @@ private fun CekarnaStoluObrazovka(
             shape = RoundedCornerShape(10.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
         ) {
-            Text("Opustit čekárnu", color = Color.White, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun TurnajovaSinObrazovka(
-    vybranaVarianta: VariantaPravidel,
-    onZmenaVarianty: (VariantaPravidel) -> Unit,
-    onZpet: () -> Unit,
-    onSpustitOfflinePohar: (TypHry, VariantaPravidel) -> Unit,
-    onVstoupitDoZapasuTurnaje: (OnlineStul) -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    val mojeId = remember { ziskejUnikatniIdZarizeni() }
-    val ulozenyNick = remember { nactiUlozenouPrezdivku() }
-    var turnaje by remember { mutableStateOf(emptyList<OnlineTurnaj>()) }
-    var hlaska by remember { mutableStateOf("") }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            turnaje = OnlineManager.nactiTurnaje()
-            delay(4000L)
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-    ) {
-        ZahlaviPodobrazovky("Turnajová síň", onZpet)
-
-        PrepinacPravidelPanel(
-            vybrana = vybranaVarianta,
-            onZmena = onZmenaVarianty
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xD9082916))
-                .border(1.dp, Color(0x88D4AF37), RoundedCornerShape(14.dp))
-                .padding(14.dp)
-        ) {
-            Text(
-                text = "Rychlý pohár proti botům (${vybranaVarianta.kratkyNazev.lowercase()} • 3 rozdání)",
-                color = Color(0xFFFFD54F),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                for (typ in TypHry.entries) {
-                    Button(
-                        onClick = {
-                            jemnaHaptika()
-                            onSpustitOfflinePohar(typ, vybranaVarianta)
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1D5A36))
-                    ) {
-                        Text(
-                            text = if (typ == TypHry.MARIAS) "Mariáš" else typ.nazev,
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(Color(0xD9082916))
-                .border(1.2.dp, Color(0xFFD4AF37), RoundedCornerShape(14.dp))
-                .padding(14.dp)
-        ) {
-            Text(
-                text = "Založit živý online turnaj (${vybranaVarianta.kratkyNazev.lowercase()} pravidla)",
-                color = Color(0xFFFFD54F),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Prší a Sedma běží jako vyřazovací pavouk pro 4 hráče (Semifinále → Finále), Mariáš jako turnajový stůl na 3 rozdání.",
-                color = Color(0xFFB9F6CA),
-                fontSize = 11.sp
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                for (typ in TypHry.entries) {
-                    Button(
-                        onClick = {
-                            jemnaHaptika()
-                            if (ulozenyNick.isEmpty()) {
-                                hlaska = "Pro online turnaj si nejprve nastav přezdívku na hlavní obrazovce."
-                                return@Button
-                            }
-                            if (nactiLokalniTereziany() < 20) {
-                                hlaska = "Pro online turnaj potřebuješ alespoň 20 tereziánů — vyzvedni si na hlavní obrazovce Císařskou podporu."
-                                return@Button
-                            }
-                            scope.launch {
-                                val novy = OnlineManager.vytvorTurnaj(
-                                    nazev = "Online Pohár (${vybranaVarianta.kratkyNazev}): ${typ.nazev}",
-                                    typHry = typ,
-                                    variantaPravidel = vybranaVarianta
-                                )
-                                if (novy != null) turnaje = OnlineManager.nactiTurnaje()
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
-                    ) {
-                        Text(
-                            text = "+ " + (if (typ == TypHry.MARIAS) "Mariáš" else typ.nazev),
-                            color = Color(0xFF072312),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                }
-            }
-        }
-
-        if (hlaska.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(hlaska, color = Color(0xFFFF8A80), fontSize = 12.sp)
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-        Text("Probíhající a otevřené online turnaje:", color = Color(0xFFFFE082), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (turnaje.isEmpty()) {
-            Text("Momentálně neběží žádný online turnaj.", color = Color(0xFFB9F6CA), fontSize = 13.sp)
-        } else {
-            for (t in turnaje) {
-                val jsemPrihlasen = t.ucastnici.any { it.deviceId == mojeId }
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 10.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xD9082916))
-                        .border(1.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp))
-                        .padding(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "${t.nazev} (${t.ucastnici.size}/${t.kapacita})",
-                            color = Color(0xFFFFD54F),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(end = 6.dp)
-                        )
-                        StitekPravidelBadge(t.variantaPravidel)
-                    }
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        text = "Účastníci: " + t.ucastnici.joinToString(", ") { it.prezdivka },
-                        color = Color.White,
-                        fontSize = 12.sp
-                    )
-                    if (t.celkovyVitez.isNotEmpty()) {
-                        Text(
-                            text = "🏆 Vítěz turnaje: ${t.celkovyVitez}",
-                            color = Color(0xFF69F0AE),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.ExtraBold
-                        )
-                    }
-
-                    if (t.zapasy.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        for (z in t.zapasy) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "${z.nazevKola}: ${z.hrac1Jmeno} vs. ${z.hrac2Jmeno}" +
-                                        if (z.vitezJmeno.isNotEmpty()) " → ${z.vitezJmeno}" else "",
-                                    color = Color(0xFFE0E0E0),
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                val mujZapas = (z.hrac1Id == mojeId || z.hrac2Id == mojeId) &&
-                                    z.vitezId.isEmpty() && z.roomId.isNotEmpty()
-                                if (mujZapas) {
-                                    Button(
-                                        onClick = {
-                                            jemnaHaptika()
-                                            scope.launch {
-                                                val stul = OnlineManager.nactiKonkretniStul(z.roomId)
-                                                if (stul != null) onVstoupitDoZapasuTurnaje(stul)
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
-                                    ) {
-                                        Text(
-                                            text = "Hrát zápas",
-                                            color = Color(0xFF04210E),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            maxLines = 1,
-                                            softWrap = false
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    } else if (t.typHry == TypHry.MARIAS && t.mariasRoomId.isNotEmpty() && jsemPrihlasen && t.stav == "PROBIHA") {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Button(
-                            onClick = {
-                                jemnaHaptika()
-                                scope.launch {
-                                    val stul = OnlineManager.nactiKonkretniStul(t.mariasRoomId)
-                                    if (stul != null) onVstoupitDoZapasuTurnaje(stul)
-                                }
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
-                        ) {
-                            Text("Vstoupit ke stolu Mariáše", color = Color(0xFF04210E), fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    if (t.stav == "REGISTRACE" && !jsemPrihlasen && ulozenyNick.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Button(
-                            onClick = {
-                                jemnaHaptika()
-                                scope.launch {
-                                    OnlineManager.prihlasDoTurnaje(t.turnajId)
-                                    turnaje = OnlineManager.nactiTurnaje()
-                                }
-                            },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
-                        ) {
-                            Text("Přihlásit se do turnaje", color = Color(0xFF072312), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
+            Text("Opustit čekárnu", color = Color(0xFFFFFFFF), fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -1782,7 +1501,11 @@ private fun PravidlaObrazovka(onZpet: () -> Unit) {
 
         BlokPravidel(
             nadpis = "Volba pravidel: Hospodská vs. Svazová",
-            text = "Před spuštěním tréninku, při zakládání živého online stolu i při vytváření turnaje si můžeš zvolit mezi Hospodskými a Svazovými (klasickými soutěžními) pravidly. Zvolená varianta je viditelná na štítku u každého stolu i turnaje a platí stejně pro všechny spoluhráče u stolu."
+            text = "Před spuštěním tréninku, při zakládání živého online stolu i v turnajích platí Hospodská nebo Svazová (klasická soutěžní) pravidla. Zvolená varianta je vždy viditelná na štítku u každého stolu i turnaje."
+        )
+        BlokPravidel(
+            nadpis = "Turnajová síň a denní rozvrh s pavoukem",
+            text = "Každý den se automaticky vypisují večerní turnaje: 19:00 Prší (pavouk 8 hráčů), 20:00 Sedma (pavouk 8 hráčů) a 20:30 Volený Mariáš (3 semifinálové stoly po 3 hráčích na 3 rozdání se postupem vítězů do Finálového stolu). Přihlášené přezdívky se okamžitě zapisují do pavouka; případná volná místa v hodinu startu doplní turnajoví boti, takže se turnaj odehraje v každém případě."
         )
         BlokPravidel(
             nadpis = "Sedma — Hospodská vs. Svazová pravidla",
@@ -1802,11 +1525,11 @@ private fun PravidlaObrazovka(onZpet: () -> Unit) {
         )
         BlokPravidel(
             nadpis = "Hospodské hlášky a přehledný stůl",
-            text = "Během partie doprovázejí hru české hospodské hlášky a zvuk karet na plátně, přičemž každý dohraný štych zůstane na stole chvíli viditelný před sebráním, abys měl přehled o každé odhozené kartě. Zvuky i hlášky můžeš kdykoliv zapnout nebo ztišit tlačítkem reproduktoru vpravo nahoře."
+            text = "Během partie doprovázejí hru české hospodské hlášky a zvuk karet na plátně, přičemž každý dohraný štych zůstane na stole chvíli viditelný před sebráním, abys měl přehled o každé odhozené kartě. Zvuky i hlášky můžeš u stolu kdykoliv zapnout nebo ztišit tlačítkem reproduktoru vpravo nahoře."
         )
         BlokPravidel(
             nadpis = "Živé online stoly bez botů",
-            text = "Karty při každém rozdání míchá server a každý hráč může mít otevřený nejvýše jeden vlastní stůl. Zelená ikona u přezdívky hlídá živé spojení — při výpadku delším než 60 sekund se stůl čistě uzavře bez zásahu botů a přítomným hráčům se žádné tereziány neodečtou."
+            text = "Karty při každém rozdání míchá server a každý hráč může mít otevřený nejvýše jeden vlastní stůl. Zelená ikona u přezdívky hlídá živé spojení — při výpadku delším než 60 sekund se běžný stůl v herně čistě uzavře bez zásahu botů a přítomným hráčům se žádné tereziány neodečtou."
         )
         BlokPravidel(
             nadpis = "Původ a licence karetního obrazu",
