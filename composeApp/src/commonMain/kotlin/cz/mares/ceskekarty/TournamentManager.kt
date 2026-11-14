@@ -6,7 +6,7 @@ object TournamentManager {
 
     private const val POZDNI_REGISTRACE_OKNO_MS = 10 * 60_000L
     private const val ARCHIV_TURNAJU_MS = 36 * 3600_000L
-    private const val DOBA_SIMULACE_BOT_ZAPASU_MS = 22_000L
+    private const val DOBA_SIMULACE_BOT_ZAPASU_MS = 28_000L
 
     private suspend fun ulozPlanovanyTurnaj(turnaj: PlanovanyTurnaj): PlanovanyTurnaj? {
         val payload = serializujPlanovanyTurnaj(turnaj)
@@ -47,7 +47,8 @@ object TournamentManager {
             if (koren != null) {
                 for ((id, prvek) in koren.polozky) {
                     val obj = prvek as? JsonPrvek.Objekt ?: continue
-                    val turnaj = deserializujPlanovanyTurnaj(obj.retezec("payload", ""))
+                    val surovyPayload = obj.retezec("payload", "")
+                    val turnaj = deserializujPlanovanyTurnaj(surovyPayload)
                     if (turnaj == null) {
                         provedSitovyDotaz("DELETE", "$FIREBASE_DB_ZAKLAD/card_tournaments/$id.json")
                         continue
@@ -55,6 +56,9 @@ object TournamentManager {
                     if (nyniMs - turnaj.casStartuMs > ARCHIV_TURNAJU_MS) {
                         provedSitovyDotaz("DELETE", "$FIREBASE_DB_ZAKLAD/card_tournaments/$id.json")
                         continue
+                    }
+                    if (surovyPayload.contains("Večerní pohár:") || surovyPayload.contains("Královský pohár:")) {
+                        ulozPlanovanyTurnaj(turnaj)
                     }
                     mapaExistujicich[turnaj.turnajId] = turnaj
                 }
@@ -223,13 +227,58 @@ object TournamentManager {
         return null
     }
 
-    private fun deterministickyIndexVitezeBotu(turnajId: String, slot: Int, pocet: Int): Int {
+    private fun deterministickyHashZapasu(turnajId: String, slot: Int): Int {
         var h = 17
         val klic = "$turnajId#$slot"
         for (ch in klic) {
             h = h * 31 + ch.code
         }
-        return abs(h) % pocet.coerceAtLeast(1)
+        return abs(h)
+    }
+
+    private fun nastavPocatecniSkoreUzlu(typHry: TypHry, hraci: List<HracVeSlotuPavouka>): List<HracVeSlotuPavouka> {
+        val vychozi = formatujSkoreDoPavouka(typHry, 0)
+        return hraci.map { h ->
+            if (h.jeVolneMisto) h else h.copy(skoreText = h.skoreText.ifEmpty { vychozi })
+        }
+    }
+
+    private fun vygenerujSimulovanyVysledekBotu(
+        turnaj: PlanovanyTurnaj,
+        uzel: UzelZapasuPavouka
+    ): UzelZapasuPavouka {
+        val h = deterministickyHashZapasu(turnaj.turnajId, uzel.slot)
+        val idxVit = h % uzel.hraci.size.coerceAtLeast(1)
+        val vit = uzel.hraci[idxVit]
+
+        val hraciSeSkore = if (turnaj.typHry == TypHry.MARIAS) {
+            val ziskViteze = listOf(50, 60, 80, 90)[h % 4]
+            val ztrataPrvniho = -(ziskViteze / 3 / 10 * 10).coerceAtLeast(20)
+            val ztrataDruheho = -(ziskViteze + ztrataPrvniho)
+            var poradiPorazenych = 0
+            uzel.hraci.mapIndexed { idx, hrac ->
+                val body = if (idx == idxVit) {
+                    ziskViteze
+                } else {
+                    poradiPorazenych++
+                    if (poradiPorazenych == 1) ztrataPrvniho else ztrataDruheho
+                }
+                hrac.copy(skoreText = formatujSkoreDoPavouka(TypHry.MARIAS, body))
+            }
+        } else {
+            val prohraneBitvy = (h / 7) % CIL_VITEZNYCH_BITEV_DUELU
+            uzel.hraci.mapIndexed { idx, hrac ->
+                val vyhry = if (idx == idxVit) CIL_VITEZNYCH_BITEV_DUELU else prohraneBitvy
+                hrac.copy(skoreText = vyhry.toString())
+            }
+        }
+
+        return uzel.copy(
+            hraci = hraciSeSkore,
+            vitezId = vit.deviceId,
+            vitezJmeno = vit.prezdivka,
+            stavZapasu = "DOHRANO"
+        )
     }
 
     private suspend fun zajistiStulProZapasUzlu(
@@ -244,14 +293,18 @@ object TournamentManager {
             val nalezeny = turnaj.ucastnici.firstOrNull { it.deviceId == hs.deviceId }
             nalezeny ?: HracUStolu(hs.deviceId, hs.prezdivka, STARTOVNI_TEREZIANY)
         }
-        val pocetRozdani = if (turnaj.typHry == TypHry.MARIAS) 3 else 1
+        val maxRozdaniSerie = if (turnaj.typHry == TypHry.MARIAS) {
+            POCET_ROZDANI_MARIAS_TURNAJ
+        } else {
+            MAX_HER_DUEL_SERIE
+        }
         val stul = OnlineManager.vytvorStul(
             nazevStolu = "${turnaj.nazev} • ${uzel.nazevZapasu}",
             typHry = turnaj.typHry,
             pocetHracu = hraciStolu.size,
             turnajId = turnaj.turnajId,
             slotZapasu = uzel.slot,
-            celkemRozdani = pocetRozdani,
+            celkemRozdani = maxRozdaniSerie,
             predvyplneniHraci = hraciStolu,
             variantaPravidel = turnaj.variantaPravidel
         )
@@ -268,12 +321,13 @@ object TournamentManager {
                 val pripraveneUzly = startUzly.map { uzel ->
                     if (uzel.kolo == 0) {
                         val maZiveho = uzel.hraci.any { !it.jeBot && !it.jeVolneMisto }
+                        val seSkore = nastavPocatecniSkoreUzlu(aktualni.typHry, uzel.hraci)
                         if (maZiveho) {
                             val docasny = aktualni.copy(ucastnici = plniUcastnici)
                             val rid = zajistiStulProZapasUzlu(docasny, uzel)
-                            uzel.copy(roomId = rid, stavZapasu = "HRAJE_SE")
+                            uzel.copy(hraci = seSkore, roomId = rid, stavZapasu = "HRAJE_SE")
                         } else {
-                            uzel.copy(planovanyCasMs = nyniMs, stavZapasu = "HRAJE_SE")
+                            uzel.copy(hraci = seSkore, planovanyCasMs = nyniMs, stavZapasu = "HRAJE_SE")
                         }
                     } else {
                         uzel
@@ -309,22 +363,24 @@ object TournamentManager {
             val vsichniBoti = u.hraci.all { it.jeBot }
             if (vsichniBoti) {
                 if (u.stavZapasu == "CEKA") {
-                    uzly[i] = u.copy(planovanyCasMs = maxOf(u.planovanyCasMs, nyniMs), stavZapasu = "HRAJE_SE")
+                    uzly[i] = u.copy(
+                        hraci = nastavPocatecniSkoreUzlu(aktualni.typHry, u.hraci),
+                        planovanyCasMs = maxOf(u.planovanyCasMs, nyniMs),
+                        stavZapasu = "HRAJE_SE"
+                    )
                     dosloKeZmene = true
                 } else if (nyniMs >= u.planovanyCasMs + DOBA_SIMULACE_BOT_ZAPASU_MS) {
-                    val idxVit = deterministickyIndexVitezeBotu(aktualni.turnajId, u.slot, u.hraci.size)
-                    val vit = u.hraci[idxVit]
-                    uzly[i] = u.copy(
-                        vitezId = vit.deviceId,
-                        vitezJmeno = vit.prezdivka,
-                        stavZapasu = "DOHRANO"
-                    )
+                    uzly[i] = vygenerujSimulovanyVysledekBotu(aktualni, u)
                     dosloKeZmene = true
                 }
             } else if (u.roomId.isEmpty()) {
                 val rid = zajistiStulProZapasUzlu(aktualni, u)
                 if (rid.isNotEmpty()) {
-                    uzly[i] = u.copy(roomId = rid, stavZapasu = "HRAJE_SE")
+                    uzly[i] = u.copy(
+                        hraci = nastavPocatecniSkoreUzlu(aktualni.typHry, u.hraci),
+                        roomId = rid,
+                        stavZapasu = "HRAJE_SE"
+                    )
                     dosloKeZmene = true
                 }
             }
@@ -356,28 +412,35 @@ object TournamentManager {
             val finale = uzly[3]
             val noviFinaliste = (0..2).map { sfSlot ->
                 val sf = uzly[sfSlot]
+                val existujiciSlot = finale.hraci.getOrNull(sfSlot)
                 if (sf.vitezId.isNotEmpty()) {
+                    val zachovaneSkore = if (existujiciSlot?.deviceId == sf.vitezId) existujiciSlot.skoreText else ""
                     HracVeSlotuPavouka(
                         deviceId = sf.vitezId,
                         prezdivka = sf.vitezJmeno,
                         jeBot = jeBotDeviceId(sf.vitezId),
-                        jeVolneMisto = false
+                        jeVolneMisto = false,
+                        skoreText = zachovaneSkore
                     )
                 } else {
-                    finale.hraci.getOrElse(sfSlot) {
-                        HracVeSlotuPavouka("", "Vítěz Stolu ${('A' + sfSlot)}", jeBot = false, jeVolneMisto = true)
-                    }
+                    existujiciSlot ?: HracVeSlotuPavouka(
+                        deviceId = "",
+                        prezdivka = "Vítěz SF ${('A' + sfSlot)}",
+                        jeBot = false,
+                        jeVolneMisto = true
+                    )
                 }
             }
             var noveFinale = finale.copy(hraci = noviFinaliste)
             val finaleKompletni = noviFinaliste.none { it.jeVolneMisto }
             if (finaleKompletni && noveFinale.vitezId.isEmpty()) {
+                val seSkore = nastavPocatecniSkoreUzlu(turnaj.typHry, noveFinale.hraci)
                 val maZiveho = noviFinaliste.any { !it.jeBot }
                 if (maZiveho && noveFinale.roomId.isEmpty()) {
                     val rid = zajistiStulProZapasUzlu(turnaj, noveFinale)
-                    noveFinale = noveFinale.copy(roomId = rid, stavZapasu = "HRAJE_SE")
+                    noveFinale = noveFinale.copy(hraci = seSkore, roomId = rid, stavZapasu = "HRAJE_SE")
                 } else if (!maZiveho && noveFinale.stavZapasu == "CEKA") {
-                    noveFinale = noveFinale.copy(planovanyCasMs = nyniMs, stavZapasu = "HRAJE_SE")
+                    noveFinale = noveFinale.copy(hraci = seSkore, planovanyCasMs = nyniMs, stavZapasu = "HRAJE_SE")
                 }
             }
             uzly[3] = noveFinale
@@ -407,24 +470,30 @@ object TournamentManager {
                 val zdrojA = uzly[sfIdx * 2]
                 val zdrojB = uzly[sfIdx * 2 + 1]
                 val aktualniSf = uzly[cilSlot]
+                val staryH1 = aktualniSf.hraci[0]
+                val staryH2 = aktualniSf.hraci[1]
+
                 val novyHrac1 = if (zdrojA.vitezId.isNotEmpty()) {
-                    HracVeSlotuPavouka(zdrojA.vitezId, zdrojA.vitezJmeno, jeBotDeviceId(zdrojA.vitezId), false)
+                    val sk1 = if (staryH1.deviceId == zdrojA.vitezId) staryH1.skoreText else ""
+                    HracVeSlotuPavouka(zdrojA.vitezId, zdrojA.vitezJmeno, jeBotDeviceId(zdrojA.vitezId), false, sk1)
                 } else {
-                    aktualniSf.hraci[0]
+                    staryH1
                 }
                 val novyHrac2 = if (zdrojB.vitezId.isNotEmpty()) {
-                    HracVeSlotuPavouka(zdrojB.vitezId, zdrojB.vitezJmeno, jeBotDeviceId(zdrojB.vitezId), false)
+                    val sk2 = if (staryH2.deviceId == zdrojB.vitezId) staryH2.skoreText else ""
+                    HracVeSlotuPavouka(zdrojB.vitezId, zdrojB.vitezJmeno, jeBotDeviceId(zdrojB.vitezId), false, sk2)
                 } else {
-                    aktualniSf.hraci[1]
+                    staryH2
                 }
                 var noveSf = aktualniSf.copy(hraci = listOf(novyHrac1, novyHrac2))
                 if (!novyHrac1.jeVolneMisto && !novyHrac2.jeVolneMisto && noveSf.vitezId.isEmpty()) {
+                    val seSkore = nastavPocatecniSkoreUzlu(turnaj.typHry, noveSf.hraci)
                     val maZiveho = !novyHrac1.jeBot || !novyHrac2.jeBot
                     if (maZiveho && noveSf.roomId.isEmpty()) {
                         val rid = zajistiStulProZapasUzlu(turnaj, noveSf)
-                        noveSf = noveSf.copy(roomId = rid, stavZapasu = "HRAJE_SE")
+                        noveSf = noveSf.copy(hraci = seSkore, roomId = rid, stavZapasu = "HRAJE_SE")
                     } else if (!maZiveho && noveSf.stavZapasu == "CEKA") {
-                        noveSf = noveSf.copy(planovanyCasMs = nyniMs, stavZapasu = "HRAJE_SE")
+                        noveSf = noveSf.copy(hraci = seSkore, planovanyCasMs = nyniMs, stavZapasu = "HRAJE_SE")
                     }
                 }
                 uzly[cilSlot] = noveSf
@@ -433,24 +502,30 @@ object TournamentManager {
             val sf1 = uzly[4]
             val sf2 = uzly[5]
             val aktFin = uzly[6]
+            val staryFin1 = aktFin.hraci[0]
+            val staryFin2 = aktFin.hraci[1]
+
             val finH1 = if (sf1.vitezId.isNotEmpty()) {
-                HracVeSlotuPavouka(sf1.vitezId, sf1.vitezJmeno, jeBotDeviceId(sf1.vitezId), false)
+                val sk1 = if (staryFin1.deviceId == sf1.vitezId) staryFin1.skoreText else ""
+                HracVeSlotuPavouka(sf1.vitezId, sf1.vitezJmeno, jeBotDeviceId(sf1.vitezId), false, sk1)
             } else {
-                aktFin.hraci[0]
+                staryFin1
             }
             val finH2 = if (sf2.vitezId.isNotEmpty()) {
-                HracVeSlotuPavouka(sf2.vitezId, sf2.vitezJmeno, jeBotDeviceId(sf2.vitezId), false)
+                val sk2 = if (staryFin2.deviceId == sf2.vitezId) staryFin2.skoreText else ""
+                HracVeSlotuPavouka(sf2.vitezId, sf2.vitezJmeno, jeBotDeviceId(sf2.vitezId), false, sk2)
             } else {
-                aktFin.hraci[1]
+                staryFin2
             }
             var noveFin = aktFin.copy(hraci = listOf(finH1, finH2))
             if (!finH1.jeVolneMisto && !finH2.jeVolneMisto && noveFin.vitezId.isEmpty()) {
+                val seSkore = nastavPocatecniSkoreUzlu(turnaj.typHry, noveFin.hraci)
                 val maZiveho = !finH1.jeBot || !finH2.jeBot
                 if (maZiveho && noveFin.roomId.isEmpty()) {
                     val rid = zajistiStulProZapasUzlu(turnaj, noveFin)
-                    noveFin = noveFin.copy(roomId = rid, stavZapasu = "HRAJE_SE")
+                    noveFin = noveFin.copy(hraci = seSkore, roomId = rid, stavZapasu = "HRAJE_SE")
                 } else if (!maZiveho && noveFin.stavZapasu == "CEKA") {
-                    noveFin = noveFin.copy(planovanyCasMs = nyniMs, stavZapasu = "HRAJE_SE")
+                    noveFin = noveFin.copy(hraci = seSkore, planovanyCasMs = nyniMs, stavZapasu = "HRAJE_SE")
                 }
             }
             uzly[6] = noveFin
@@ -471,13 +546,45 @@ object TournamentManager {
         return turnaj.copy(uzlyPavouka = uzly)
     }
 
+    suspend fun zapisPrubezneSkoreZapasu(
+        turnajId: String,
+        slotZapasu: Int,
+        skoreHracu: List<Pair<String, String>>
+    ) {
+        if (turnajId.isBlank() || skoreHracu.isEmpty()) return
+        val cerstvy = nactiKonkretniTurnaj(turnajId) ?: return
+        if (cerstvy.stav != "PROBIHA") return
+
+        var zmena = false
+        val upraveneUzly = cerstvy.uzlyPavouka.map { uzel ->
+            if (uzel.slot == slotZapasu && uzel.vitezId.isEmpty()) {
+                val noviHraci = uzel.hraci.map { h ->
+                    val noveSkore = skoreHracu.firstOrNull { it.first == h.deviceId }?.second
+                    if (noveSkore != null && noveSkore != h.skoreText) {
+                        zmena = true
+                        h.copy(skoreText = noveSkore)
+                    } else {
+                        h
+                    }
+                }
+                uzel.copy(hraci = noviHraci)
+            } else {
+                uzel
+            }
+        }
+        if (zmena) {
+            ulozPlanovanyTurnaj(cerstvy.copy(uzlyPavouka = upraveneUzly))
+        }
+    }
+
     suspend fun zapisVysledekZapasu(
         turnajId: String,
         slotZapasu: Int,
         vitezDeviceId: String,
         vitezJmeno: String,
         druhyDeviceId: String = "",
-        druhyJmeno: String = ""
+        druhyJmeno: String = "",
+        skoreHracu: List<Pair<String, String>> = emptyList()
     ) {
         if (turnajId.isBlank() || vitezDeviceId.isBlank()) return
         val nyniMs = OnlineManager.ziskejOverenyCasServeruMs()
@@ -486,7 +593,19 @@ object TournamentManager {
 
         val upraveneUzly = cerstvy.uzlyPavouka.map { uzel ->
             if (uzel.slot == slotZapasu && uzel.vitezId.isEmpty()) {
+                val upraveniHraci = uzel.hraci.map { h ->
+                    val predaneSkore = skoreHracu.firstOrNull { it.first == h.deviceId }?.second
+                    val vysledneSkore = when {
+                        !predaneSkore.isNullOrEmpty() -> predaneSkore
+                        cerstvy.typHry != TypHry.MARIAS && h.deviceId == vitezDeviceId ->
+                            CIL_VITEZNYCH_BITEV_DUELU.toString()
+                        h.skoreText.isNotEmpty() -> h.skoreText
+                        else -> formatujSkoreDoPavouka(cerstvy.typHry, 0)
+                    }
+                    h.copy(skoreText = vysledneSkore)
+                }
                 uzel.copy(
+                    hraci = upraveniHraci,
                     vitezId = vitezDeviceId,
                     vitezJmeno = vitezJmeno,
                     stavZapasu = "DOHRANO"

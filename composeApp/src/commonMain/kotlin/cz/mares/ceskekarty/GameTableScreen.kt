@@ -116,6 +116,50 @@ private fun VyuctovaniMariase.naUiVyuctovani(): UiVyuctovani {
     )
 }
 
+internal fun vypoctiNoveSkoreSerieOnline(
+    stul: OnlineStul,
+    vysledek: UiVyuctovani
+): List<Int> {
+    val naVitezneBitvy = stul.turnajId.isNotEmpty() && stul.typHry != TypHry.MARIAS
+    return List(stul.hraci.size) { idx ->
+        val dosavadni = stul.soucetBoduHracu.getOrElse(idx) { 0 }
+        val hracVys = vysledek.hraci.firstOrNull { it.indexHrace == idx }
+        val prirustek = if (naVitezneBitvy) {
+            if (hracVys?.jeVitez == true) 1 else 0
+        } else {
+            hracVys?.bodyZapasu ?: 0
+        }
+        dosavadni + prirustek
+    }
+}
+
+internal fun jeOnlineTurnajovaSerieHotova(
+    stul: OnlineStul,
+    vysledek: UiVyuctovani
+): Boolean {
+    if (stul.turnajId.isEmpty()) return false
+    val noveSkore = vypoctiNoveSkoreSerieOnline(stul, vysledek)
+    return if (stul.typHry != TypHry.MARIAS) {
+        noveSkore.any { it >= CIL_VITEZNYCH_BITEV_DUELU } || stul.cisloRozdani >= stul.celkemRozdani
+    } else {
+        stul.cisloRozdani >= stul.celkemRozdani
+    }
+}
+
+internal fun jeOfflinePoharHotovy(
+    offlineKonfig: KonfiguraceOfflineHry?,
+    cisloOfflineRozdani: Int,
+    soucetBoduOffline: List<Int>
+): Boolean {
+    if (offlineKonfig?.jeOfflinePohar != true) return false
+    return if (offlineKonfig.typHry != TypHry.MARIAS) {
+        soucetBoduOffline.any { it >= CIL_VITEZNYCH_BITEV_DUELU } ||
+            cisloOfflineRozdani >= MAX_HER_DUEL_SERIE
+    } else {
+        cisloOfflineRozdani >= offlineKonfig.celkemRozdani
+    }
+}
+
 internal fun sklonujListy(pocet: Int): String {
     return when {
         pocet == 1 -> "1 list"
@@ -209,6 +253,22 @@ fun GameTableScreen(
     var vybraneKartyDoTalonu by remember { mutableStateOf(emptyList<Karta>()) }
     var planovanyZavazekMariase by remember { mutableStateOf(ZavazekMariase.HRA) }
     var zapoctenaVerzeVysledku by remember { mutableStateOf(-1) }
+
+    fun aplikujSerializovanyStavStolu(stul: OnlineStul) {
+        if (stul.serializovanyStavHry.isBlank()) return
+        when (stul.typHry) {
+            TypHry.PRSI -> StavPrsi.zKompaktnihoRetezce(stul.serializovanyStavHry)?.let { stavPrsi = it }
+            TypHry.SEDMA -> StavSedma.zKompaktnihoRetezce(stul.serializovanyStavHry)?.let { stavSedma = it }
+            TypHry.MARIAS -> StavMarias.zKompaktnihoRetezce(stul.serializovanyStavHry)?.let {
+                stavMarias = it
+                if (it.faze != FazeMariase.ODKLADANI_TALONU) {
+                    vybraneKartyDoTalonu = emptyList()
+                } else {
+                    planovanyZavazekMariase = it.zavazek
+                }
+            }
+        }
+    }
 
     val lokalniIndex = remember(onlineStul, mojeDeviceId) {
         if (onlineStul != null) {
@@ -339,22 +399,12 @@ fun GameTableScreen(
             }
             val zmenaStavu = cerstvy.verzeStavu != onlineStul?.verzeStavu ||
                 cerstvy.serializovanyStavHry != onlineStul?.serializovanyStavHry ||
+                cerstvy.cisloRozdani != onlineStul?.cisloRozdani ||
                 cerstvy.hraci != onlineStul?.hraci
             onlineStul = cerstvy
 
             if (zmenaStavu && cerstvy.serializovanyStavHry.isNotBlank()) {
-                when (cerstvy.typHry) {
-                    TypHry.PRSI -> StavPrsi.zKompaktnihoRetezce(cerstvy.serializovanyStavHry)?.let { stavPrsi = it }
-                    TypHry.SEDMA -> StavSedma.zKompaktnihoRetezce(cerstvy.serializovanyStavHry)?.let { stavSedma = it }
-                    TypHry.MARIAS -> StavMarias.zKompaktnihoRetezce(cerstvy.serializovanyStavHry)?.let {
-                        stavMarias = it
-                        if (it.faze != FazeMariase.ODKLADANI_TALONU) {
-                            vybraneKartyDoTalonu = emptyList()
-                        } else {
-                            planovanyZavazekMariase = it.zavazek
-                        }
-                    }
-                }
+                aplikujSerializovanyStavStolu(cerstvy)
             }
 
             if (cerstvy.stavMistnosti == StavMistnosti.HRAJE_SE) {
@@ -395,6 +445,7 @@ fun GameTableScreen(
                                 val seZaskokem = OnlineManager.nahradNepritomnehoHraceBotemUStolu(cerstvy, vinik.deviceId)
                                 if (seZaskokem != null) {
                                     onlineStul = seZaskokem
+                                    aplikujSerializovanyStavStolu(seZaskokem)
                                 }
                             }
                         } else if (cerstvy.turnajId.isEmpty()) {
@@ -419,6 +470,7 @@ fun GameTableScreen(
         jeOnlineRezim,
         onlineStul?.roomId,
         onlineStul?.verzeStavu,
+        aktualniRozdaniCislo,
         aktualniCisloTahu,
         stavPrsi?.cekaNaVolbuBarvy
     ) {
@@ -558,48 +610,59 @@ fun GameTableScreen(
                 OnlineManager.odesliAktualniTerezianyDoZebricku(novyZustatek)
             }
             if (!jeOnlineRezim) {
+                val offlineNaVitezneBitvy = offlineKonfig?.jeOfflinePohar == true && aktivniTypHry != TypHry.MARIAS
                 soucetBoduOffline = soucetBoduOffline.mapIndexed { idx, stary ->
-                    stary + (vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.bodyZapasu ?: 0)
+                    val hracVys = vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }
+                    val prirustek = if (offlineNaVitezneBitvy) {
+                        if (hracVys?.jeVitez == true) 1 else 0
+                    } else {
+                        hracVys?.bodyZapasu ?: 0
+                    }
+                    stary + prirustek
                 }
             } else {
                 val stul = onlineStul
                 if (stul != null && stul.turnajId.isNotEmpty()) {
-                    val noveSoucty = stul.soucetBoduHracu.mapIndexed { idx, stary ->
-                        stary + (vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.bodyZapasu ?: 0)
+                    val noveSkore = vypoctiNoveSkoreSerieOnline(stul, vysledekPartie)
+                    val serieHotova = jeOnlineTurnajovaSerieHotova(stul, vysledekPartie)
+                    val skoreDoPavouka = stul.hraci.mapIndexed { idx, h ->
+                        h.deviceId to formatujSkoreDoPavouka(stul.typHry, noveSkore.getOrElse(idx) { 0 })
                     }
-                    if (stul.cisloRozdani >= stul.celkemRozdani) {
-                        val serazeneIndexy = if (stul.celkemRozdani > 1) {
-                            stul.hraci.indices.sortedWith(
-                                compareByDescending<Int> { noveSoucty.getOrElse(it) { 0 } }
-                                    .thenByDescending { idx ->
-                                        vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.jeVitez == true
-                                    }
-                                    .thenByDescending { idx ->
-                                        !jeBotDeviceId(stul.hraci[idx].deviceId)
-                                    }
-                            )
-                        } else {
-                            stul.hraci.indices.sortedByDescending { idx ->
-                                vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.jeVitez == true
-                            }
-                        }
+                    val prvniZivy = stul.hraci.firstOrNull { !jeBotDeviceId(it.deviceId) }?.deviceId
+
+                    if (serieHotova) {
+                        val serazeneIndexy = stul.hraci.indices.sortedWith(
+                            compareByDescending<Int> { noveSkore.getOrElse(it) { 0 } }
+                                .thenByDescending { idx ->
+                                    vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.jeVitez == true
+                                }
+                                .thenByDescending { idx ->
+                                    !jeBotDeviceId(stul.hraci[idx].deviceId)
+                                }
+                        )
                         val vitezHrac = serazeneIndexy.getOrNull(0)?.let { stul.hraci.getOrNull(it) }
                         val druhyHrac = serazeneIndexy.getOrNull(1)?.let { stul.hraci.getOrNull(it) }
-                        val prvniZivy = stul.hraci.firstOrNull { !jeBotDeviceId(it.deviceId) }?.deviceId
                         val mamZapsatVysledek = stul.hostDeviceId == mojeDeviceId ||
                             prvniZivy == mojeDeviceId ||
                             vitezHrac?.deviceId == mojeDeviceId
 
                         if (vitezHrac != null && mamZapsatVysledek) {
-                            OnlineManager.zapisVysledekTurnajovehoZapasu(
+                            TournamentManager.zapisVysledekZapasu(
                                 turnajId = stul.turnajId,
                                 slotZapasu = stul.slotZapasu,
                                 vitezDeviceId = vitezHrac.deviceId,
                                 vitezJmeno = vitezHrac.prezdivka,
                                 druhyDeviceId = druhyHrac?.deviceId ?: "",
-                                druhyJmeno = druhyHrac?.prezdivka ?: ""
+                                druhyJmeno = druhyHrac?.prezdivka ?: "",
+                                skoreHracu = skoreDoPavouka
                             )
                         }
+                    } else if (stul.hostDeviceId == mojeDeviceId || prvniZivy == mojeDeviceId) {
+                        TournamentManager.zapisPrubezneSkoreZapasu(
+                            turnajId = stul.turnajId,
+                            slotZapasu = stul.slotZapasu,
+                            skoreHracu = skoreDoPavouka
+                        )
                     }
                 }
             }
@@ -646,6 +709,7 @@ fun GameTableScreen(
                         onlineStul = onlineStul,
                         offlineKonfig = offlineKonfig,
                         cisloOfflineRozdani = cisloOfflineRozdani,
+                        soucetBoduOffline = soucetBoduOffline,
                         stavPrsi = stavPrsi,
                         stavSedma = stavSedma,
                         stavMarias = stavMarias,
@@ -664,8 +728,10 @@ fun GameTableScreen(
                             } else {
                                 val stul = onlineStul
                                 if (stul != null) {
+                                    val serieHotova = vysledekPartie != null &&
+                                        jeOnlineTurnajovaSerieHotova(stul, vysledekPartie)
                                     scope.launch {
-                                        if (stul.turnajId.isNotEmpty() && stul.cisloRozdani >= stul.celkemRozdani) {
+                                        if (stul.turnajId.isNotEmpty() && serieHotova) {
                                             OnlineManager.smazStul(stul.roomId)
                                         } else {
                                             OnlineManager.opustStul(stul.roomId)
@@ -868,9 +934,7 @@ fun GameTableScreen(
                             }
                         } else {
                             val stul = onlineStul ?: return@PanelVyuctovaniPartie
-                            val noveSoucty = stul.soucetBoduHracu.mapIndexed { idx, stary ->
-                                stary + (vysledekPartie.hraci.firstOrNull { it.indexHrace == idx }?.bodyZapasu ?: 0)
-                            }
+                            val noveSoucty = vypoctiNoveSkoreSerieOnline(stul, vysledekPartie)
                             val dalsiRozdani = stul.cisloRozdani + 1
                             val zacinajici = (dalsiRozdani - 1) % stul.maxHracu
                             scope.launch {
@@ -880,15 +944,19 @@ fun GameTableScreen(
                                     noveCisloRozdani = dalsiRozdani,
                                     noveSouctyBodu = noveSoucty
                                 )
-                                if (novyStul != null) onlineStul = novyStul
+                                if (novyStul != null) {
+                                    onlineStul = novyStul
+                                    aplikujSerializovanyStavStolu(novyStul)
+                                }
                             }
                         }
                     },
                     onZpetDoHerny = {
                         val stul = onlineStul
                         if (stul != null) {
+                            val serieHotova = jeOnlineTurnajovaSerieHotova(stul, vysledekPartie)
                             scope.launch {
-                                if (stul.turnajId.isNotEmpty() && stul.cisloRozdani >= stul.celkemRozdani) {
+                                if (stul.turnajId.isNotEmpty() && serieHotova) {
                                     OnlineManager.smazStul(stul.roomId)
                                 } else {
                                     OnlineManager.opustStul(stul.roomId)
@@ -966,7 +1034,7 @@ fun GameTableScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = if (jeTurnajovyStul) "Opustit turnajový zápas?" else "Opustit rozehraný stůl?",
+                            text = if (jeTurnajovyStul) "Opustit turnajovou sérii?" else "Opustit rozehraný stůl?",
                             color = Color(0xFFFFD54F),
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
@@ -974,7 +1042,7 @@ fun GameTableScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = if (jeTurnajovyStul) {
-                                "Pokud odejdeš z rozehraného turnajového zápasu, tvé místo u stolu dokončí turnajový bot."
+                                "Pokud odejdeš z rozehraného turnajového zápasu, u stolu s dalšími živými hráči tě nahradí bot, případně v duelu s botem postoupí soupeř."
                             } else {
                                 "Opuštěním živého stolu se partie ostatním spoluhráčům ukončí."
                             },
@@ -1015,13 +1083,23 @@ fun GameTableScreen(
                                                 } else {
                                                     val souperBot = stul.hraci.firstOrNull { it.deviceId != mojeDeviceId }
                                                     if (souperBot != null) {
-                                                        OnlineManager.zapisVysledekTurnajovehoZapasu(
+                                                        val skoreVzdaneho = stul.hraci.mapIndexed { idx, h ->
+                                                            val txt = if (h.deviceId == souperBot.deviceId) {
+                                                                if (stul.typHry == TypHry.MARIAS) "+60b"
+                                                                else CIL_VITEZNYCH_BITEV_DUELU.toString()
+                                                            } else {
+                                                                formatujSkoreDoPavouka(stul.typHry, stul.soucetBoduHracu.getOrElse(idx) { 0 })
+                                                            }
+                                                            h.deviceId to txt
+                                                        }
+                                                        TournamentManager.zapisVysledekZapasu(
                                                             turnajId = stul.turnajId,
                                                             slotZapasu = stul.slotZapasu,
                                                             vitezDeviceId = souperBot.deviceId,
                                                             vitezJmeno = souperBot.prezdivka,
                                                             druhyDeviceId = mojeDeviceId,
-                                                            druhyJmeno = mojePrezdivka
+                                                            druhyJmeno = mojePrezdivka,
+                                                            skoreHracu = skoreVzdaneho
                                                         )
                                                     }
                                                     OnlineManager.smazStul(stul.roomId)
@@ -1058,6 +1136,7 @@ private fun HorniListaStolu(
     onlineStul: OnlineStul?,
     offlineKonfig: KonfiguraceOfflineHry?,
     cisloOfflineRozdani: Int,
+    soucetBoduOffline: List<Int>,
     stavPrsi: StavPrsi?,
     stavSedma: StavSedma?,
     stavMarias: StavMarias?,
@@ -1099,6 +1178,7 @@ private fun HorniListaStolu(
                     text = "← Odchod",
                     color = Color(0xFFFFE082),
                     fontSize = 11.sp,
+                    lineHeight = 14.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     softWrap = false
@@ -1112,15 +1192,24 @@ private fun HorniListaStolu(
         ) {
             val stitekRezimu = when {
                 onlineStul != null && onlineStul.turnajId.isNotEmpty() -> {
-                    if (onlineStul.celkemRozdani > 1) {
-                        "TURNAJ ${onlineStul.cisloRozdani}/${onlineStul.celkemRozdani}"
+                    if (onlineStul.typHry != TypHry.MARIAS) {
+                        val s0 = onlineStul.soucetBoduHracu.getOrElse(0) { 0 }
+                        val s1 = onlineStul.soucetBoduHracu.getOrElse(1) { 0 }
+                        "Bitva ${onlineStul.cisloRozdani} ($s0:$s1)"
                     } else {
-                        "TURNAJ • ${variantaPravidel.stitekUStolu}"
+                        "TURNAJ ${onlineStul.cisloRozdani}/${onlineStul.celkemRozdani}"
                     }
                 }
                 jeOnline -> variantaPravidel.stitekUStolu
-                offlineKonfig?.jeOfflinePohar == true ->
-                    "POHÁR $cisloOfflineRozdani/${offlineKonfig.celkemRozdani}"
+                offlineKonfig?.jeOfflinePohar == true -> {
+                    if (offlineKonfig.typHry != TypHry.MARIAS) {
+                        val v0 = soucetBoduOffline.getOrElse(0) { 0 }
+                        val v1 = soucetBoduOffline.getOrElse(1) { 0 }
+                        "POHÁR • Bitva $cisloOfflineRozdani ($v0:$v1)"
+                    } else {
+                        "POHÁR $cisloOfflineRozdani/${offlineKonfig.celkemRozdani}"
+                    }
+                }
                 else -> variantaPravidel.stitekUStolu
             }
 
@@ -1128,6 +1217,7 @@ private fun HorniListaStolu(
                 text = typHry.nazev,
                 color = Color.White,
                 fontSize = 12.sp,
+                lineHeight = 15.sp,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
                 softWrap = false,
@@ -1145,6 +1235,7 @@ private fun HorniListaStolu(
                     text = "$stitekRezimu • ${zbyvaTahu}s",
                     color = if (zbyvaTahu <= 15L) Color(0xFFFF8A65) else Color(0xFFA5D6A7),
                     fontSize = 9.sp,
+                    lineHeight = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     softWrap = false,
@@ -1155,6 +1246,7 @@ private fun HorniListaStolu(
                     text = stitekRezimu,
                     color = Color(0xFFA5D6A7),
                     fontSize = 9.sp,
+                    lineHeight = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     softWrap = false,
@@ -1187,6 +1279,7 @@ private fun HorniListaStolu(
                                 text = stavPrsi.aktualniPlatnaBarva.ceskyNazev,
                                 color = Color(0xFFFFF59D),
                                 fontSize = 10.sp,
+                                lineHeight = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 softWrap = false
@@ -1198,6 +1291,7 @@ private fun HorniListaStolu(
                                 text = "${stavSedma.uhraneBodyTym0} : ${stavSedma.uhraneBodyTym1} b.",
                                 color = Color(0xFFFFF59D),
                                 fontSize = 10.sp,
+                                lineHeight = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 softWrap = false
@@ -1217,6 +1311,7 @@ private fun HorniListaStolu(
                                     text = "${stavMarias.trumf.ceskyNazev} ($nasobkyText)",
                                     color = Color(0xFFFFF59D),
                                     fontSize = 10.sp,
+                                    lineHeight = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     softWrap = false
@@ -1230,6 +1325,7 @@ private fun HorniListaStolu(
                                     },
                                     color = Color(0xFFFFF59D),
                                     fontSize = 10.sp,
+                                    lineHeight = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     softWrap = false
@@ -1258,6 +1354,7 @@ private fun HorniListaStolu(
                     Text(
                         text = if (zvukZapnut) "🔊" else "🔇",
                         fontSize = 12.sp,
+                        lineHeight = 15.sp,
                         maxLines = 1,
                         softWrap = false
                     )
@@ -1347,6 +1444,7 @@ private fun PruhySouperu(
                         text = jmeno,
                         color = Color.White,
                         fontSize = 11.sp,
+                        lineHeight = 14.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1365,6 +1463,7 @@ private fun PruhySouperu(
                             Color(0xFFB9F6CA)
                         },
                         fontSize = 10.sp,
+                        lineHeight = 13.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

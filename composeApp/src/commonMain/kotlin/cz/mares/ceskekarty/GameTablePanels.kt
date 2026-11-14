@@ -65,6 +65,7 @@ internal fun StredStoluPrsi(
             text = stav.posledniHlaska,
             color = Color(0xFFFFF8E1),
             fontSize = 12.sp,
+            lineHeight = 16.sp,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             maxLines = 2,
@@ -123,6 +124,7 @@ internal fun StredStoluPrsi(
                     text = textTlacitka,
                     color = if (zvyraznitLiznuti) Color(0xFF072312) else Color.White,
                     fontSize = 12.sp,
+                    lineHeight = 15.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     softWrap = false
@@ -162,6 +164,7 @@ internal fun StredStoluPrsi(
                             text = barva.ceskyNazev,
                             color = Color.White,
                             fontSize = 11.sp,
+                            lineHeight = 14.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             softWrap = false
@@ -190,7 +193,12 @@ private fun StychSedmaBox(
                 .border(1.2.dp, Color(0x66D4AF37), RoundedCornerShape(12.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Text("Čeká na výnos", color = Color(0xCCFFF8E1), fontSize = 12.sp)
+            Text(
+                text = "Čeká na výnos",
+                color = Color(0xCCFFF8E1),
+                fontSize = 12.sp,
+                lineHeight = 15.sp
+            )
         }
     } else {
         Row(
@@ -205,6 +213,7 @@ private fun StychSedmaBox(
                         text = hrana.jmenoHrace,
                         color = if (bereTato) Color(0xFF69F0AE) else Color(0xFFFFF8E1),
                         fontSize = 10.sp,
+                        lineHeight = 13.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -264,6 +273,7 @@ internal fun StredStoluSedma(
             text = stav.posledniHlaska,
             color = Color(0xFFFFF8E1),
             fontSize = 12.sp,
+            lineHeight = 16.sp,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             maxLines = 2,
@@ -333,6 +343,7 @@ internal fun StredStoluSedma(
                             color = Color.White,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 12.sp,
+                            lineHeight = 15.sp,
                             maxLines = 1,
                             softWrap = false
                         )
@@ -362,6 +373,7 @@ internal fun StredStoluSedma(
                             color = Color(0xFF062111),
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 12.sp,
+                            lineHeight = 15.sp,
                             maxLines = 1,
                             softWrap = false
                         )
@@ -392,7 +404,8 @@ private fun StychMariasBox(
             Text(
                 text = "Vynáší $jmenoNaTahu",
                 color = Color(0xDDFFF8E1),
-                fontSize = 12.sp
+                fontSize = 12.sp,
+                lineHeight = 15.sp
             )
         }
     } else {
@@ -404,6 +417,7 @@ private fun StychMariasBox(
                         text = hrana.jmenoHrace,
                         color = if (bereTento) Color(0xFF69F0AE) else Color(0xFFFFF59D),
                         fontSize = 10.sp,
+                        lineHeight = 13.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -443,6 +457,7 @@ internal fun StredStoluMarias(
             text = stav.posledniHlaska,
             color = Color(0xFFFFF8E1),
             fontSize = 12.sp,
+            lineHeight = 16.sp,
             fontWeight = FontWeight.SemiBold,
             textAlign = TextAlign.Center,
             maxLines = 2,
@@ -472,6 +487,7 @@ internal fun StredStoluMarias(
                             text = "Jsi na forhontu — zvol trumf ze 7 karet:",
                             color = Color(0xFFFFD54F),
                             fontSize = 12.sp,
+                            lineHeight = 16.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
                         )
@@ -500,6 +516,7 @@ internal fun StredStoluMarias(
                                         text = b.ceskyNazev,
                                         color = Color.White,
                                         fontSize = 11.sp,
+                                        lineHeight = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
                                         softWrap = false
@@ -546,7 +563,8 @@ internal fun StredStoluMarias(
                         Text(
                             text = "Čekání, než ${stav.jmenaHracu[stav.indexForhonta]} zvolí trumf…",
                             color = Color(0xFFB9F6CA),
-                            fontSize = 13.sp
+                            fontSize = 13.sp,
+                            lineHeight = 17.sp
                         )
                     }
                 }
@@ -584,6 +602,7 @@ internal fun StredStoluMarias(
                             text = "Klepnutím v ruce vyber 2 karty do talonu (${vybraneDoTalonu.size}/2)",
                             color = Color(0xFFFFD54F),
                             fontSize = 12.sp,
+                            lineHeight = 16.sp,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
                         )
@@ -596,6 +615,7 @@ internal fun StredStoluMarias(
                                 },
                                 color = Color(0xFFA5D6A7),
                                 fontSize = 10.sp,
+                                lineHeight = 14.sp,
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -631,6 +651,7 @@ internal fun StredStoluMarias(
                                 text = "Pozor: nemáš obě sedmy — hlásíš falešné dvě sedmy (blaf)!",
                                 color = Color(0xFFFFB74D),
                                 fontSize = 10.sp,
+                                lineHeight = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center
                             )
@@ -640,6 +661,7 @@ internal fun StredStoluMarias(
                                 text = "Pozor: nemáš trumfovou sedmu — hlásíš falešnou sedmu (blaf)!",
                                 color = Color(0xFFFFB74D),
                                 fontSize = 10.sp,
+                                lineHeight = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center
                             )
@@ -661,6 +683,7 @@ internal fun StredStoluMarias(
                                 text = "Odložit talon a hlásit ${aktualniPlan.nazev}",
                                 color = Color(0xFF05200E),
                                 fontSize = 12.sp,
+                                lineHeight = 15.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -671,7 +694,8 @@ internal fun StredStoluMarias(
                     Text(
                         text = "${stav.jmenaHracu[stav.indexForhonta]} odkládá 2 karty do talonu…",
                         color = Color(0xFFB9F6CA),
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        lineHeight = 17.sp
                     )
                 }
             }
@@ -703,7 +727,7 @@ internal fun StredStoluMarias(
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
                         ) {
-                            Text("Dobrý", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                            Text("Dobrý", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 1)
                         }
                         if (muzeHru) {
                             Button(
@@ -715,7 +739,7 @@ internal fun StredStoluMarias(
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
                             ) {
-                                Text("$stupenHra na hru!", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, maxLines = 1)
+                                Text("$stupenHra na hru!", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 1)
                             }
                         }
                         if (muzeSedmu) {
@@ -728,7 +752,7 @@ internal fun StredStoluMarias(
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFAD1457))
                             ) {
-                                Text("$stupenSedma na $slovoSedma!", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                                Text("$stupenSedma na $slovoSedma!", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 1)
                             }
                         }
                         if (muzeHru && muzeSedmu) {
@@ -741,7 +765,7 @@ internal fun StredStoluMarias(
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
                             ) {
-                                Text("Zvednout obojí!", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, maxLines = 1)
+                                Text("Zvednout obojí!", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp, lineHeight = 15.sp, maxLines = 1)
                             }
                         }
                     }
@@ -749,7 +773,8 @@ internal fun StredStoluMarias(
                     Text(
                         text = "Vyjadřuje se ${stav.jmenaHracu[stav.naTahu]} (Dobrý / Flek)…",
                         color = Color(0xFFB9F6CA),
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
+                        lineHeight = 17.sp
                     )
                 }
             }
@@ -770,6 +795,7 @@ internal fun StredStoluMarias(
                         text = "${stav.cisloStychu}. štych • Forhont ${stav.bodyKaretForhont + stav.hlaskyForhont} : Obrana ${stav.bodyKaretObrana + stav.hlaskyObrana}",
                         color = Color(0xFFFFF59D),
                         fontSize = 11.sp,
+                        lineHeight = 14.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(6.dp))
@@ -949,6 +975,7 @@ internal fun SpodniRukaHrace(
                 text = popisPovinnosti,
                 color = if (zvyraznitPanelRuky) Color(0xFF69F0AE) else Color(0xFFFFF8E1),
                 fontSize = 11.sp,
+                lineHeight = 14.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
@@ -1069,6 +1096,7 @@ private fun MaleAkcniTlacitko(
             text = text,
             color = barvaTextu,
             fontSize = 11.sp,
+            lineHeight = 14.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             softWrap = false,
@@ -1091,12 +1119,14 @@ internal fun PanelVyuctovaniPartie(
     onZpetDoHerny: () -> Unit
 ) {
     val jeOnlineTurnaj = onlineStul != null && onlineStul.turnajId.isNotEmpty()
-    val jeTurnajHotovy = if (jeOnlineTurnaj) {
-        onlineStul!!.cisloRozdani >= onlineStul.celkemRozdani
-    } else if (offlineKonfig?.jeOfflinePohar == true) {
-        cisloOfflineRozdani >= offlineKonfig.celkemRozdani
-    } else {
-        false
+    val jeOfflinePohar = !jeOnline && offlineKonfig?.jeOfflinePohar == true
+    val jeDuelSerie = (jeOnlineTurnaj && onlineStul!!.typHry != TypHry.MARIAS) ||
+        (jeOfflinePohar && offlineKonfig?.typHry != TypHry.MARIAS)
+
+    val jeTurnajHotovy = when {
+        jeOnlineTurnaj -> jeOnlineTurnajovaSerieHotova(onlineStul!!, vysledek)
+        jeOfflinePohar -> jeOfflinePoharHotovy(offlineKonfig, cisloOfflineRozdani, soucetBoduOffline)
+        else -> false
     }
 
     val dostHracuUStolu = !jeOnline || (onlineStul != null && onlineStul.hraci.size >= onlineStul.maxHracu)
@@ -1129,6 +1159,7 @@ internal fun PanelVyuctovaniPartie(
                 text = vysledek.nadpis,
                 color = Color(0xFFFFD54F),
                 fontSize = 20.sp,
+                lineHeight = 24.sp,
                 fontWeight = FontWeight.ExtraBold,
                 textAlign = TextAlign.Center
             )
@@ -1136,6 +1167,7 @@ internal fun PanelVyuctovaniPartie(
                 text = vysledek.podnadpis,
                 color = Color(0xFFB9F6CA),
                 fontSize = 12.sp,
+                lineHeight = 16.sp,
                 textAlign = TextAlign.Center
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -1155,6 +1187,7 @@ internal fun PanelVyuctovaniPartie(
                         text = polozka.popis,
                         color = Color.White,
                         fontSize = 12.sp,
+                        lineHeight = 16.sp,
                         modifier = Modifier
                             .weight(1f)
                             .padding(end = 8.dp)
@@ -1163,6 +1196,7 @@ internal fun PanelVyuctovaniPartie(
                         text = polozka.hodnotaText,
                         color = if (polozka.jeZvyraznena) Color(0xFFFFE082) else Color(0xFFE0E0E0),
                         fontSize = 12.sp,
+                        lineHeight = 16.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         softWrap = false
@@ -1175,6 +1209,7 @@ internal fun PanelVyuctovaniPartie(
                 text = "Vyúčtování tereziánů:",
                 color = Color(0xFFFFF59D),
                 fontSize = 12.sp,
+                lineHeight = 16.sp,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.height(4.dp))
@@ -1184,6 +1219,7 @@ internal fun PanelVyuctovaniPartie(
                     text = "${h.jmenoHrace}: ${formatujTereziany(h.zmenaTerezianu, seZnaminkem = true)}",
                     color = if (h.zmenaTerezianu >= 0) Color(0xFF69F0AE) else Color(0xFFFF8A80),
                     fontSize = 12.sp,
+                    lineHeight = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center
                 )
@@ -1203,6 +1239,7 @@ internal fun PanelVyuctovaniPartie(
                     text = "Tvůj měšec celkem: ${formatujTereziany(aktualniMesecTerezianu)}",
                     color = Color(0xFFFFD54F),
                     fontSize = 13.sp,
+                    lineHeight = 17.sp,
                     fontWeight = FontWeight.ExtraBold,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
@@ -1210,39 +1247,108 @@ internal fun PanelVyuctovaniPartie(
                 )
             }
 
-            if (jeOnlineTurnaj && onlineStul!!.celkemRozdani > 1) {
+            if (jeOnlineTurnaj && onlineStul != null) {
                 Spacer(modifier = Modifier.height(8.dp))
-                val poradiTurnaj = vysledek.hraci.map { hr ->
-                    val celkem = (onlineStul.soucetBoduHracu.getOrElse(hr.indexHrace) { 0 }) + hr.bodyZapasu
-                    hr.jmenoHrace to celkem
-                }.sortedByDescending { it.second }
-                Text(
-                    text = "Pořadí u turnajového stolu (${onlineStul.cisloRozdani}/${onlineStul.celkemRozdani}): " +
-                        poradiTurnaj.joinToString(", ") { "${it.first} (${it.second} b.)" },
-                    color = Color(0xFFFFE082),
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center
-                )
-            } else if (offlineKonfig?.jeOfflinePohar == true) {
+                val noveSkore = vypoctiNoveSkoreSerieOnline(onlineStul, vysledek)
+                val textStavuSerie = if (onlineStul.typHry != TypHry.MARIAS) {
+                    val jm0 = onlineStul.hraci.getOrNull(0)?.prezdivka
+                        ?: vysledek.hraci.firstOrNull { it.indexHrace == 0 }?.jmenoHrace ?: "Hráč 1"
+                    val jm1 = onlineStul.hraci.getOrNull(1)?.prezdivka
+                        ?: vysledek.hraci.firstOrNull { it.indexHrace == 1 }?.jmenoHrace ?: "Hráč 2"
+                    val s0 = noveSkore.getOrElse(0) { 0 }
+                    val s1 = noveSkore.getOrElse(1) { 0 }
+                    if (jeTurnajHotovy) {
+                        val vitezSerie = if (s0 >= s1) jm0 else jm1
+                        "🏆 Vítěz série a postupující: $vitezSerie ($s0 : $s1 na bitvy)"
+                    } else {
+                        "⚔️ Stav série (na $CIL_VITEZNYCH_BITEV_DUELU vítězné bitvy): $jm0 $s0 : $s1 $jm1"
+                    }
+                } else {
+                    val poradiTurnaj = onlineStul.hraci.mapIndexed { idx, h ->
+                        h.prezdivka to noveSkore.getOrElse(idx) { 0 }
+                    }.sortedByDescending { it.second }
+                    val prefix = if (jeTurnajHotovy) {
+                        "🏆 Konečné pořadí stolu (${onlineStul.cisloRozdani}/${onlineStul.celkemRozdani}): "
+                    } else {
+                        "Pořadí u stolu (${onlineStul.cisloRozdani}/${onlineStul.celkemRozdani}): "
+                    }
+                    prefix + poradiTurnaj.joinToString(", ") { "${it.first} (${it.second} b.)" }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF144026))
+                        .border(1.dp, Color(0x66FFD54F), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = textStavuSerie,
+                        color = Color(0xFFFFE082),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else if (jeOfflinePohar && offlineKonfig != null) {
                 Spacer(modifier = Modifier.height(8.dp))
-                val poradiPohar = vysledek.hraci.mapIndexed { idx, hr ->
-                    hr.jmenoHrace to (soucetBoduOffline.getOrElse(idx) { 0 })
-                }.sortedByDescending { it.second }
-                Text(
-                    text = "Průběžné pořadí poháru (${cisloOfflineRozdani}/${offlineKonfig.celkemRozdani}): " +
-                        poradiPohar.joinToString(", ") { "${it.first} (${it.second} b.)" },
-                    color = Color(0xFFFFE082),
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center
-                )
+                val textPohar = if (offlineKonfig.typHry != TypHry.MARIAS) {
+                    val jm0 = vysledek.hraci.firstOrNull { it.indexHrace == 0 }?.jmenoHrace ?: "Ty"
+                    val jm1 = vysledek.hraci.firstOrNull { it.indexHrace == 1 }?.jmenoHrace ?: "Soupeř"
+                    val s0 = soucetBoduOffline.getOrElse(0) { 0 }
+                    val s1 = soucetBoduOffline.getOrElse(1) { 0 }
+                    if (jeTurnajHotovy) {
+                        val vitezPohar = if (s0 >= s1) jm0 else jm1
+                        "🏆 Vítěz poháru: $vitezPohar ($s0 : $s1 na bitvy)"
+                    } else {
+                        "⚔️ Stav poháru (na $CIL_VITEZNYCH_BITEV_DUELU vítězné bitvy): $jm0 $s0 : $s1 $jm1"
+                    }
+                } else {
+                    val poradiPohar = vysledek.hraci.map { hr ->
+                        hr.jmenoHrace to (soucetBoduOffline.getOrElse(hr.indexHrace) { 0 })
+                    }.sortedByDescending { it.second }
+                    val prefix = if (jeTurnajHotovy) {
+                        "🏆 Konečné pořadí poháru (${cisloOfflineRozdani}/${offlineKonfig.celkemRozdani}): "
+                    } else {
+                        "Průběžné pořadí poháru (${cisloOfflineRozdani}/${offlineKonfig.celkemRozdani}): "
+                    }
+                    prefix + poradiPohar.joinToString(", ") { "${it.first} (${it.second} b.)" }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF144026))
+                        .border(1.dp, Color(0x66FFD54F), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = textPohar,
+                        color = Color(0xFFFFE082),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
 
             if (jeOnline && !jeTurnajHotovy && !muzeSpustitDalsi) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
-                    text = "Čekání, než spoluhráč u stolu spustí další rozdání…",
+                    text = if (jeDuelSerie) {
+                        "Čekání, než spoluhráč u stolu spustí další bitvu…"
+                    } else {
+                        "Čekání, než spoluhráč u stolu spustí další rozdání…"
+                    },
                     color = Color(0xFFB9F6CA),
                     fontSize = 12.sp,
+                    lineHeight = 16.sp,
                     textAlign = TextAlign.Center
                 )
             }
@@ -1266,9 +1372,10 @@ internal fun PanelVyuctovaniPartie(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
                     ) {
                         Text(
-                            text = "Další rozdání",
+                            text = if (jeDuelSerie) "Další bitva" else "Další rozdání",
                             color = Color(0xFF04210E),
                             fontSize = 13.sp,
+                            lineHeight = 16.sp,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 1,
                             softWrap = false,
@@ -1298,6 +1405,7 @@ internal fun PanelVyuctovaniPartie(
                         text = popisekZpet,
                         color = Color(0xFF072312),
                         fontSize = 13.sp,
+                        lineHeight = 16.sp,
                         fontWeight = FontWeight.ExtraBold,
                         maxLines = 1,
                         softWrap = false,

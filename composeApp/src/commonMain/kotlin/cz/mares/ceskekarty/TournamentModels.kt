@@ -2,6 +2,10 @@ package cz.mares.ceskekarty
 
 import kotlin.math.max
 
+const val CIL_VITEZNYCH_BITEV_DUELU = 3
+const val MAX_HER_DUEL_SERIE = 5
+const val POCET_ROZDANI_MARIAS_TURNAJ = 6
+
 fun jeBotDeviceId(deviceId: String): Boolean = deviceId.startsWith("bot_")
 
 val TURNAJOVI_BOTI: List<Pair<String, String>> = listOf(
@@ -43,7 +47,7 @@ val DENNI_ROZVRH_TURNAJU: List<SablonaDennihoTurnaje> = listOf(
         kodSlotu = "1900_PRSI",
         hodina = 19,
         minuta = 0,
-        nazev = "Večerní pohár: Prší",
+        nazev = "Prší • Večerní pohár",
         typHry = TypHry.PRSI,
         kapacita = 8,
         vkladTereziany = 40,
@@ -53,7 +57,7 @@ val DENNI_ROZVRH_TURNAJU: List<SablonaDennihoTurnaje> = listOf(
         kodSlotu = "2000_SEDMA",
         hodina = 20,
         minuta = 0,
-        nazev = "Večerní pohár: Sedma",
+        nazev = "Sedma • Večerní pohár",
         typHry = TypHry.SEDMA,
         kapacita = 8,
         vkladTereziany = 50,
@@ -63,7 +67,7 @@ val DENNI_ROZVRH_TURNAJU: List<SablonaDennihoTurnaje> = listOf(
         kodSlotu = "2030_MARIAS",
         hodina = 20,
         minuta = 30,
-        nazev = "Královský pohár: Volený Mariáš",
+        nazev = "Mariáš • Královský pohár",
         typHry = TypHry.MARIAS,
         kapacita = 9,
         vkladTereziany = 60,
@@ -71,11 +75,35 @@ val DENNI_ROZVRH_TURNAJU: List<SablonaDennihoTurnaje> = listOf(
     )
 )
 
+fun normalizujNazevTurnaje(puvodni: String, typHry: TypHry): String {
+    val cisty = puvodni.trim()
+    return when {
+        cisty.startsWith("Večerní pohár: Prší") -> "Prší • Večerní pohár"
+        cisty.startsWith("Večerní pohár: Sedma") -> "Sedma • Večerní pohár"
+        cisty.startsWith("Královský pohár:") -> "Mariáš • Královský pohár"
+        cisty.isEmpty() -> when (typHry) {
+            TypHry.PRSI -> "Prší • Večerní pohár"
+            TypHry.SEDMA -> "Sedma • Večerní pohár"
+            TypHry.MARIAS -> "Mariáš • Královský pohár"
+        }
+        else -> cisty
+    }
+}
+
+fun formatujSkoreDoPavouka(typHry: TypHry, hodnota: Int): String {
+    return if (typHry == TypHry.MARIAS) {
+        if (hodnota > 0) "+${hodnota}b" else "${hodnota}b"
+    } else {
+        hodnota.toString()
+    }
+}
+
 data class HracVeSlotuPavouka(
     val deviceId: String,
     val prezdivka: String,
     val jeBot: Boolean = jeBotDeviceId(deviceId),
-    val jeVolneMisto: Boolean = deviceId.isEmpty()
+    val jeVolneMisto: Boolean = deviceId.isEmpty(),
+    val skoreText: String = ""
 )
 
 data class UzelZapasuPavouka(
@@ -217,13 +245,13 @@ object TurnajKalendar {
     }
 
     fun nazevDneVTydnu(denVTydnu: Int): String = when (denVTydnu) {
-        1 -> "Pondělí"
-        2 -> "Úterý"
-        3 -> "Středa"
-        4 -> "Čtvrtek"
-        5 -> "Pátek"
-        6 -> "Sobota"
-        else -> "Neděle"
+        1 -> "Po"
+        2 -> "Út"
+        3 -> "St"
+        4 -> "Čt"
+        5 -> "Pá"
+        6 -> "So"
+        else -> "Ne"
     }
 
     fun formatujHodinuMinutu(utcMs: Long): String {
@@ -235,7 +263,7 @@ object TurnajKalendar {
         val startP = utcMsNaPrahaCas(startMs)
         val nyniP = utcMsNaPrahaCas(nyniMs)
         val casTxt = "${startP.hodina.toString().padStart(2, '0')}:${startP.minuta.toString().padStart(2, '0')}"
-        val datumTxt = "${startP.den}. ${startP.mesic}."
+        val datumTxt = "${startP.den}.${startP.mesic}."
         return when (startP.epochDen - nyniP.epochDen) {
             0L -> "Dnes $datumTxt v $casTxt"
             1L -> "Zítra $datumTxt v $casTxt"
@@ -250,9 +278,9 @@ object TurnajKalendar {
         val min = (sek % 3600L) / 60L
         val s = sek % 60L
         return when {
-            hod > 0L -> "${hod} h ${min.toString().padStart(2, '0')} min"
-            min > 0L -> "${min} min ${s.toString().padStart(2, '0')} s"
-            else -> "${s} s"
+            hod > 0L -> "${hod}h ${min.toString().padStart(2, '0')}m"
+            min > 0L -> "${min}m ${s.toString().padStart(2, '0')}s"
+            else -> "${s}s"
         }
     }
 
@@ -270,7 +298,7 @@ private val NASAZENI_9_MARIAS = intArrayOf(0, 3, 6, 1, 4, 7, 2, 5, 8)
 
 fun vygenerujNahledPavoukaPredStartem(turnaj: PlanovanyTurnaj): List<UzelZapasuPavouka> {
     if (turnaj.typHry == TypHry.MARIAS) {
-        val sedadla = Array(9) { HracVeSlotuPavouka("", "Volné místo (nebo Bot)", jeBot = false, jeVolneMisto = true) }
+        val sedadla = Array(9) { HracVeSlotuPavouka("", "Volné místo (Bot)", jeBot = false, jeVolneMisto = true) }
         turnaj.ucastnici.take(9).forEachIndexed { idx, hrac ->
             val cil = NASAZENI_9_MARIAS[idx]
             sedadla[cil] = HracVeSlotuPavouka(
@@ -280,7 +308,7 @@ fun vygenerujNahledPavoukaPredStartem(turnaj: PlanovanyTurnaj): List<UzelZapasuP
                 jeVolneMisto = false
             )
         }
-        val stoly = listOf("Semifinále — Stůl A", "Semifinále — Stůl B", "Semifinále — Stůl C")
+        val stoly = listOf("Semifinále A", "Semifinále B", "Semifinále C")
         val prvniKolo = (0..2).map { s ->
             UzelZapasuPavouka(
                 slot = s,
@@ -298,11 +326,11 @@ fun vygenerujNahledPavoukaPredStartem(turnaj: PlanovanyTurnaj): List<UzelZapasuP
             slot = 3,
             kolo = 1,
             nazevZapasu = "Finálový stůl",
-            planovanyCasMs = turnaj.casStartuMs + 20 * 60_000L,
+            planovanyCasMs = turnaj.casStartuMs + 25 * 60_000L,
             hraci = listOf(
-                HracVeSlotuPavouka("", "Vítěz Stolu A", jeBot = false, jeVolneMisto = true),
-                HracVeSlotuPavouka("", "Vítěz Stolu B", jeBot = false, jeVolneMisto = true),
-                HracVeSlotuPavouka("", "Vítěz Stolu C", jeBot = false, jeVolneMisto = true)
+                HracVeSlotuPavouka("", "Vítěz SF A", jeBot = false, jeVolneMisto = true),
+                HracVeSlotuPavouka("", "Vítěz SF B", jeBot = false, jeVolneMisto = true),
+                HracVeSlotuPavouka("", "Vítěz SF C", jeBot = false, jeVolneMisto = true)
             ),
             vitezId = "",
             vitezJmeno = "",
@@ -312,7 +340,7 @@ fun vygenerujNahledPavoukaPredStartem(turnaj: PlanovanyTurnaj): List<UzelZapasuP
         return prvniKolo + finale
     }
 
-    val sedadla = Array(8) { HracVeSlotuPavouka("", "Volné místo (nebo Bot)", jeBot = false, jeVolneMisto = true) }
+    val sedadla = Array(8) { HracVeSlotuPavouka("", "Volné místo (Bot)", jeBot = false, jeVolneMisto = true) }
     turnaj.ucastnici.take(8).forEachIndexed { idx, hrac ->
         val cil = NASAZENI_8_HRACU[idx]
         sedadla[cil] = HracVeSlotuPavouka(
@@ -341,7 +369,7 @@ fun vygenerujNahledPavoukaPredStartem(turnaj: PlanovanyTurnaj): List<UzelZapasuP
             slot = 4 + s,
             kolo = 1,
             nazevZapasu = "Semifinále ${s + 1}",
-            planovanyCasMs = turnaj.casStartuMs + 12 * 60_000L,
+            planovanyCasMs = turnaj.casStartuMs + 20 * 60_000L,
             hraci = listOf(
                 HracVeSlotuPavouka("", "Vítěz ČF ${s * 2 + 1}", jeBot = false, jeVolneMisto = true),
                 HracVeSlotuPavouka("", "Vítěz ČF ${s * 2 + 2}", jeBot = false, jeVolneMisto = true)
@@ -356,7 +384,7 @@ fun vygenerujNahledPavoukaPredStartem(turnaj: PlanovanyTurnaj): List<UzelZapasuP
         slot = 6,
         kolo = 2,
         nazevZapasu = "Finále",
-        planovanyCasMs = turnaj.casStartuMs + 24 * 60_000L,
+        planovanyCasMs = turnaj.casStartuMs + 40 * 60_000L,
         hraci = listOf(
             HracVeSlotuPavouka("", "Vítěz SF 1", jeBot = false, jeVolneMisto = true),
             HracVeSlotuPavouka("", "Vítěz SF 2", jeBot = false, jeVolneMisto = true)
@@ -386,7 +414,7 @@ fun sestavStartovniUzlySHraciABoty(turnaj: PlanovanyTurnaj): Pair<List<HracUStol
             }
         }
         val vsichni = plnych9.filterNotNull()
-        val stoly = listOf("Semifinále — Stůl A", "Semifinále — Stůl B", "Semifinále — Stůl C")
+        val stoly = listOf("Semifinále A", "Semifinále B", "Semifinále C")
         val prvniKolo = (0..2).map { s ->
             val h0 = vsichni[s * 3]
             val h1 = vsichni[s * 3 + 1]
@@ -411,11 +439,11 @@ fun sestavStartovniUzlySHraciABoty(turnaj: PlanovanyTurnaj): Pair<List<HracUStol
             slot = 3,
             kolo = 1,
             nazevZapasu = "Finálový stůl",
-            planovanyCasMs = turnaj.casStartuMs + 20 * 60_000L,
+            planovanyCasMs = turnaj.casStartuMs + 25 * 60_000L,
             hraci = listOf(
-                HracVeSlotuPavouka("", "Vítěz Stolu A", jeBot = false, jeVolneMisto = true),
-                HracVeSlotuPavouka("", "Vítěz Stolu B", jeBot = false, jeVolneMisto = true),
-                HracVeSlotuPavouka("", "Vítěz Stolu C", jeBot = false, jeVolneMisto = true)
+                HracVeSlotuPavouka("", "Vítěz SF A", jeBot = false, jeVolneMisto = true),
+                HracVeSlotuPavouka("", "Vítěz SF B", jeBot = false, jeVolneMisto = true),
+                HracVeSlotuPavouka("", "Vítěz SF C", jeBot = false, jeVolneMisto = true)
             ),
             vitezId = "",
             vitezJmeno = "",
@@ -459,7 +487,7 @@ fun sestavStartovniUzlySHraciABoty(turnaj: PlanovanyTurnaj): Pair<List<HracUStol
             slot = 4 + s,
             kolo = 1,
             nazevZapasu = "Semifinále ${s + 1}",
-            planovanyCasMs = turnaj.casStartuMs + 12 * 60_000L,
+            planovanyCasMs = turnaj.casStartuMs + 20 * 60_000L,
             hraci = listOf(
                 HracVeSlotuPavouka("", "Vítěz ČF ${s * 2 + 1}", jeBot = false, jeVolneMisto = true),
                 HracVeSlotuPavouka("", "Vítěz ČF ${s * 2 + 2}", jeBot = false, jeVolneMisto = true)
@@ -474,7 +502,7 @@ fun sestavStartovniUzlySHraciABoty(turnaj: PlanovanyTurnaj): Pair<List<HracUStol
         slot = 6,
         kolo = 2,
         nazevZapasu = "Finále",
-        planovanyCasMs = turnaj.casStartuMs + 24 * 60_000L,
+        planovanyCasMs = turnaj.casStartuMs + 40 * 60_000L,
         hraci = listOf(
             HracVeSlotuPavouka("", "Vítěz SF 1", jeBot = false, jeVolneMisto = true),
             HracVeSlotuPavouka("", "Vítěz SF 2", jeBot = false, jeVolneMisto = true)
@@ -501,7 +529,12 @@ fun serializujPlanovanyTurnaj(t: PlanovanyTurnaj): String {
     }
     val uzlyStr = t.uzlyPavouka.joinToString(";") { u ->
         val hrStr = u.hraci.joinToString("^") { hs ->
-            "${ocistiOddelovaceTurnaje(hs.deviceId)}!${ocistiOddelovaceTurnaje(hs.prezdivka)}!${if (hs.jeVolneMisto) "1" else "0"}"
+            listOf(
+                ocistiOddelovaceTurnaje(hs.deviceId),
+                ocistiOddelovaceTurnaje(hs.prezdivka),
+                if (hs.jeVolneMisto) "1" else "0",
+                ocistiOddelovaceTurnaje(hs.skoreText)
+            ).joinToString("!")
         }
         listOf(
             u.slot.toString(),
@@ -519,7 +552,7 @@ fun serializujPlanovanyTurnaj(t: PlanovanyTurnaj): String {
         listOf(
             "ver" to "2",
             "tid" to t.turnajId,
-            "naz" to t.nazev,
+            "naz" to normalizujNazevTurnaje(t.nazev, t.typHry),
             "typ" to t.typHry.idHry,
             "vp" to t.variantaPravidel.kod,
             "kap" to t.kapacita.toString(),
@@ -542,7 +575,8 @@ fun serializujPlanovanyTurnaj(t: PlanovanyTurnaj): String {
 fun deserializujPlanovanyTurnaj(data: String): PlanovanyTurnaj? {
     if (data.isBlank()) return null
     val r = PoleStavuReader(data)
-    if (r.text("ver") != "2") return null
+    val verze = r.text("ver")
+    if (verze != "2" && verze != "3") return null
     val tid = r.text("tid")
     if (tid.isBlank()) return null
     val typ = TypHry.dleId(r.text("typ", "PRSI"))
@@ -569,18 +603,22 @@ fun deserializujPlanovanyTurnaj(data: String): PlanovanyTurnaj? {
                 c[4].split("^").mapNotNull { hp ->
                     val hc = hp.split("!")
                     if (hc.size < 3) return@mapNotNull null
+                    val cisteJmeno = if (hc[1] == "Volné místo (nebo Bot)") "Volné místo (Bot)" else hc[1]
                     HracVeSlotuPavouka(
                         deviceId = hc[0],
-                        prezdivka = hc[1],
+                        prezdivka = cisteJmeno,
                         jeBot = jeBotDeviceId(hc[0]),
-                        jeVolneMisto = hc[2] == "1" || hc[0].isEmpty()
+                        jeVolneMisto = hc[2] == "1" || hc[0].isEmpty(),
+                        skoreText = hc.getOrElse(3) { "" }
                     )
                 }
             }
+            val zkracenyNazevUzlu = c[2]
+                .replace("Semifinále — Stůl ", "Semifinále ")
             UzelZapasuPavouka(
                 slot = c[0].toIntOrNull() ?: 0,
                 kolo = c[1].toIntOrNull() ?: 0,
-                nazevZapasu = c[2],
+                nazevZapasu = zkracenyNazevUzlu,
                 planovanyCasMs = c[3].toLongOrNull() ?: 0L,
                 hraci = hraciUzlu,
                 vitezId = c[5],
@@ -595,7 +633,7 @@ fun deserializujPlanovanyTurnaj(data: String): PlanovanyTurnaj? {
 
     return PlanovanyTurnaj(
         turnajId = tid,
-        nazev = r.text("naz", "Turnaj"),
+        nazev = normalizujNazevTurnaje(r.text("naz", ""), typ),
         typHry = typ,
         variantaPravidel = VariantaPravidel.dleKodu(r.text("vp", VariantaPravidel.HOSPODSKA.kod)),
         kapacita = r.cislo("kap", if (typ == TypHry.MARIAS) 9 else 8),

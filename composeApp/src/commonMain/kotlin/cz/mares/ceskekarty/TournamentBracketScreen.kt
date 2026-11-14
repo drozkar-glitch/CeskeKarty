@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -108,8 +109,8 @@ fun TournamentHallScreen(
         }
     }
 
-    val prahaTeplomer = TurnajKalendar.utcMsNaPrahaCas(nyniServerMs)
-    val hodinyText = "${prahaTeplomer.hodina.toString().padStart(2, '0')}:${prahaTeplomer.minuta.toString().padStart(2, '0')}:${prahaTeplomer.sekunda.toString().padStart(2, '0')}"
+    val prahaHodiny = TurnajKalendar.utcMsNaPrahaCas(nyniServerMs)
+    val hodinyText = "${prahaHodiny.hodina.toString().padStart(2, '0')}:${prahaHodiny.minuta.toString().padStart(2, '0')}"
     val aktivniANadchazejici = turnaje.filter { it.stav != "DOKONCENO" }
     val dohraneTurnaje = turnaje.filter { it.stav == "DOKONCENO" }.take(4)
 
@@ -134,27 +135,31 @@ fun TournamentHallScreen(
                         jemnaHaptika()
                         onZpet()
                     }
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
             ) {
                 Text(
                     text = "← Zpět",
                     color = Color(0xFFFFE082),
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     softWrap = false
                 )
             }
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = "Turnajová síň",
                 color = Color(0xFFFFD54F),
-                fontSize = 18.sp,
+                fontSize = 17.sp,
+                lineHeight = 20.sp,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
+                softWrap = false,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
+            Spacer(modifier = Modifier.width(6.dp))
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
@@ -166,6 +171,7 @@ fun TournamentHallScreen(
                     text = "🕒 $hodinyText",
                     color = Color(0xFFFFF59D),
                     fontSize = 11.sp,
+                    lineHeight = 14.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     softWrap = false
@@ -185,11 +191,12 @@ fun TournamentHallScreen(
                 text = "Pravidelný denní rozvrh turnajů",
                 color = Color(0xFFFFD54F),
                 fontSize = 14.sp,
+                lineHeight = 18.sp,
                 fontWeight = FontWeight.ExtraBold
             )
-            Spacer(modifier = Modifier.height(3.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Každý den: 19:00 Prší (8 hráčů) • 20:00 Sedma (8 hráčů) • 20:30 Volený Mariáš (9 hráčů). Přihlášené přezdívky se ihned zapisují do pavouka; neobsazená místa v čas výkopu doplní turnajoví boti.",
+                text = "Každý den: 19:00 Prší (8 hráčů, na $CIL_VITEZNYCH_BITEV_DUELU vítězné bitvy) • 20:00 Sedma (8 hráčů, na $CIL_VITEZNYCH_BITEV_DUELU vítězné bitvy) • 20:30 Volený Mariáš (9 hráčů, $POCET_ROZDANI_MARIAS_TURNAJ rozdání). Neobsazená místa v čas výkopu doplní boti.",
                 color = Color(0xFFB9F6CA),
                 fontSize = 11.sp,
                 lineHeight = 15.sp
@@ -214,6 +221,7 @@ fun TournamentHallScreen(
                     text = stavovaZprava,
                     color = if (jeUspechZpravy) Color(0xFFB9F6CA) else Color(0xFFFFCCBC),
                     fontSize = 12.sp,
+                    lineHeight = 16.sp,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -224,6 +232,7 @@ fun TournamentHallScreen(
             text = "Vypsané a probíhající turnaje:",
             color = Color(0xFFFFE082),
             fontSize = 15.sp,
+            lineHeight = 19.sp,
             fontWeight = FontWeight.ExtraBold
         )
         Spacer(modifier = Modifier.height(8.dp))
@@ -232,13 +241,15 @@ fun TournamentHallScreen(
             Text(
                 text = "Načítám turnajový rozvrh a pavouky…",
                 color = Color(0xFFB9F6CA),
-                fontSize = 13.sp
+                fontSize = 13.sp,
+                lineHeight = 17.sp
             )
         } else if (aktivniANadchazejici.isEmpty()) {
             Text(
                 text = "Připravuji další turnajové termíny…",
                 color = Color(0xFFB9F6CA),
-                fontSize = 13.sp
+                fontSize = 13.sp,
+                lineHeight = 17.sp
             )
         } else {
             for (turnaj in aktivniANadchazejici) {
@@ -321,6 +332,7 @@ fun TournamentHallScreen(
                 text = "Nedávno dohrané turnaje:",
                 color = Color(0xFFFFE082),
                 fontSize = 15.sp,
+                lineHeight = 19.sp,
                 fontWeight = FontWeight.ExtraBold
             )
             Spacer(modifier = Modifier.height(6.dp))
@@ -349,6 +361,7 @@ fun TournamentHallScreen(
                                 text = dohrany.nazev,
                                 color = Color.White,
                                 fontSize = 14.sp,
+                                lineHeight = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -356,7 +369,8 @@ fun TournamentHallScreen(
                             Text(
                                 text = TurnajKalendar.formatujTerminTurnaje(dohrany.casStartuMs, nyniServerMs),
                                 color = Color(0xFFA5D6A7),
-                                fontSize = 11.sp
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp
                             )
                         }
                         TurnajPravidlaStitek(dohrany.variantaPravidel)
@@ -368,6 +382,7 @@ fun TournamentHallScreen(
                                 if (dohrany.druheMistoJmeno.isNotEmpty()) "  •  🥈 2. místo: ${dohrany.druheMistoJmeno}" else "",
                             color = Color(0xFF69F0AE),
                             fontSize = 12.sp,
+                            lineHeight = 16.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -389,12 +404,20 @@ fun TournamentHallScreen(
                 .padding(12.dp)
         ) {
             Text(
-                text = "Okamžitý tréninkový pohár proti botům (3 rozdání)",
+                text = "Tréninkový pohár proti botům (offline)",
                 color = Color(0xFFFFD54F),
                 fontSize = 14.sp,
+                lineHeight = 18.sp,
                 fontWeight = FontWeight.ExtraBold
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Prší a Sedma na $CIL_VITEZNYCH_BITEV_DUELU vítězné bitvy • Mariáš série 3 rozdání",
+                color = Color(0xFFB9F6CA),
+                fontSize = 11.sp,
+                lineHeight = 14.sp
+            )
+            Spacer(modifier = Modifier.height(7.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -418,6 +441,7 @@ fun TournamentHallScreen(
                             text = "$ikona ${varianta.kratkyNazev}",
                             color = if (akt) Color(0xFF072312) else Color.White,
                             fontSize = 12.sp,
+                            lineHeight = 15.sp,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 1,
                             softWrap = false
@@ -445,6 +469,7 @@ fun TournamentHallScreen(
                             text = if (typ == TypHry.MARIAS) "Mariáš" else typ.nazev,
                             color = Color.White,
                             fontSize = 12.sp,
+                            lineHeight = 15.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             softWrap = false
@@ -474,6 +499,7 @@ private fun TurnajPravidlaStitek(varianta: VariantaPravidel) {
             text = if (jeHospodska) "🍺 Hospodská" else "🏛️ Svazová",
             color = if (jeHospodska) Color(0xFFFFE082) else Color(0xFFE3F2FD),
             fontSize = 10.sp,
+            lineHeight = 13.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             softWrap = false
@@ -500,6 +526,12 @@ private fun KartaPlanovanehoTurnaje(
     val zbyvaMs = turnaj.casStartuMs - nyniMs
     val probihaHra = turnaj.stav == "PROBIHA"
 
+    val formatZapasuText = if (turnaj.typHry == TypHry.MARIAS) {
+        "Série na $POCET_ROZDANI_MARIAS_TURNAJ rozdání (součet bodů)"
+    } else {
+        "Na $CIL_VITEZNYCH_BITEV_DUELU vítězné bitvy (max. $MAX_HER_DUEL_SERIE)"
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -525,7 +557,7 @@ private fun KartaPlanovanehoTurnaje(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .weight(1f)
-                    .padding(end = 8.dp)
+                    .padding(end = 6.dp)
             ) {
                 IkonaBarvyKarty(
                     barva = when (turnaj.typHry) {
@@ -533,15 +565,17 @@ private fun KartaPlanovanehoTurnaje(
                         TypHry.PRSI -> BarvaKarty.KULE
                         TypHry.SEDMA -> BarvaKarty.ZELENE
                     },
-                    velikost = 20.dp
+                    velikost = 18.dp
                 )
-                Spacer(modifier = Modifier.width(7.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = turnaj.nazev,
                     color = Color(0xFFFFD54F),
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp,
                     fontWeight = FontWeight.ExtraBold,
                     maxLines = 1,
+                    softWrap = false,
                     overflow = TextOverflow.Ellipsis
                 )
             }
@@ -557,38 +591,58 @@ private fun KartaPlanovanehoTurnaje(
             Text(
                 text = "📅 ${TurnajKalendar.formatujTerminTurnaje(turnaj.casStartuMs, nyniMs)}",
                 color = Color.White,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 6.dp)
             )
             Text(
                 text = when {
-                    probihaHra -> "🟢 PRÁVĚ SE HRAJE"
-                    zbyvaMs > 0L -> "⏳ Start za ${TurnajKalendar.formatujOdpocetDoStartu(zbyvaMs)}"
-                    else -> "⚡ Připraveno ke startu!"
+                    probihaHra -> "🟢 PRÁVĚ BĚŽÍ"
+                    zbyvaMs > 0L -> "⏳ Za ${TurnajKalendar.formatujOdpocetDoStartu(zbyvaMs)}"
+                    else -> "⚡ Startuje!"
                 },
                 color = if (probihaHra || zbyvaMs <= 300_000L) Color(0xFF69F0AE) else Color(0xFFFFE082),
                 fontSize = 11.sp,
-                fontWeight = FontWeight.ExtraBold
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                softWrap = false
             )
         }
 
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Vklad: ${turnaj.vkladTereziany} tereziánů  •  🥇 1. místo: +${turnaj.odmenaPrvniMisto}  •  🥈 2. místo: +${turnaj.odmenaDruheMisto}",
+            text = "⚔️ $formatZapasuText",
+            color = Color(0xFFFFF59D),
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = "Vklad: ${turnaj.vkladTereziany} ter.  •  🥇 1. místo: +${turnaj.odmenaPrvniMisto}  •  🥈 2. místo: +${turnaj.odmenaDruheMisto}",
             color = Color(0xFFB9F6CA),
-            fontSize = 11.sp
+            fontSize = 11.sp,
+            lineHeight = 15.sp
         )
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(2.dp))
         val seznamNickuText = if (ziviPrihlaseni.isEmpty()) {
             "Zatím nikdo (volná místa při startu doplní boti)"
         } else {
             ziviPrihlaseni.joinToString(", ") { it.prezdivka }
         }
         Text(
-            text = "Přihlášení hráči (${ziviPrihlaseni.size}/${turnaj.kapacita}): $seznamNickuText",
+            text = "Hráči (${ziviPrihlaseni.size}/${turnaj.kapacita}): $seznamNickuText",
             color = Color(0xFFE0E0E0),
-            fontSize = 11.sp
+            fontSize = 11.sp,
+            lineHeight = 15.sp
         )
 
         Spacer(modifier = Modifier.height(9.dp))
@@ -601,17 +655,19 @@ private fun KartaPlanovanehoTurnaje(
                 Button(
                     onClick = onHratAktivniZapas,
                     enabled = !probihaAkce,
-                    modifier = Modifier.weight(1.2f),
+                    modifier = Modifier.weight(1.25f),
                     shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853))
                 ) {
                     Text(
                         text = "▶ Hrát (${mujAktivniUzel.nazevZapasu})",
                         color = Color(0xFF04210E),
                         fontSize = 12.sp,
+                        lineHeight = 15.sp,
                         fontWeight = FontWeight.ExtraBold,
                         maxLines = 1,
+                        softWrap = false,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -620,17 +676,19 @@ private fun KartaPlanovanehoTurnaje(
                     Button(
                         onClick = onPrihlasit,
                         enabled = !probihaAkce,
-                        modifier = Modifier.weight(1.15f),
+                        modifier = Modifier.weight(1.25f),
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
                     ) {
                         Text(
-                            text = if (ulozenyNick.isEmpty()) "Nastav nick doma" else "Přihlásit se (${turnaj.vkladTereziany} ter.)",
+                            text = if (ulozenyNick.isEmpty()) "Nastav nick" else "Přihlásit (${turnaj.vkladTereziany} ter.)",
                             color = Color(0xFF072312),
                             fontSize = 12.sp,
+                            lineHeight = 15.sp,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 1,
+                            softWrap = false,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
@@ -638,15 +696,16 @@ private fun KartaPlanovanehoTurnaje(
                     Button(
                         onClick = onOdhlasit,
                         enabled = !probihaAkce,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1.1f),
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6D2424))
                     ) {
                         Text(
-                            text = "Odhlásit se",
+                            text = "Odhlásit",
                             color = Color(0xFFFFCCBC),
                             fontSize = 12.sp,
+                            lineHeight = 15.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             softWrap = false
@@ -657,18 +716,19 @@ private fun KartaPlanovanehoTurnaje(
 
             Box(
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(0.95f)
                     .clip(RoundedCornerShape(10.dp))
                     .background(Color(0xFF164A2C))
                     .border(1.dp, Color(0x88D4AF37), RoundedCornerShape(10.dp))
                     .clickable(onClick = onPrepnoutPavouka)
-                    .padding(horizontal = 10.dp, vertical = 9.dp),
+                    .padding(horizontal = 8.dp, vertical = 9.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = if (jeRozbalenyPavouk) "▲ Skrýt pavouka" else "🏆 Zobrazit pavouka",
+                    text = if (jeRozbalenyPavouk) "▲ Skrýt" else "🏆 Pavouk",
                     color = Color(0xFFFFF59D),
                     fontSize = 12.sp,
+                    lineHeight = 15.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     softWrap = false
@@ -677,7 +737,7 @@ private fun KartaPlanovanehoTurnaje(
         }
 
         if (jeRozbalenyPavouk) {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             GrafickyPavoukTurnaje(turnaj = turnaj, mojeId = mojeId)
         }
     }
@@ -691,8 +751,9 @@ private fun GrafickyPavoukTurnaje(
     val uzly = turnaj.ziskejUzlyProZobrazeni()
     if (uzly.isEmpty()) return
 
-    val sirkaSloupce = 176.dp
-    val sirkaSpojky = 26.dp
+    val mierkaPisma = LocalDensity.current.fontScale.coerceIn(1f, 1.45f)
+    val sirkaSloupce = (182f * mierkaPisma.coerceAtMost(1.22f)).dp
+    val sirkaSpojky = 22.dp
 
     Column(
         modifier = Modifier
@@ -704,12 +765,13 @@ private fun GrafickyPavoukTurnaje(
     ) {
         Text(
             text = if (turnaj.typHry == TypHry.MARIAS) {
-                "Turnajový pavouk — 3 semifinálové stoly (3 rozdání) → Finálový stůl"
+                "Pavouk — 3 stoly ($POCET_ROZDANI_MARIAS_TURNAJ rozdání) → Finále"
             } else {
-                "Vyřazovací pavouk — Čtvrtfinále → Semifinále → Finále"
+                "Pavouk (na $CIL_VITEZNYCH_BITEV_DUELU vítězné) — Čtvrtfinále → Semifinále → Finále"
             },
             color = Color(0xFFFFE082),
             fontSize = 11.sp,
+            lineHeight = 15.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(bottom = 8.dp)
         )
@@ -721,11 +783,16 @@ private fun GrafickyPavoukTurnaje(
             verticalAlignment = Alignment.Top
         ) {
             if (turnaj.typHry == TypHry.MARIAS && uzly.size >= 4) {
-                val kartaVyska = 118.dp
+                val kartaVyska = (138f * mierkaPisma).dp
                 val mezera = 12.dp
+                val krok = kartaVyska + mezera
                 val celkovaVyska = kartaVyska * 3 + mezera * 2
-                val stredyKolo0 = listOf(59.dp, 189.dp, 319.dp)
-                val stredFinale = 189.dp
+                val stredyKolo0 = listOf(
+                    kartaVyska * 0.5f,
+                    krok + kartaVyska * 0.5f,
+                    krok * 2 + kartaVyska * 0.5f
+                )
+                val stredFinale = stredyKolo0[1]
 
                 Box(modifier = Modifier.width(sirkaSloupce).height(celkovaVyska)) {
                     for (i in 0..2) {
@@ -734,7 +801,7 @@ private fun GrafickyPavoukTurnaje(
                             mojeId = mojeId,
                             sirka = sirkaSloupce,
                             vyska = kartaVyska,
-                            modifier = Modifier.offset(y = (kartaVyska + mezera) * i)
+                            modifier = Modifier.offset(y = krok * i)
                         )
                     }
                 }
@@ -752,16 +819,23 @@ private fun GrafickyPavoukTurnaje(
                         mojeId = mojeId,
                         sirka = sirkaSloupce,
                         vyska = kartaVyska,
-                        modifier = Modifier.offset(y = stredFinale - kartaVyska / 2)
+                        modifier = Modifier.offset(y = stredFinale - kartaVyska * 0.5f)
                     )
                 }
             } else if (uzly.size >= 7) {
-                val kartaVyska = 94.dp
+                val kartaVyska = (106f * mierkaPisma).dp
                 val mezera = 12.dp
+                val krok = kartaVyska + mezera
                 val celkovaVyska = kartaVyska * 4 + mezera * 3
-                val sfTop0 = 53.dp
-                val sfTop1 = 265.dp
-                val finTop = 159.dp
+
+                val qfStred0 = kartaVyska * 0.5f
+                val qfStred1 = krok + kartaVyska * 0.5f
+                val qfStred2 = krok * 2 + kartaVyska * 0.5f
+                val qfStred3 = krok * 3 + kartaVyska * 0.5f
+
+                val sfStred0 = (qfStred0 + qfStred1) * 0.5f
+                val sfStred1 = (qfStred2 + qfStred3) * 0.5f
+                val finStred = (sfStred0 + sfStred1) * 0.5f
 
                 Box(modifier = Modifier.width(sirkaSloupce).height(celkovaVyska)) {
                     for (i in 0..3) {
@@ -770,7 +844,7 @@ private fun GrafickyPavoukTurnaje(
                             mojeId = mojeId,
                             sirka = sirkaSloupce,
                             vyska = kartaVyska,
-                            modifier = Modifier.offset(y = (kartaVyska + mezera) * i)
+                            modifier = Modifier.offset(y = krok * i)
                         )
                     }
                 }
@@ -779,8 +853,8 @@ private fun GrafickyPavoukTurnaje(
                     sirka = sirkaSpojky,
                     vyska = celkovaVyska,
                     paryVstupu = listOf(
-                        Pair(47.dp, 153.dp) to 100.dp,
-                        Pair(259.dp, 365.dp) to 312.dp
+                        Pair(qfStred0, qfStred1) to sfStred0,
+                        Pair(qfStred2, qfStred3) to sfStred1
                     )
                 )
 
@@ -790,14 +864,14 @@ private fun GrafickyPavoukTurnaje(
                         mojeId = mojeId,
                         sirka = sirkaSloupce,
                         vyska = kartaVyska,
-                        modifier = Modifier.offset(y = sfTop0)
+                        modifier = Modifier.offset(y = sfStred0 - kartaVyska * 0.5f)
                     )
                     KartaUzluPavouka(
                         uzel = uzly[5],
                         mojeId = mojeId,
                         sirka = sirkaSloupce,
                         vyska = kartaVyska,
-                        modifier = Modifier.offset(y = sfTop1)
+                        modifier = Modifier.offset(y = sfStred1 - kartaVyska * 0.5f)
                     )
                 }
 
@@ -805,7 +879,7 @@ private fun GrafickyPavoukTurnaje(
                     sirka = sirkaSpojky,
                     vyska = celkovaVyska,
                     paryVstupu = listOf(
-                        Pair(100.dp, 312.dp) to 206.dp
+                        Pair(sfStred0, sfStred1) to finStred
                     )
                 )
 
@@ -815,7 +889,7 @@ private fun GrafickyPavoukTurnaje(
                         mojeId = mojeId,
                         sirka = sirkaSloupce,
                         vyska = kartaVyska,
-                        modifier = Modifier.offset(y = finTop)
+                        modifier = Modifier.offset(y = finStred - kartaVyska * 0.5f)
                     )
                 }
             }
@@ -894,7 +968,7 @@ private fun KartaUzluPavouka(
                 shape = RoundedCornerShape(10.dp)
             )
             .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -905,22 +979,27 @@ private fun KartaUzluPavouka(
                 text = uzel.nazevZapasu,
                 color = Color(0xFFFFD54F),
                 fontSize = 10.sp,
+                lineHeight = 13.sp,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
+                softWrap = false,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(end = 4.dp)
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 4.dp)
             )
             Text(
                 text = casKolText,
                 color = Color(0xFFA5D6A7),
                 fontSize = 9.sp,
+                lineHeight = 12.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 softWrap = false
             )
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             for (hrac in uzel.hraci) {
                 val jeVitez = uzel.vitezId.isNotEmpty() && hrac.deviceId == uzel.vitezId
                 val jsemToJa = mojeId.isNotEmpty() && hrac.deviceId == mojeId
@@ -961,13 +1040,27 @@ private fun KartaUzluPavouka(
                             else -> Color.White
                         },
                         fontSize = 10.sp,
+                        lineHeight = 13.sp,
                         fontStyle = if (hrac.jeVolneMisto) FontStyle.Italic else FontStyle.Normal,
                         fontWeight = if (jeVitez || jsemToJa) FontWeight.ExtraBold else FontWeight.Medium,
                         maxLines = 1,
+                        softWrap = false,
                         overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Start,
                         modifier = Modifier.weight(1f)
                     )
+                    if (!hrac.jeVolneMisto && hrac.skoreText.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = hrac.skoreText,
+                            color = if (jeVitez) Color(0xFFFFD54F) else Color(0xFFB9F6CA),
+                            fontSize = 10.sp,
+                            lineHeight = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
                 }
             }
         }
