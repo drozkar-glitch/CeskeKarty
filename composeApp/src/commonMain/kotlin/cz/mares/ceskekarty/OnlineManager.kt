@@ -499,6 +499,80 @@ object OnlineManager {
         return overAUlozPrezdivku(aktualniNick, pin)
     }
 
+    suspend fun smazAktualniUcet(): Result<String> {
+        val nick = nactiUlozenouPrezdivku().trim()
+        if (nick.isEmpty()) {
+            return Result.failure(Exception("Žádný účet není momentálně přihlášen."))
+        }
+
+        val pinOtisk = nactiUlozenyPinOtisk()
+        val mojeId = ziskejUnikatniIdZarizeni()
+        val klicUctu = klicUctuProNick(nick)
+        val urlUcet = "$FIREBASE_DB_ZAKLAD/card_accounts/$klicUctu.json"
+
+        val kontrolaUctu = dotazSOpakovanim("GET", urlUcet, pokusy = 2)
+        if (!kontrolaUctu.uspesne) {
+            return if (kontrolaUctu.stavovyKod == 401 || kontrolaUctu.stavovyKod == 403) {
+                Result.failure(Exception("Smazání účtu zamítnuto databází — aktualizuj prosím Rules ve Firebase."))
+            } else {
+                Result.failure(Exception("Nelze se spojit se serverem — zkontroluj připojení k internetu."))
+            }
+        }
+
+        // Nejprve uklidit vlastní čekající stůl a případné registrace v dosud neodstartovaných turnajích
+        smazStul("stul_$mojeId")
+        try {
+            val turnaje = TournamentManager.synchronizujANactiRozvrhTurnaju()
+            for (t in turnaje) {
+                if (t.stav == "REGISTRACE" && t.jeHracPrihlasen(mojeId)) {
+                    TournamentManager.odhlasSeZTurnaje(t.turnajId)
+                }
+            }
+        } catch (_: Throwable) {
+        }
+
+        val nyni = ziskejAktualniCasMs()
+        var kanonickyNick = nick
+
+        val cerstvyUcet = dotazSOpakovanim("GET", urlUcet, pokusy = 2)
+        if (cerstvyUcet.uspesne && cerstvyUcet.telo.isNotBlank() && cerstvyUcet.telo.trim() != "null") {
+            val ucetObj = parsujJsonText(cerstvyUcet.telo) as? JsonPrvek.Objekt
+            kanonickyNick = ucetObj?.retezec("nick", nick)?.ifBlank { nick } ?: nick
+            val serverPinHash = ucetObj?.retezec("pinHash", "") ?: ""
+            val efektivniPinHash = pinOtisk.ifEmpty { serverPinHash }
+
+            val oznacUcet = """{"nick":${jsonEscape(kanonickyNick)},"pinHash":${jsonEscape(efektivniPinHash)},"deviceId":${jsonEscape(mojeId)},"score":0,"lastDailyDay":0,"confirmDelete":true,"updatedAt":$nyni}"""
+            val resOznacUcet = dotazSOpakovanim("PUT", urlUcet, oznacUcet, pokusy = 2)
+            if (!resOznacUcet.uspesne) {
+                return Result.failure(Exception("Nepodařilo se potvrdit smazání účtu na serveru (kód ${resOznacUcet.stavovyKod})."))
+            }
+            val resSmazUcet = dotazSOpakovanim("DELETE", urlUcet, pokusy = 2)
+            if (!resSmazUcet.uspesne) {
+                return Result.failure(Exception("Nepodařilo se dokončit výmaz účtu ze serveru (kód ${resSmazUcet.stavovyKod})."))
+            }
+        }
+
+        val kliceHs = linkedSetOf(urlKodujKomponentu(nick), urlKodujKomponentu(kanonickyNick))
+        for (kodovana in kliceHs) {
+            val urlHs = "$FIREBASE_DB_ZAKLAD/high_scores/$ZEBRICEK_GAME_ID/$kodovana.json"
+            val kontrolaHs = dotazSOpakovanim("GET", urlHs, pokusy = 2)
+            if (kontrolaHs.uspesne && kontrolaHs.telo.isNotBlank() && kontrolaHs.telo.trim() != "null") {
+                val oznacHs = """{"score":0,"deviceId":${jsonEscape(mojeId)},"confirmDelete":true,"updatedAt":$nyni}"""
+                val resOznacHs = dotazSOpakovanim("PUT", urlHs, oznacHs, pokusy = 2)
+                if (resOznacHs.uspesne) {
+                    dotazSOpakovanim("DELETE", urlHs, pokusy = 2)
+                }
+            }
+        }
+
+        ulozPrezdivkuTrvale("")
+        ulozPinOtiskTrvale("")
+        ulozPosledniDenOdmeny(0)
+        ulozLokalniTereziany(STARTOVNI_TEREZIANY)
+
+        return Result.success("Účet „$kanonickyNick“ byl trvale smazán ze serveru i z tohoto zařízení.")
+    }
+
     suspend fun synchronizujUcetPoStartu(): Int {
         val nick = nactiUlozenouPrezdivku()
         val pinOtisk = nactiUlozenyPinOtisk()

@@ -87,7 +87,7 @@ fun App() {
             ulozenaPrezdivka = nactiUlozenouPrezdivku()
             ulozenyPinOtisk = nactiUlozenyPinOtisk()
             aktualniTereziany = nactiLokalniTereziany()
-            dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
+            dostępnaDenniOdmenaObnova().also { dostupnaDenniOdmena = it }
         }
 
         LaunchedEffect(ulozenaPrezdivka, ulozenyPinOtisk) {
@@ -245,6 +245,8 @@ fun App() {
     }
 }
 
+private fun dostępnaDenniOdmenaObnova(): Boolean = muzeVyzvednoutDenniOdmenu()
+
 @Composable
 private fun PrepinacPravidelPanel(
     vybrana: VariantaPravidel,
@@ -359,6 +361,7 @@ private fun DomovskaObrazovka(
     var stavHlaska by remember { mutableStateOf("") }
     var jeUspechHlaska by remember { mutableStateOf(false) }
     var probihaAkce by remember { mutableStateOf(false) }
+    var potvrditSmazaniUctu by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -714,6 +717,122 @@ private fun DomovskaObrazovka(
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
                         ) {
                             Text("Uložit PIN", color = Color(0xFF072312), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                if (!potvrditSmazaniUctu) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF4A1818))
+                                .border(0.9.dp, Color(0x99FF8A80), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    if (!probihaAkce) {
+                                        jemnaHaptika()
+                                        stavHlaska = ""
+                                        potvrditSmazaniUctu = true
+                                    }
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = "Smazat účet",
+                                color = Color(0xFFFFCCBC),
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF3B1212))
+                            .border(1.dp, Color(0xFFFF8A80), RoundedCornerShape(10.dp))
+                            .padding(10.dp)
+                    ) {
+                        Text(
+                            text = "Opravdu chceš trvale smazat účet „$ulozenaPrezdivka“ včetně měšce a záznamu v žebříčku? Tuto akci nelze vrátit.",
+                            color = Color(0xFFFFE0E0),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    jemnaHaptika()
+                                    potvrditSmazaniUctu = false
+                                },
+                                enabled = !probihaAkce,
+                                modifier = Modifier.weight(0.9f),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E6B47))
+                            ) {
+                                Text(
+                                    text = "Zrušit",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    lineHeight = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                            Button(
+                                onClick = {
+                                    jemnaHaptika()
+                                    if (probihaAkce) return@Button
+                                    probihaAkce = true
+                                    stavHlaska = ""
+                                    scope.launch {
+                                        val vys = OnlineManager.smazAktualniUcet()
+                                        probihaAkce = false
+                                        vys.onSuccess { zprava ->
+                                            silnaHaptika()
+                                            potvrditSmazaniUctu = false
+                                            vstupNick = ""
+                                            vstupPin = ""
+                                            jeUspechHlaska = true
+                                            stavHlaska = zprava
+                                            onUcetNeboMesecZmenen()
+                                        }.onFailure { err ->
+                                            jeUspechHlaska = false
+                                            stavHlaska = err.message ?: "Účet se nepodařilo smazat."
+                                        }
+                                    }
+                                },
+                                enabled = !probihaAkce,
+                                modifier = Modifier.weight(1.45f),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                            ) {
+                                Text(
+                                    text = if (probihaAkce) "Mažu účet…" else "Trvale smazat účet",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    lineHeight = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
@@ -1505,7 +1624,7 @@ private fun PravidlaObrazovka(onZpet: () -> Unit) {
         )
         BlokPravidel(
             nadpis = "Turnajová síň a denní rozvrh s pavoukem",
-            text = "Každý den se automaticky vypisují večerní turnaje: 19:00 Prší (pavouk 8 hráčů), 20:00 Sedma (pavouk 8 hráčů) a 20:30 Volený Mariáš (3 semifinálové stoly po 3 hráčích na 3 rozdání se postupem vítězů do Finálového stolu). Přihlášené přezdívky se okamžitě zapisují do pavouka; případná volná místa v hodinu startu doplní turnajoví boti, takže se turnaj odehraje v každém případě."
+            text = "Každý den se automaticky vypisují večerní turnaje: 19:00 Prší (pavouk 8 hráčů, zápasy na $CIL_VITEZNYCH_BITEV_DUELU vítězné bitvy), 20:00 Sedma (pavouk 8 hráčů, zápasy na $CIL_VITEZNYCH_BITEV_DUELU vítězné bitvy) a 20:30 Volený Mariáš (3 semifinálové stoly po 3 hráčích na $POCET_ROZDANI_MARIAS_TURNAJ rozdání s postupem vítězů do Finálového stolu). Přihlášené přezdívky se okamžitě zapisují do pavouka; případná volná místa v hodinu startu doplní turnajoví boti, takže se turnaj odehraje v každém případě."
         )
         BlokPravidel(
             nadpis = "Sedma — Hospodská vs. Svazová pravidla",
@@ -1521,7 +1640,7 @@ private fun PravidlaObrazovka(onZpet: () -> Unit) {
         )
         BlokPravidel(
             nadpis = "Měna tereziány a obnova účtu přes PIN",
-            text = "Každý nový hráč dostává do začátku měšec s 1000 tereziány. Jednou denně si na hlavní obrazovce můžeš vyzvednout denní odměnu +100 tereziánů. Klesne-li tvůj měšec pod 100 tereziánů, tlačítko Císařská podpora ti ho zdarma dorovná na 200 tereziánů, případně si můžeš kdykoliv přivydělat v tréninku s boty. Díky 4místnému PINu si celý svůj účet i měšec obnovíš po přeinstalaci nebo v novém telefonu."
+            text = "Tereziány jsou čistě bezplatné virtuální herní body bez peněžní hodnoty — nelze je kupovat za reálné peníze ani směňovat. Každý nový hráč dostává do začátku měšec s 1000 tereziány a jednou denně si na hlavní obrazovce může vyzvednout denní odměnu +100 tereziánů. Klesne-li tvůj měšec pod 100 tereziánů, tlačítko Císařská podpora ti ho zdarma dorovná na 200 tereziánů, případně si můžeš kdykoliv přivydělat v tréninku s boty. Díky 4místnému PINu si účet obnovíš v novém telefonu a na hlavní obrazovce můžeš svůj účet kdykoliv trvale smazat."
         )
         BlokPravidel(
             nadpis = "Hospodské hlášky a přehledný stůl",
