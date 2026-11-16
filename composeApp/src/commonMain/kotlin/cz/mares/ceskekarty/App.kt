@@ -74,6 +74,7 @@ fun App() {
         var aktualniTereziany by remember { mutableStateOf(nactiLokalniTereziany()) }
         var dostupnaDenniOdmena by remember { mutableStateOf(muzeVyzvednoutDenniOdmenu()) }
         var vybranaPravidla by remember { mutableStateOf(nactiVychoziVariantuPravidel()) }
+        var zpravaPoSmazaniUctu by remember { mutableStateOf("") }
 
         var vybranyOfflineKonfig by remember { mutableStateOf<KonfiguraceOfflineHry?>(null) }
         var aktivniOnlineStul by remember { mutableStateOf<OnlineStul?>(null) }
@@ -87,13 +88,30 @@ fun App() {
             ulozenaPrezdivka = nactiUlozenouPrezdivku()
             ulozenyPinOtisk = nactiUlozenyPinOtisk()
             aktualniTereziany = nactiLokalniTereziany()
-            dostępnaDenniOdmenaObnova().also { dostupnaDenniOdmena = it }
+            dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
         }
 
         LaunchedEffect(ulozenaPrezdivka, ulozenyPinOtisk) {
             if (ulozenaPrezdivka.isNotEmpty() && ulozenyPinOtisk.isNotEmpty()) {
                 aktualniTereziany = OnlineManager.synchronizujUcetPoStartu()
                 dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
+            } else {
+                OnlineManager.ziskejOverenyCasServeruMs()
+                dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
+            }
+        }
+
+        LaunchedEffect(aktualniObrazovka) {
+            if (aktualniObrazovka == ObrazovkaHerny.DOMOV) {
+                obnovStavUctuAMesce()
+                while (true) {
+                    OnlineManager.ziskejOverenyCasServeruMs()
+                    val novyNarok = muzeVyzvednoutDenniOdmenu()
+                    if (novyNarok != dostupnaDenniOdmena) {
+                        dostupnaDenniOdmena = novyNarok
+                    }
+                    delay(15_000L)
+                }
             }
         }
 
@@ -110,6 +128,8 @@ fun App() {
                         ulozenyPinOtisk = ulozenyPinOtisk,
                         aktualniTereziany = aktualniTereziany,
                         dostupnaDenniOdmena = dostupnaDenniOdmena,
+                        externiUspechHlaska = zpravaPoSmazaniUctu,
+                        onExterniHlaskaPrectena = { zpravaPoSmazaniUctu = "" },
                         onUcetNeboMesecZmenen = { obnovStavUctuAMesce() },
                         onOtevritZivouHernu = { aktualniObrazovka = ObrazovkaHerny.ONLINE_LOBBY },
                         onOtevritTurnaje = { aktualniObrazovka = ObrazovkaHerny.TURNAJE },
@@ -123,7 +143,10 @@ fun App() {
                     VyberTreninkuObrazovka(
                         vybranaVarianta = vybranaPravidla,
                         onZmenaVarianty = { nastavVariantuPravidel(it) },
-                        onZpet = { aktualniObrazovka = ObrazovkaHerny.DOMOV },
+                        onZpet = {
+                            obnovStavUctuAMesce()
+                            aktualniObrazovka = ObrazovkaHerny.DOMOV
+                        },
                         onSpustitOffline = { konfig ->
                             vybranyOfflineKonfig = konfig
                             aktivniOnlineStul = null
@@ -136,7 +159,10 @@ fun App() {
                     OnlineLobbyObrazovka(
                         vybranaVarianta = vybranaPravidla,
                         onZmenaVarianty = { nastavVariantuPravidel(it) },
-                        onZpet = { aktualniObrazovka = ObrazovkaHerny.DOMOV },
+                        onZpet = {
+                            obnovStavUctuAMesce()
+                            aktualniObrazovka = ObrazovkaHerny.DOMOV
+                        },
                         onVstoupitDoStolu = { stul ->
                             aktivniOnlineStul = stul
                             vybranyOfflineKonfig = null
@@ -208,13 +234,25 @@ fun App() {
 
                 ObrazovkaHerny.ZEBRICEK -> ZelenyKaretniStulBox(zobrazitStredovyKruh = false) {
                     ZebricekObrazovka(
-                        onZpet = { aktualniObrazovka = ObrazovkaHerny.DOMOV }
+                        onZpet = {
+                            obnovStavUctuAMesce()
+                            aktualniObrazovka = ObrazovkaHerny.DOMOV
+                        }
                     )
                 }
 
                 ObrazovkaHerny.PRAVIDLA -> ZelenyKaretniStulBox(zobrazitStredovyKruh = false) {
                     PravidlaObrazovka(
-                        onZpet = { aktualniObrazovka = ObrazovkaHerny.DOMOV }
+                        ulozenaPrezdivka = ulozenaPrezdivka,
+                        onUcetSmazan = { zprava ->
+                            zpravaPoSmazaniUctu = zprava
+                            obnovStavUctuAMesce()
+                            aktualniObrazovka = ObrazovkaHerny.DOMOV
+                        },
+                        onZpet = {
+                            obnovStavUctuAMesce()
+                            aktualniObrazovka = ObrazovkaHerny.DOMOV
+                        }
                     )
                 }
 
@@ -244,8 +282,6 @@ fun App() {
         }
     }
 }
-
-private fun dostępnaDenniOdmenaObnova(): Boolean = muzeVyzvednoutDenniOdmenu()
 
 @Composable
 private fun PrepinacPravidelPanel(
@@ -348,6 +384,8 @@ private fun DomovskaObrazovka(
     ulozenyPinOtisk: String,
     aktualniTereziany: Int,
     dostupnaDenniOdmena: Boolean,
+    externiUspechHlaska: String = "",
+    onExterniHlaskaPrectena: () -> Unit = {},
     onUcetNeboMesecZmenen: () -> Unit,
     onOtevritZivouHernu: () -> Unit,
     onOtevritTurnaje: () -> Unit,
@@ -361,7 +399,14 @@ private fun DomovskaObrazovka(
     var stavHlaska by remember { mutableStateOf("") }
     var jeUspechHlaska by remember { mutableStateOf(false) }
     var probihaAkce by remember { mutableStateOf(false) }
-    var potvrditSmazaniUctu by remember { mutableStateOf(false) }
+
+    LaunchedEffect(externiUspechHlaska) {
+        if (externiUspechHlaska.isNotEmpty()) {
+            jeUspechHlaska = true
+            stavHlaska = externiUspechHlaska
+            onExterniHlaskaPrectena()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -615,6 +660,7 @@ private fun DomovskaObrazovka(
                                         }.onFailure { err ->
                                             jeUspechHlaska = false
                                             stavHlaska = err.message ?: "Denní odměnu nelze vyzvednout."
+                                            onUcetNeboMesecZmenen()
                                         }
                                         probihaAkce = false
                                     }
@@ -717,122 +763,6 @@ private fun DomovskaObrazovka(
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
                         ) {
                             Text("Uložit PIN", color = Color(0xFF072312), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-                if (!potvrditSmazaniUctu) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF4A1818))
-                                .border(0.9.dp, Color(0x99FF8A80), RoundedCornerShape(8.dp))
-                                .clickable {
-                                    if (!probihaAkce) {
-                                        jemnaHaptika()
-                                        stavHlaska = ""
-                                        potvrditSmazaniUctu = true
-                                    }
-                                }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = "Smazat účet",
-                                color = Color(0xFFFFCCBC),
-                                fontSize = 11.sp,
-                                lineHeight = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF3B1212))
-                            .border(1.dp, Color(0xFFFF8A80), RoundedCornerShape(10.dp))
-                            .padding(10.dp)
-                    ) {
-                        Text(
-                            text = "Opravdu chceš trvale smazat účet „$ulozenaPrezdivka“ včetně měšce a záznamu v žebříčku? Tuto akci nelze vrátit.",
-                            color = Color(0xFFFFE0E0),
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    jemnaHaptika()
-                                    potvrditSmazaniUctu = false
-                                },
-                                enabled = !probihaAkce,
-                                modifier = Modifier.weight(0.9f),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E6B47))
-                            ) {
-                                Text(
-                                    text = "Zrušit",
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    lineHeight = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                            Button(
-                                onClick = {
-                                    jemnaHaptika()
-                                    if (probihaAkce) return@Button
-                                    probihaAkce = true
-                                    stavHlaska = ""
-                                    scope.launch {
-                                        val vys = OnlineManager.smazAktualniUcet()
-                                        probihaAkce = false
-                                        vys.onSuccess { zprava ->
-                                            silnaHaptika()
-                                            potvrditSmazaniUctu = false
-                                            vstupNick = ""
-                                            vstupPin = ""
-                                            jeUspechHlaska = true
-                                            stavHlaska = zprava
-                                            onUcetNeboMesecZmenen()
-                                        }.onFailure { err ->
-                                            jeUspechHlaska = false
-                                            stavHlaska = err.message ?: "Účet se nepodařilo smazat."
-                                        }
-                                    }
-                                },
-                                enabled = !probihaAkce,
-                                modifier = Modifier.weight(1.45f),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
-                            ) {
-                                Text(
-                                    text = if (probihaAkce) "Mažu účet…" else "Trvale smazat účet",
-                                    color = Color.White,
-                                    fontSize = 12.sp,
-                                    lineHeight = 15.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
                         }
                     }
                 }
@@ -1609,7 +1539,16 @@ private fun ZebricekObrazovka(onZpet: () -> Unit) {
 }
 
 @Composable
-private fun PravidlaObrazovka(onZpet: () -> Unit) {
+private fun PravidlaObrazovka(
+    ulozenaPrezdivka: String,
+    onUcetSmazan: (String) -> Unit,
+    onZpet: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var potvrditSmazaniUctu by remember { mutableStateOf(false) }
+    var probihaMazani by remember { mutableStateOf(false) }
+    var chybaMazani by remember { mutableStateOf("") }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1640,7 +1579,7 @@ private fun PravidlaObrazovka(onZpet: () -> Unit) {
         )
         BlokPravidel(
             nadpis = "Měna tereziány a obnova účtu přes PIN",
-            text = "Tereziány jsou čistě bezplatné virtuální herní body bez peněžní hodnoty — nelze je kupovat za reálné peníze ani směňovat. Každý nový hráč dostává do začátku měšec s 1000 tereziány a jednou denně si na hlavní obrazovce může vyzvednout denní odměnu +100 tereziánů. Klesne-li tvůj měšec pod 100 tereziánů, tlačítko Císařská podpora ti ho zdarma dorovná na 200 tereziánů, případně si můžeš kdykoliv přivydělat v tréninku s boty. Díky 4místnému PINu si účet obnovíš v novém telefonu a na hlavní obrazovce můžeš svůj účet kdykoliv trvale smazat."
+            text = "Tereziány jsou čistě bezplatné virtuální herní body bez peněžní hodnoty — nelze je kupovat za reálné peníze ani směňovat. Každý nový hráč dostává do začátku měšec s 1000 tereziány a za každé další denní přihlášení si na hlavní obrazovce může vyzvednout odměnu +100 tereziánů (vždy podle pražského času). Klesne-li tvůj měšec pod 100 tereziánů, tlačítko Císařská podpora ti ho zdarma dorovná na 200 tereziánů, případně si můžeš kdykoliv přivydělat v tréninku s boty. Díky 4místnému PINu si účet obnovíš v novém telefonu a níže na této stránce můžeš svůj účet kdykoliv trvale smazat."
         )
         BlokPravidel(
             nadpis = "Hospodské hlášky a přehledný stůl",
@@ -1654,6 +1593,146 @@ private fun PravidlaObrazovka(onZpet: () -> Unit) {
             nadpis = "Původ a licence karetního obrazu",
             text = "Jednohlavé mariášové karty vycházejí z tradičního českého (pražského) obrazu: dílo „Bohemian pattern“, autor skenu Countakeshi, zdroj Wikimedia Commons, použito a upraveno pod licencí Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0, https://creativecommons.org/licenses/by-sa/4.0/)."
         )
+
+        if (ulozenaPrezdivka.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xD9082916))
+                    .border(1.dp, Color(0x55D4AF37), RoundedCornerShape(12.dp))
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = "Správa účtu",
+                    color = Color(0xFFFFD54F),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Přihlášený účet: $ulozenaPrezdivka. Smazáním účtu trvale odstraníš svou přezdívku, měšec tereziánů i záznam v žebříčku ze serveru i z tohoto zařízení.",
+                    color = Color(0xFFE0E0E0),
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (!potvrditSmazaniUctu) {
+                    Button(
+                        onClick = {
+                            if (!probihaMazani) {
+                                jemnaHaptika()
+                                chybaMazani = ""
+                                potvrditSmazaniUctu = true
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5D1F1F))
+                    ) {
+                        Text(
+                            text = "Smazat účet",
+                            color = Color(0xFFFFCCBC),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF3B1212))
+                            .border(1.dp, Color(0xFFFF8A80), RoundedCornerShape(10.dp))
+                            .padding(10.dp)
+                    ) {
+                        Text(
+                            text = "Opravdu chceš trvale smazat účet „$ulozenaPrezdivka“ včetně měšce a záznamu v žebříčku? Tuto akci nelze vrátit.",
+                            color = Color(0xFFFFE0E0),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    jemnaHaptika()
+                                    potvrditSmazaniUctu = false
+                                },
+                                enabled = !probihaMazani,
+                                modifier = Modifier.weight(0.9f),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E6B47))
+                            ) {
+                                Text(
+                                    text = "Zrušit",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    lineHeight = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                            Button(
+                                onClick = {
+                                    jemnaHaptika()
+                                    if (probihaMazani) return@Button
+                                    probihaMazani = true
+                                    chybaMazani = ""
+                                    scope.launch {
+                                        val vys = OnlineManager.smazAktualniUcet()
+                                        probihaMazani = false
+                                        vys.onSuccess { zprava ->
+                                            silnaHaptika()
+                                            potvrditSmazaniUctu = false
+                                            onUcetSmazan(zprava)
+                                        }.onFailure { err ->
+                                            chybaMazani = err.message ?: "Účet se nepodařilo smazat."
+                                        }
+                                    }
+                                },
+                                enabled = !probihaMazani,
+                                modifier = Modifier.weight(1.45f),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 7.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                            ) {
+                                Text(
+                                    text = if (probihaMazani) "Mažu účet…" else "Trvale smazat účet",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    lineHeight = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (chybaMazani.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = chybaMazani,
+                        color = Color(0xFFFF8A80),
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+        }
     }
 }
 

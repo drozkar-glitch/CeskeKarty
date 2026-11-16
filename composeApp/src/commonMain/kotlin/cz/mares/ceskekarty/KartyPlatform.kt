@@ -19,49 +19,35 @@ enum class EfektStolu {
 }
 
 expect fun ziskejAktualniCasMs(): Long
-
 expect fun ulozTextDoUloziste(klic: String, hodnota: String)
-
 expect fun nactiTextZUloziste(klic: String, vychozi: String = ""): String
-
 expect fun jemnaHaptika()
-
 expect fun silnaHaptika()
-
 expect fun prehrajHospodaKlipPlatforma(idKlipu: String): Boolean
-
 expect fun vyslovCeskyTextPlatforma(text: String, vyskaHlasu: Float, rychlostHlasu: Float)
-
 expect fun zastavMluveniPlatforma()
-
 expect fun probihaMluveniPlatforma(): Boolean
-
 expect fun prehrajZvukovyEfektPlatforma(efekt: EfektStolu)
-
 expect suspend fun provedSitovyDotaz(
     metoda: String,
     cilovaUrl: String,
     jsonTelo: String? = null
 ): SitovaOdpoved
-
 expect fun nactiArchKaretBitmap(): ImageBitmap?
 
 fun dekodujBase64Bloky(bloky: Array<String>): ByteArray {
     val celkovaDelka = bloky.sumOf { it.length }
     if (celkovaDelka == 0) return ByteArray(0)
-
     val tabulka = IntArray(256) { -1 }
     val abeceda = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
     for (i in abeceda.indices) {
         tabulka[abeceda[i].code] = i
     }
-
     val odhad = (celkovaDelka * 3) / 4 + 4
     val vystup = ByteArray(odhad)
     var outPos = 0
     var buffer = 0
     var bity = 0
-
     for (blok in bloky) {
         for (i in blok.indices) {
             val c = blok[i].code
@@ -117,7 +103,6 @@ fun dekodujImaAdpcmNaPcm16(adpcmBajty: ByteArray): ShortArray {
     var prediktor = 0
     var indexKroku = 0
     var outIdx = 0
-
     for (i in adpcmBajty.indices) {
         val b = adpcmBajty[i].toInt() and 0xFF
         for (posun in 0..4 step 4) {
@@ -134,11 +119,9 @@ fun dekodujImaAdpcmNaPcm16(adpcmBajty: ByteArray): ShortArray {
             }
             if (prediktor > 32767) prediktor = 32767
             else if (prediktor < -32768) prediktor = -32768
-
             indexKroku += IMA_INDEX_TABLE[nibble]
             if (indexKroku < 0) indexKroku = 0
             else if (indexKroku > 88) indexKroku = 88
-
             vystup[outIdx++] = prediktor.toShort()
         }
     }
@@ -183,7 +166,6 @@ fun vygenerujPcm16Efektu(efekt: EfektStolu, vzorkovaciFrekvence: Int = 22050): S
             }
             vzorky
         }
-
         EfektStolu.SLAVNOSTNI_CINK -> {
             val pocetVzorku = (vzorkovaciFrekvence * 0.24).toInt()
             val vzorky = ShortArray(pocetVzorku)
@@ -209,25 +191,21 @@ fun pcm16NaWavBajty(pcm: ShortArray, vzorkovaciFrekvence: Int): ByteArray {
     val velikostDat = pcm.size * 2
     val celkovaVelikost = 44 + velikostDat
     val wav = ByteArray(celkovaVelikost)
-
     fun zapisAscii(pos: Int, txt: String) {
         for (i in txt.indices) {
             wav[pos + i] = txt[i].code.toByte()
         }
     }
-
     fun zapisInt32LE(pos: Int, hodnota: Int) {
         wav[pos] = (hodnota and 0xFF).toByte()
         wav[pos + 1] = ((hodnota ushr 8) and 0xFF).toByte()
         wav[pos + 2] = ((hodnota ushr 16) and 0xFF).toByte()
         wav[pos + 3] = ((hodnota ushr 24) and 0xFF).toByte()
     }
-
     fun zapisInt16LE(pos: Int, hodnota: Int) {
         wav[pos] = (hodnota and 0xFF).toByte()
         wav[pos + 1] = ((hodnota ushr 8) and 0xFF).toByte()
     }
-
     zapisAscii(0, "RIFF")
     zapisInt32LE(4, 36 + velikostDat)
     zapisAscii(8, "WAVE")
@@ -241,7 +219,6 @@ fun pcm16NaWavBajty(pcm: ShortArray, vzorkovaciFrekvence: Int): ByteArray {
     zapisInt16LE(34, 16)
     zapisAscii(36, "data")
     zapisInt32LE(40, velikostDat)
-
     var p = 44
     for (vzorek in pcm) {
         val v = vzorek.toInt()
@@ -342,15 +319,16 @@ fun ulozLokalniTereziany(novaCastka: Int) {
 }
 
 fun aktualniCisloDne(): Int {
-    return ((ziskejAktualniCasMs() + 3_600_000L) / 86_400_000L).toInt()
+    val utcMs = OnlineManager.odhadniAktualniServerovyCasMs()
+    return TurnajKalendar.utcMsNaPrahaCas(utcMs).epochDen.toInt()
 }
 
 fun nactiPosledniDenOdmeny(): Int {
-    return nactiTextZUloziste(KLIC_DENNI_ODMENA_DEN, "0").toIntOrNull() ?: 0
+    return (nactiTextZUloziste(KLIC_DENNI_ODMENA_DEN, "0").toIntOrNull() ?: 0).coerceAtLeast(0)
 }
 
 fun ulozPosledniDenOdmeny(den: Int) {
-    ulozTextDoUloziste(KLIC_DENNI_ODMENA_DEN, den.toString())
+    ulozTextDoUloziste(KLIC_DENNI_ODMENA_DEN, den.coerceAtLeast(0).toString())
 }
 
 fun muzeVyzvednoutDenniOdmenu(): Boolean {
@@ -404,7 +382,6 @@ fun vypoctiSha256Hex(vstup: String): String {
     val zbytek = (bajty.size + 1) % 64
     val nulNavic = if (zbytek <= 56) (56 - zbytek) else (56 + 64 - zbytek)
     val celkovaDelka = bajty.size + 1 + nulNavic + 8
-
     val blok = ByteArray(celkovaDelka)
     for (i in bajty.indices) {
         blok[i] = bajty[i]
@@ -414,7 +391,6 @@ fun vypoctiSha256Hex(vstup: String): String {
         val posun = (7 - i) * 8
         blok[celkovaDelka - 8 + i] = ((delkaBitu ushr posun) and 0xFFL).toByte()
     }
-
     var h0 = 0x6a09e667L.toInt()
     var h1 = 0xbb67ae85L.toInt()
     var h2 = 0x3c6ef372L.toInt()
@@ -423,7 +399,6 @@ fun vypoctiSha256Hex(vstup: String): String {
     var h5 = 0x9b05688cL.toInt()
     var h6 = 0x1f83d9abL.toInt()
     var h7 = 0x5be0cd19L.toInt()
-
     val w = IntArray(64)
     var offset = 0
     while (offset < celkovaDelka) {
@@ -439,7 +414,6 @@ fun vypoctiSha256Hex(vstup: String): String {
             val s1 = rotR(w[i - 2], 17) xor rotR(w[i - 2], 19) xor (w[i - 2] ushr 10)
             w[i] = w[i - 16] + s0 + w[i - 7] + s1
         }
-
         var a = h0
         var b = h1
         var c = h2
@@ -448,7 +422,6 @@ fun vypoctiSha256Hex(vstup: String): String {
         var f = h5
         var g = h6
         var h = h7
-
         for (i in 0 until 64) {
             val sum1 = rotR(e, 6) xor rotR(e, 11) xor rotR(e, 25)
             val ch = (e and f) xor (e.inv() and g)
@@ -456,7 +429,6 @@ fun vypoctiSha256Hex(vstup: String): String {
             val sum0 = rotR(a, 2) xor rotR(a, 13) xor rotR(a, 22)
             val maj = (a and b) xor (a and c) xor (b and c)
             val temp2 = sum0 + maj
-
             h = g
             g = f
             f = e
@@ -466,7 +438,6 @@ fun vypoctiSha256Hex(vstup: String): String {
             b = a
             a = temp1 + temp2
         }
-
         h0 += a
         h1 += b
         h2 += c
@@ -475,10 +446,8 @@ fun vypoctiSha256Hex(vstup: String): String {
         h5 += f
         h6 += g
         h7 += h
-
         offset += 64
     }
-
     val slova = intArrayOf(h0, h1, h2, h3, h4, h5, h6, h7)
     val hexZnaky = "0123456789abcdef"
     val vystup = StringBuilder(64)
