@@ -4,7 +4,7 @@ import kotlin.random.Random
 
 /**
  * Hospodský komentátor a zvuková kulisa pro Mariáš, Prší a Sedmu.
- * Přednostně přehrává šťavnaté AI hlášky z HospodaAudioData.kt, u chybějících klipů
+ * Přednostně pouští šťavnaté AI hlášky z HospodaAudioData.kt, u chybějících klipů
  * zaskočí českou hlasovou syntézou a hlídá, aby podružné hlášky neusekávaly důležitá zvolání.
  */
 object HospodaZvuk {
@@ -130,7 +130,6 @@ object HospodaZvuk {
 
         val odhozenaKarta = novy.odhazovaciBalicek.size > predchozi.odhazovaciBalicek.size ||
             (predchozi.cekaNaVolbuBarvy && !novy.cekaNaVolbuBarvy)
-
         if (odhozenaKarta) {
             pleskniKartou()
         }
@@ -152,7 +151,7 @@ object HospodaZvuk {
             (predchozi.cekaNaVolbuBarvy || (novy.vrchniKarta.hodnota == HodnotaKarty.SVRSEK && predchozi.zvolenaBarvaSvrskem != novy.zvolenaBarvaSvrskem))
         ) {
             when (novy.zvolenaBarvaSvrskem) {
-                BarvaKarty.CERVENE -> prehrajKlipNeboTts("p_cervene", "Červené poroučí!", mluvciJmeno, mluvciIdx)
+                BarvaKarty.CERVENE -> prehrajKlipNeboTts("p_cervene", "Červené poroučím!", mluvciJmeno, mluvciIdx)
                 BarvaKarty.KULE -> prehrajKlipNeboTts("p_kule", "Poroučím kule!", mluvciJmeno, mluvciIdx)
                 BarvaKarty.ZALUDY -> prehrajKlipNeboTts("m_zaludy", "Budou žaludy!", mluvciJmeno, mluvciIdx)
                 BarvaKarty.ZELENE -> prehrajKlipNeboTts("m_zelene", "Zelené na stůl!", mluvciJmeno, mluvciIdx)
@@ -160,7 +159,7 @@ object HospodaZvuk {
             return
         }
 
-        // Vynesení nebo přebití sedmičky (včetně hospodské červené sedmy na eso)
+        // Vynesení nebo přebití sedmičky (včetně hospodské Červené sedmy na eso)
         if (novy.aktivniSedmyPocet > predchozi.aktivniSedmyPocet) {
             val karet = novy.aktivniSedmyPocet * 2
             if (karet >= 4 || predchozi.aktivniEsoStoji) silnaHaptika()
@@ -216,6 +215,7 @@ object HospodaZvuk {
 
         val mluvciIdx = predchozi.naTahu
         val mluvciJmeno = novy.jmenaHracu.getOrElse(mluvciIdx) { "" }
+
         val ukoncilStychTlacitkem = predchozi.muzePustitStych && !novy.muzePustitStych &&
             novy.aktualniStych.isEmpty() &&
             novy.spalenaTym < 0 &&
@@ -229,7 +229,12 @@ object HospodaZvuk {
         if (predchozi.spalenaTym < 0 && novy.spalenaTym >= 0) {
             silnaHaptika()
             cinkniVyuctovani()
-            prehrajKlipNeboTts("s_spalena", "Spálená! Čtyři stejné na stole!", mluvciJmeno, mluvciIdx, jeDulezita = true)
+            val textSpalene = if (novy.spalenaZRuky) {
+                "Spálená z ruky, čtyři stejné na stole!"
+            } else {
+                "Spálená, čtyři stejné na stole!"
+            }
+            prehrajKlipNeboTts("s_spalena", textSpalene, mluvciJmeno, mluvciIdx, jeDulezita = true)
             return
         }
 
@@ -239,7 +244,13 @@ object HospodaZvuk {
             cinkniVyuctovani()
             val vitezStychu = novy.prozatimBereHrac
             val jm = novy.jmenaHracu.getOrElse(vitezStychu) { mluvciJmeno }
-            prehrajKlipNeboTts("s_vyhra", "Poslední štych je doma!", jm, vitezStychu, jeDulezita = true)
+            val viteznyTym = novy.tymHrace(vitezStychu)
+            val stychyPorazeneho = if (viteznyTym == 0) novy.pocetStychuTym1 else novy.pocetStychuTym0
+            if (stychyPorazeneho == 0) {
+                rekniHlasku("Ani štych, máme tu holátko!", jm, vitezStychu, jeDulezita = true)
+            } else {
+                prehrajKlipNeboTts("s_vyhra", "Poslední štych je doma!", jm, vitezStychu, jeDulezita = true)
+            }
             return
         }
 
@@ -261,12 +272,12 @@ object HospodaZvuk {
                 if (posledni.karta.hodnota == HodnotaKarty.R7) {
                     prehrajKlipNeboTts("s_sedma_bere", "Šup tam sedmu, ten je můj!", posledni.jmenoHrace, posledni.indexHrace)
                 } else {
-                    rekniHlasku("Stejná, beru zatím já!", posledni.jmenoHrace, posledni.indexHrace, jeDulezita = false)
+                    rekniHlasku("Stejná, beru zatím!", posledni.jmenoHrace, posledni.indexHrace, jeDulezita = false)
                 }
             } else if (novy.pocetHracu == 2 && novy.aktualniStych.size >= 3 && novy.aktualniStych.size % 2 == 1 &&
                 predchozi.prozatimBereHrac == posledni.indexHrace
             ) {
-                rekniHlasku("Ještě jednu stejnou, přitlač!", posledni.jmenoHrace, posledni.indexHrace, jeDulezita = false)
+                rekniHlasku("Ještě jednu stejnou, přitlačím!", posledni.jmenoHrace, posledni.indexHrace, jeDulezita = false)
             } else if (novy.pocetHracu == 4 && novy.aktualniStych.size > 1 &&
                 posledni.karta.hodnota.bodyMariasSedma == 10 &&
                 novy.tymHrace(posledni.indexHrace) == novy.tymHrace(novy.prozatimBereHrac) &&
@@ -293,17 +304,17 @@ object HospodaZvuk {
                 novy.zavazek == ZavazekMariase.BETL ->
                     prehrajKlipNeboTts("m_betl", "Hraju betla, ani štych nevezmu!", mluvciJmeno, mluvciIdx)
                 novy.zavazek == ZavazekMariase.DURCH ->
-                    prehrajKlipNeboTts("m_durch", "Durch, beru úplně všechno!", mluvciJmeno, mluvciIdx)
+                    prehrajKlipNeboTts("m_durch", "Durch, beru všechno!", mluvciJmeno, mluvciIdx)
                 novy.volenoZTalonu ->
                     prehrajKlipNeboTts("m_talon", "Z talonu, děj se vůle boží!", mluvciJmeno, mluvciIdx)
                 novy.trumf == BarvaKarty.CERVENE ->
-                    prehrajKlipNeboTts("m_cervene", "Červený, a hned za dvojnásobek!", mluvciJmeno, mluvciIdx)
+                    prehrajKlipNeboTts("m_cervene", "Červené, a hned za dvojnásobek!", mluvciJmeno, mluvciIdx)
                 novy.trumf == BarvaKarty.KULE ->
                     prehrajKlipNeboTts("m_kule", "Volím kule, pánové!", mluvciJmeno, mluvciIdx)
                 novy.trumf == BarvaKarty.ZALUDY ->
                     prehrajKlipNeboTts("m_zaludy", "Budou žaludy!", mluvciJmeno, mluvciIdx)
                 else ->
-                    prehrajKlipNeboTts("m_zelene", "Zelený na stůl!", mluvciJmeno, mluvciIdx)
+                    prehrajKlipNeboTts("m_zelene", "Zelené na stůl!", mluvciJmeno, mluvciIdx)
             }
             return
         }
@@ -335,7 +346,7 @@ object HospodaZvuk {
                 ZavazekMariase.BETL ->
                     prehrajKlipNeboTts("m_betl", "Hraju betla, ani štych nevezmu!", mluvciJmeno, mluvciIdx)
                 ZavazekMariase.DURCH ->
-                    prehrajKlipNeboTts("m_durch", "Durch, beru úplně všechno!", mluvciJmeno, mluvciIdx)
+                    prehrajKlipNeboTts("m_durch", "Durch, beru všechno!", mluvciJmeno, mluvciIdx)
             }
             return
         }
@@ -356,22 +367,22 @@ object HospodaZvuk {
                     vyssi == 2 ->
                         prehrajKlipNeboTts("m_flek", "Flek jak Brno!", mluvciJmeno, mluvciIdx)
                     vyssi == 4 ->
-                        prehrajKlipNeboTts("m_re", "Re! Přitápíme pod kotlem!", mluvciJmeno, mluvciIdx)
+                        prehrajKlipNeboTts("m_re", "Re! Přitopíme pod kotlem!", mluvciJmeno, mluvciIdx)
                     vyssi == 8 ->
-                        prehrajKlipNeboTts("m_tutti", "Tutti, osmkrát, teď půjde do tuhýho!", mluvciJmeno, mluvciIdx)
+                        prehrajKlipNeboTts("m_tutti", "Tutti, osmkrát, teď jde do tuhého!", mluvciJmeno, mluvciIdx)
                     vyssi == 16 ->
                         prehrajKlipNeboTts("m_boty", "Boty na stůl!", mluvciJmeno, mluvciIdx)
                     vyssi >= 32 ->
-                        prehrajKlipNeboTts("m_kalhoty", "Kalhoty! Domů půjdeš v trenkách!", mluvciJmeno, mluvciIdx)
+                        prehrajKlipNeboTts("m_kalhoty", "Kalhoty! Domů v trenkách!", mluvciJmeno, mluvciIdx)
                     else ->
                         prehrajKlipNeboTts("m_flek", "Flek!", mluvciJmeno, mluvciIdx)
                 }
             } else {
-                // "Dobrý" má nižší prioritu — pokud ještě doznívá hlášení závazku forhonta, neskočí mu do řeči
+                // "Dobrý" má nižší prioritu — pokud ještě doznívá hláška závazku forhonta, neskočí mu do řeči
                 prehrajVybranouHlasku(
                     listOf(
                         KandidatHlasky("m_dobry_1", "Dobrý, nes!"),
-                        KandidatHlasky("m_dobry_2", "Nechám tě hrát, dobrý!")
+                        KandidatHlasky("m_dobry_2", "Nechat, dobrý!")
                     ),
                     mluvciJmeno,
                     mluvciIdx,
@@ -384,7 +395,6 @@ object HospodaZvuk {
         // 4) Sehrávka a konec rozdání
         if (predchozi.faze == FazeMariase.SEHRAVKA) {
             pleskniKartou()
-
             val prirustekHlasek = (novy.hlaskyForhont - predchozi.hlaskyForhont) +
                 (novy.hlaskyObrana - predchozi.hlaskyObrana)
 
@@ -421,7 +431,7 @@ object HospodaZvuk {
                 prehrajKlipNeboTts("m_hl40", "Čtyřicet, trumfová hláška!", mluvciJmeno, mluvciIdx)
             } else if (prirustekHlasek == 20) {
                 silnaHaptika()
-                prehrajKlipNeboTts("m_hl20", "Dvacet, krásnej páreček!", mluvciJmeno, mluvciIdx)
+                prehrajKlipNeboTts("m_hl20", "Dvacet, krásnej párek!", mluvciJmeno, mluvciIdx)
             }
         }
     }

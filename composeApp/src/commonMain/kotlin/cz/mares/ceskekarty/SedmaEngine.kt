@@ -255,7 +255,7 @@ object SedmaEngine {
 
         val dalsiHrac = (indexHrace + 1) % stav.pocetHracu
 
-        // Ve čtyřhře má štych přesně 4 karty
+        // Ve čtyřhře má štych pevně 4 karty
         if (stav.pocetHracu == 4) {
             if (novyStych.size < 4) {
                 val popisAkce = if (prebiji && novyStych.size > 1) "přebíjí kartou" else "přikládá"
@@ -446,7 +446,7 @@ object SedmaEngine {
             if (stav.prozatimBereHrac == idx) {
                 // Bot už štych drží (hospodská pravidla):
                 // Pokud jsou ve štychu body (10 nebo Eso), štych vezme a netiskne další 10/Eso do pasti —
-                // natáhne ho jen tehdy, má-li soupeř aspoň 2 karty a bot v ruce silné krytí na přebití zpět.
+                // natáhne ho jen tehdy, má-li soupeř aspoň 2 karty a bot v ruce silné krytí na přebití.
                 val dalsiStejnaBezSedmy = povolene.firstOrNull { it.hodnota != HodnotaKarty.R7 }
                 if (dalsiStejnaBezSedmy == null) {
                     return pustStych(stav, idx)
@@ -461,7 +461,6 @@ object SedmaEngine {
                 val pocetSedemVRuce = ruka.count { it.hodnota == HodnotaKarty.R7 }
                 val maSilneKrytiProPast = karetSoupere >= 2 &&
                     (pocetSedemVRuce >= 2 || (pocetVedoucichVRuce >= 2 && pocetSedemVRuce >= 1))
-
                 return if (maSilneKrytiProPast) {
                     zahrajKartu(stav, idx, dalsiStejnaBezSedmy)
                 } else {
@@ -590,48 +589,66 @@ object SedmaEngine {
         val viteznyTym: Int
         val nasobekZapasu: Int
         val duvodNasobku: String
+        val kratkeHodnoceni: String
 
         if (spalena >= 0) {
             viteznyTym = spalena
             nasobekZapasu = 4
-            duvodNasobku = if (stav.spalenaZRuky) {
-                "Spálená z ruky (4 stejné karty v ruce) — 4× násobek"
+            if (stav.spalenaZRuky) {
+                duvodNasobku = "Spálená z ruky (4 stejné karty v ruce) — 4× násobek"
+                kratkeHodnoceni = "🔥 Spálená z ruky (4×)"
             } else {
-                "Spálená (4 stejné karty ve štychu) — 4× násobek"
+                duvodNasobku = "Spálená (4 stejné karty ve štychu) — 4× násobek"
+                kratkeHodnoceni = "🔥 Spálená (4×)"
             }
         } else {
             viteznyTym = if (stav.uhraneBodyTym0 > stav.uhraneBodyTym1) 0 else 1
+            val porazenyTym = 1 - viteznyTym
             val bodyViteze = if (viteznyTym == 0) stav.uhraneBodyTym0 else stav.uhraneBodyTym1
             val stychyPorazeneho = if (viteznyTym == 0) stav.pocetStychuTym1 else stav.pocetStychuTym0
             when {
                 stychyPorazeneho == 0 -> {
                     nasobekZapasu = 3
-                    duvodNasobku = "Čistá devadesátka bez jediného štychu soupeře — 3× násobek"
+                    duvodNasobku = "Čistá devadesátka (${stav.nazevTymu(porazenyTym)} je holátko) — 3× násobek"
+                    kratkeHodnoceni = "👶 Holátko! (3×)"
                 }
                 bodyViteze == 90 -> {
                     nasobekZapasu = 2
                     duvodNasobku = "Uhraných všech 90 bodů — 2× násobek"
+                    kratkeHodnoceni = "Devadesátka (2×)"
                 }
                 else -> {
                     nasobekZapasu = 1
                     duvodNasobku = "Běžná výhra na body (1×)"
+                    kratkeHodnoceni = "Na body (1×)"
                 }
             }
+        }
+
+        val stychyText0 = if (spalena < 0 && stav.pocetStychuTym0 == 0) {
+            "0 štychů • Holátko!"
+        } else {
+            sklonujStychy(stav.pocetStychuTym0)
+        }
+        val stychyText1 = if (spalena < 0 && stav.pocetStychuTym1 == 0) {
+            "0 štychů • Holátko!"
+        } else {
+            sklonujStychy(stav.pocetStychuTym1)
         }
 
         val zapasoveBody = nasobekZapasu * 10
         val polozky = listOf(
             PolozkaVyuctovani(
                 stav.nazevTymu(0),
-                "${stav.uhraneBodyTym0} b. (${sklonujStychy(stav.pocetStychuTym0)})",
+                "${stav.uhraneBodyTym0} b. ($stychyText0)",
                 viteznyTym == 0
             ),
             PolozkaVyuctovani(
                 stav.nazevTymu(1),
-                "${stav.uhraneBodyTym1} b. (${sklonujStychy(stav.pocetStychuTym1)})",
+                "${stav.uhraneBodyTym1} b. ($stychyText1)",
                 viteznyTym == 1
             ),
-            PolozkaVyuctovani("Hodnocení hry", duvodNasobku, jeZvyraznena = true),
+            PolozkaVyuctovani("Hodnocení hry", kratkeHodnoceni, jeZvyraznena = true),
             PolozkaVyuctovani("Zápasové skóre", "+$zapasoveBody b.", jeZvyraznena = true)
         )
 
