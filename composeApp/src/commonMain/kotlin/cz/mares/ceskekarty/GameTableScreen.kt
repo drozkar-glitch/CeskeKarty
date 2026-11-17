@@ -511,7 +511,7 @@ fun GameTableScreen(
             delay(zakladniPauzaMs)
             if (zvukZapnut) {
                 var mluviloSe = false
-                while (probihaMluveniPlatforma() && (ziskejAktualniCasMs() - startMs) < 2750L) {
+                while (probihaMluveniPlatforma() && (ziskejAktualniCasMs() - startMs) < 3100L) {
                     mluviloSe = true
                     delay(80L)
                 }
@@ -590,10 +590,12 @@ fun GameTableScreen(
         -1
     }
 
+    val jeSpalenaSedmaKonec = aktivniTypHry == TypHry.SEDMA && (stavSedma?.spalenaTym ?: -1) >= 0
+
     var zobrazenyKlicVyuctovani by remember { mutableStateOf(-1) }
-    LaunchedEffect(klicDokonceneHry) {
+    LaunchedEffect(klicDokonceneHry, jeSpalenaSedmaKonec) {
         if (klicDokonceneHry > 0) {
-            delay(1300L)
+            delay(if (jeSpalenaSedmaKonec) 2350L else 1350L)
             zobrazenyKlicVyuctovani = klicDokonceneHry
         } else {
             zobrazenyKlicVyuctovani = -1

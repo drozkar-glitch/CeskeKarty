@@ -301,16 +301,22 @@ object PrsiEngine {
         )
     }
 
+    private fun vyberNejlepsiBarvuProSvrska(kartyVRuce: List<Karta>): BarvaKarty {
+        return BarvaKarty.entries.maxWithOrNull(
+            compareBy<BarvaKarty>(
+                { b -> kartyVRuce.count { it.barva == b && it.hodnota != HodnotaKarty.SVRSEK } },
+                { b -> kartyVRuce.count { it.barva == b } }
+            )
+        ) ?: BarvaKarty.CERVENE
+    }
+
     fun provedTahBota(stav: StavPrsi): StavPrsi {
         if (stav.jeKonec) return stav
         val idx = stav.naTahu
         val ruka = stav.ruceHracu[idx]
 
         if (stav.cekaNaVolbuBarvy) {
-            val nejcastejsiBarva = BarvaKarty.entries.maxByOrNull { b ->
-                ruka.count { it.barva == b && it.hodnota != HodnotaKarty.SVRSEK }
-            } ?: BarvaKarty.CERVENE
-            return potvrdVolbuBarvySvrskem(stav, nejcastejsiBarva)
+            return potvrdVolbuBarvySvrskem(stav, vyberNejlepsiBarvuProSvrska(ruka))
         }
 
         val povolene = zjistiPovoleneKarty(stav, idx)
@@ -321,7 +327,7 @@ object PrsiEngine {
         val bezSvrsku = povolene.filter { it.hodnota != HodnotaKarty.SVRSEK }
         val vybrana = if (bezSvrsku.isNotEmpty()) {
             bezSvrsku.maxByOrNull { karta ->
-                val pocetBarvyVRuce = ruka.count { it.barva == karta.barva }
+                val pocetBarvyVRuce = ruka.count { it.barva == karta.barva && it.hodnota != HodnotaKarty.SVRSEK }
                 val bonusUtoku = if (karta.hodnota == HodnotaKarty.R7 || karta.hodnota == HodnotaKarty.ESO) 3 else 0
                 pocetBarvyVRuce * 2 + bonusUtoku
             } ?: bezSvrsku.first()
@@ -331,10 +337,7 @@ object PrsiEngine {
 
         return if (vybrana.hodnota == HodnotaKarty.SVRSEK) {
             val zbytek = ruka.filterNot { it == vybrana }
-            val cilovaBarva = BarvaKarty.entries.maxByOrNull { b ->
-                zbytek.count { it.barva == b }
-            } ?: BarvaKarty.CERVENE
-            zahrajKartu(stav, idx, vybrana, cilovaBarva)
+            zahrajKartu(stav, idx, vybrana, vyberNejlepsiBarvuProSvrska(zbytek))
         } else {
             zahrajKartu(stav, idx, vybrana)
         }

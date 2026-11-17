@@ -128,9 +128,10 @@ object HospodaZvuk {
             return
         }
 
-        val odhozenaKarta = novy.odhazovaciBalicek.size > predchozi.odhazovaciBalicek.size ||
-            (predchozi.cekaNaVolbuBarvy && !novy.cekaNaVolbuBarvy)
-        if (odhozenaKarta) {
+        val polozenaNovaKarta = novy.odhazovaciBalicek.size > predchozi.odhazovaciBalicek.size
+        val dokoncenaVolbaSvrska = predchozi.cekaNaVolbuBarvy && !novy.cekaNaVolbuBarvy
+        val odhozenaKarta = polozenaNovaKarta || dokoncenaVolbaSvrska
+        if (polozenaNovaKarta) {
             pleskniKartou()
         }
 
@@ -146,9 +147,9 @@ object HospodaZvuk {
         val rukaMluvcihoPoTahu = novy.ruceHracu.getOrNull(mluvciIdx)?.size ?: 99
         val hlasiPrsi = odhozenaKarta && rukaMluvcihoPoTahu == 1
 
-        // Svršek a změna barvy
+        // Svršek a změna barvy (funguje i tehdy, když hráč či bot poručí stejnou barvu, jaká platila předtím)
         if (novy.zvolenaBarvaSvrskem != null &&
-            (predchozi.cekaNaVolbuBarvy || (novy.vrchniKarta.hodnota == HodnotaKarty.SVRSEK && predchozi.zvolenaBarvaSvrskem != novy.zvolenaBarvaSvrskem))
+            (dokoncenaVolbaSvrska || (polozenaNovaKarta && novy.vrchniKarta.hodnota == HodnotaKarty.SVRSEK))
         ) {
             when (novy.zvolenaBarvaSvrskem) {
                 BarvaKarty.CERVENE -> prehrajKlipNeboTts("p_cervene", "Červené poroučím!", mluvciJmeno, mluvciIdx)
@@ -193,7 +194,7 @@ object HospodaZvuk {
         if (novy.aktivniEsoStoji && odhozenaKarta && novy.vrchniKarta.hodnota == HodnotaKarty.ESO) {
             if (hlasiPrsi) {
                 silnaHaptika()
-                prehrajKlipNeboTts("p_prsi", "Eso! A pozor pánové, prší!", mluvciJmeno, mluvciIdx)
+                prehrajKlipNeboTts("p_prsi", "Pozor pánové, prší!", mluvciJmeno, mluvciIdx)
             } else {
                 prehrajKlipNeboTts("p_eso", "Eso, stát, nikam nespěchej!", mluvciJmeno, mluvciIdx)
             }
@@ -216,10 +217,11 @@ object HospodaZvuk {
         val mluvciIdx = predchozi.naTahu
         val mluvciJmeno = novy.jmenaHracu.getOrElse(mluvciIdx) { "" }
 
-        val ukoncilStychTlacitkem = predchozi.muzePustitStych && !novy.muzePustitStych &&
+        val ukoncilStychTlacitkem = predchozi.muzePustitStych &&
+            !novy.muzePustitStych &&
             novy.aktualniStych.isEmpty() &&
             novy.spalenaTym < 0 &&
-            novy.ruceHracu[mluvciIdx].size >= predchozi.ruceHracu[mluvciIdx].size
+            novy.posledniUzavrenyStych.size == predchozi.aktualniStych.size
 
         if (!ukoncilStychTlacitkem) {
             pleskniKartou()
@@ -253,7 +255,7 @@ object HospodaZvuk {
         if (!predchozi.jeKonec && novy.jeKonec) {
             silnaHaptika()
             cinkniVyuctovani()
-            val vitezStychu = novy.prozatimBereHrac
+            val vitezStychu = if (novy.posledniUzavrenyVitez >= 0) novy.posledniUzavrenyVitez else novy.prozatimBereHrac
             val jm = novy.jmenaHracu.getOrElse(vitezStychu) { mluvciJmeno }
             val viteznyTym = novy.tymHrace(vitezStychu)
             val stychyPorazeneho = if (viteznyTym == 0) novy.pocetStychuTym1 else novy.pocetStychuTym0
@@ -274,25 +276,33 @@ object HospodaZvuk {
             return
         }
 
-        // Právě přidaná karta ve štychu
-        if (novy.aktualniStych.size > predchozi.aktualniStych.size) {
-            val posledni = novy.aktualniStych.last()
-            if (novy.aktualniStych.size > 1 && novy.prozatimBereHrac == posledni.indexHrace &&
-                predchozi.prozatimBereHrac != posledni.indexHrace
-            ) {
+        // Právě zahraná karta (včetně karty, která štych rovnou uzavřela)
+        val hranyStych = when {
+            novy.aktualniStych.size > predchozi.aktualniStych.size -> novy.aktualniStych
+            novy.aktualniStych.isEmpty() && novy.posledniUzavrenyStych.size == predchozi.aktualniStych.size + 1 ->
+                novy.posledniUzavrenyStych
+            else -> emptyList()
+        }
+
+        if (hranyStych.size >= 2) {
+            val posledni = hranyStych.last()
+            val predchoziDrzitel = predchozi.prozatimBereHrac
+            val novyDrzitel = if (novy.aktualniStych.isNotEmpty()) novy.prozatimBereHrac else novy.posledniUzavrenyVitez
+            val predchoziTym = novy.tymHrace(predchoziDrzitel)
+            val novyTym = novy.tymHrace(novyDrzitel)
+
+            if (novyDrzitel == posledni.indexHrace && novyTym != predchoziTym) {
                 if (posledni.karta.hodnota == HodnotaKarty.R7) {
                     prehrajKlipNeboTts("s_sedma_bere", "Šup tam sedmu, ten je můj!", posledni.jmenoHrace, posledni.indexHrace)
+                } else if (novy.pocetHracu == 2 && hranyStych.size >= 3) {
+                    prehrajKlipNeboTts("s_pritlacim", "Ještě jednu stejnou, přitlačím!", posledni.jmenoHrace, posledni.indexHrace, jeDulezita = false)
                 } else {
                     prehrajKlipNeboTts("s_stejna", "Stejná, beru zatím!", posledni.jmenoHrace, posledni.indexHrace, jeDulezita = false)
                 }
-            } else if (novy.pocetHracu == 2 && novy.aktualniStych.size >= 3 && novy.aktualniStych.size % 2 == 1 &&
-                predchozi.prozatimBereHrac == posledni.indexHrace
-            ) {
-                prehrajKlipNeboTts("s_pritlacim", "Ještě jednu stejnou, přitlačím!", posledni.jmenoHrace, posledni.indexHrace, jeDulezita = false)
-            } else if (novy.pocetHracu == 4 && novy.aktualniStych.size > 1 &&
+            } else if (novy.pocetHracu == 4 &&
                 posledni.karta.hodnota.bodyMariasSedma == 10 &&
-                novy.tymHrace(posledni.indexHrace) == novy.tymHrace(novy.prozatimBereHrac) &&
-                posledni.indexHrace != novy.prozatimBereHrac
+                novy.tymHrace(posledni.indexHrace) == novyTym &&
+                posledni.indexHrace != predchoziDrzitel
             ) {
                 prehrajKlipNeboTts("s_namaz", "Tady máš desítku, parťáku!", posledni.jmenoHrace, posledni.indexHrace)
             }
@@ -346,7 +356,7 @@ object HospodaZvuk {
                 ZavazekMariase.STO_A_SEDMA ->
                     prehrajKlipNeboTts("m_sto_sedma", "Sto a sedma, pánové!", mluvciJmeno, mluvciIdx)
                 ZavazekMariase.STO_A_DVE_SEDMY ->
-                    prehrajKlipNeboTts("m_dve_sedmy", "Sto a dvě sedmy, držte si klobouky!", mluvciJmeno, mluvciIdx)
+                    prehrajKlipNeboTts("m_dve_sedmy", "Dvě sedmy na stůl, držte si klobouky!", mluvciJmeno, mluvciIdx)
                 ZavazekMariase.BETL ->
                     prehrajKlipNeboTts("m_betl", "Hraju betla, ani štych nevezmu!", mluvciJmeno, mluvciIdx)
                 ZavazekMariase.DURCH ->
@@ -379,7 +389,7 @@ object HospodaZvuk {
                     vyssi >= 32 ->
                         prehrajKlipNeboTts("m_kalhoty", "Kalhoty! Domů v trenkách!", mluvciJmeno, mluvciIdx)
                     else ->
-                        prehrajKlipNeboTts("m_flek", "Flek!", mluvciJmeno, mluvciIdx)
+                        prehrajKlipNeboTts("m_flek", "Flek jak Brno!", mluvciJmeno, mluvciIdx)
                 }
             } else {
                 // "Dobrý" má nižší prioritu — pokud ještě doznívá hláška závazku forhonta, neskočí mu do řeči
@@ -411,20 +421,26 @@ object HospodaZvuk {
                 val obranceIdx = (novy.indexForhonta + 1) % 3
                 val obranceJm = novy.jmenaHracu.getOrElse(obranceIdx) { "" }
 
-                val tichaSedmaText = vyuctovani.polozky.firstOrNull {
-                    it.popis.contains("Tichá", ignoreCase = true) || it.popis.contains("Zabitá", ignoreCase = true)
-                }?.popis
+                val maZabitouSedmu = vyuctovani.polozky.any { pol ->
+                    pol.popis.contains("Zabitá", ignoreCase = true) ||
+                        pol.popis.contains("zabil tichou sedmu", ignoreCase = true)
+                }
+                val maTichouSedmu = !maZabitouSedmu && vyuctovani.polozky.any { pol ->
+                    (pol.popis.contains("sedma", ignoreCase = true) && pol.popis.contains("tich", ignoreCase = true)) ||
+                        pol.popis.contains("Tiché dvě sedmy", ignoreCase = true)
+                }
 
-                if (tichaSedmaText != null && tichaSedmaText.contains("Tichá (utajená) sedma")) {
-                    prehrajKlipNeboTts("m_ticha7", "Tichá sedma doma!", forhontJm, novy.indexForhonta)
-                } else if (tichaSedmaText != null && tichaSedmaText.contains("Zabitá")) {
-                    prehrajKlipNeboTts("m_zabita7", "Zabitá sedma, to bolelo!", obranceJm, obranceIdx)
-                } else if (ziskForhonta > 0) {
-                    prehrajKlipNeboTts("m_vyhra_f", "Je to doma, vysázejte tereziány!", forhontJm, novy.indexForhonta)
-                } else if (ziskForhonta < 0) {
-                    prehrajKlipNeboTts("m_pad_f", "Forhont padl, zaplať obraně!", obranceJm, obranceIdx)
-                } else {
-                    prehrajKlipNeboTts("m_smir", "Smír, nikdo nikomu nic nedluží!", forhontJm, novy.indexForhonta)
+                when {
+                    maZabitouSedmu ->
+                        prehrajKlipNeboTts("m_zabita7", "Zabitá sedma, to bolelo!", obranceJm, obranceIdx)
+                    maTichouSedmu ->
+                        prehrajKlipNeboTts("m_ticha7", "Tichá sedma doma!", forhontJm, novy.indexForhonta)
+                    ziskForhonta > 0 ->
+                        prehrajKlipNeboTts("m_vyhra_f", "Je to doma, vysázejte tereziány!", forhontJm, novy.indexForhonta)
+                    ziskForhonta < 0 ->
+                        prehrajKlipNeboTts("m_pad_f", "Forhont padl, zaplať obraně!", obranceJm, obranceIdx)
+                    else ->
+                        prehrajKlipNeboTts("m_smir", "Smír, nikdo nikomu nic nedluží!", forhontJm, novy.indexForhonta)
                 }
                 return
             }
