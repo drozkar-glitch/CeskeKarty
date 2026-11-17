@@ -757,7 +757,7 @@ internal fun SpodniRukaHrace(
 }
 
 @Composable
-private fun RadekPolozkyVyuctovani(polozka: PolozkaVyuctovani) {
+private fun RadekPolozkyVyuctovani(polozka: UiPolozkaVyuctovani) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1033,9 +1033,9 @@ internal fun PanelVyuctovaniPartie(
                     modifier = Modifier
                         .weight(1f)
                         .height(46.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
                 ) {
                     val popisekZpet = when {
                         jeOnlineTurnaj && jeTurnajHotovy -> "Zpět k pavouku"
