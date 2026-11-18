@@ -12,13 +12,13 @@ enum class VariantaPravidel(
         kod = "HOSPODSKA",
         kratkyNazev = "Hospodská",
         stitekUStolu = "HOSPODSKÁ",
-        popisVyberu = "Sedma: spálená i ze 4 stejných karet v ruce • Mariáš: povolena falešná 7 (blaf) • Prší: červená 7 přebíjí i eso."
+        popisVyberu = "Sedma: spálená i ze 4 v ruce + natahování štychu • Mariáš: povolena falešná 7 (blaf) • Prší: červená 7 přebíjí i eso."
     ),
     SVAZOVA(
         kod = "SVAZOVA",
         kratkyNazev = "Svazová",
         stitekUStolu = "SVAZOVÁ",
-        popisVyberu = "Čistá soutěžní pravidla: Mariáš jen pravá 7 bez blafu • Sedma spálená jen ve štychu • Prší klasika."
+        popisVyberu = "Čistá soutěžní pravidla: Mariáš jen pravá 7 bez blafu • Sedma spálená jen ve štychu a konec nepřebitou dvojicí • Prší klasika."
     );
 
     companion object {

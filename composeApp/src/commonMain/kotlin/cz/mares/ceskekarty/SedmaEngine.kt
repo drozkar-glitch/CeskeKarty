@@ -159,12 +159,11 @@ object SedmaEngine {
     }
 
     /**
-     * V hospodských pravidlech lze hlásit Spálenou i při 4 kartách stejné hodnoty na ruce,
-     * jakmile je daný hráč na tahu.
+     * V hospodských pravidlech lze hlásit Spálenou i při 4 kartách stejné hodnoty na ruce.
      */
     fun zjistiSpalenouVRuce(stav: StavSedma, indexHrace: Int): HodnotaKarty? {
         if (stav.jeKonec || stav.variantaPravidel != VariantaPravidel.HOSPODSKA) return null
-        if (stav.naTahu != indexHrace) return null
+        if (stav.naTahu != indexHrace && stav.aktualniStych.isNotEmpty()) return null
         val ruka = stav.ruceHracu.getOrNull(indexHrace) ?: return null
         if (ruka.size < 4) return null
         val prvniHodnota = ruka.first().hodnota
@@ -207,10 +206,15 @@ object SedmaEngine {
     fun zjistiPovoleneKarty(stav: StavSedma, indexHrace: Int): Set<Karta> {
         if (stav.jeKonec || stav.naTahu != indexHrace) return emptySet()
         val ruka = stav.ruceHracu.getOrNull(indexHrace) ?: return emptySet()
-        // Když ve 2 hráčích soupeř přebil štych a tah se vrací na vynášejícího,
-        // smí přebít zpět výhradně kartou vedoucí hodnoty (první vynesené ve štychu) nebo sedmičkou.
         if (stav.muzePustitStych) {
-            return ruka.filter { kartaPrebijiStych(stav, it) }.toSet()
+            val vedouci = stav.vedouciHodnota ?: return emptySet()
+            return if (stav.prozatimBereHrac == indexHrace) {
+                // Hospodské točení (natahování) už drženého štychu: pouze další kartou vedoucí hodnoty
+                ruka.filter { it.hodnota == vedouci }.toSet()
+            } else {
+                // Soupeř štych přebil -> přebít zpět lze vedoucí hodnotou nebo sedmičkou
+                ruka.filter { it.hodnota == vedouci || it.hodnota == HodnotaKarty.R7 }.toSet()
+            }
         }
         return ruka.toSet()
     }
@@ -297,9 +301,13 @@ object SedmaEngine {
         }
 
         // Hra 2 hráčů (1 na 1):
-        // Lichá karta (1., 3., 5., 7.) je výnos nebo přebití zpět vynášejícím hráčem -> odpovídá soupeř.
+        // Lichá karta (1., 3., 5., 7.) je výnos, přebití zpět, nebo hospodské točení stejné hodnoty.
         if (novyStych.size % 2 == 1) {
-            val sloveso = if (novyStych.size == 1) "vynáší" else "přebíjí zpět kartou"
+            val sloveso = when {
+                novyStych.size == 1 -> "vynáší"
+                stav.prozatimBereHrac == indexHrace -> "natahuje štych kartou"
+                else -> "přebíjí zpět kartou"
+            }
             return stav.copy(
                 ruceHracu = noveRuce,
                 aktualniStych = novyStych,
@@ -313,15 +321,19 @@ object SedmaEngine {
                 cisloTahu = stav.cisloTahu + 1
             )
         } else {
-            // Sudá karta (2., 4., 6., 8.): pokud soupeř nepřebil, štych se vždy okamžitě uzavírá!
-            // Pokračovat lze výhradně tehdy, když soupeř štych přebil a vynášející má v ruce vedoucí hodnotu nebo sedmu.
             val vynasejici = novyStych.first().indexHrace
             val odpovidajici = (vynasejici + 1) % 2
             val souperPrebil = novyDrzitel != vynasejici
             val rukaVynasejiciho = noveRuce[vynasejici]
-            val maCimPrebitZpet = rukaVynasejiciho.any {
+            val souperMaKarty = noveRuce[odpovidajici].isNotEmpty()
+
+            val maCimPrebitZpet = souperMaKarty && rukaVynasejiciho.any {
                 it.hodnota == vedouci || it.hodnota == HodnotaKarty.R7
-            } && noveRuce[odpovidajici].isNotEmpty()
+            }
+            // V hospodských pravidlech lze nepřebitý štych točit dál, drží-li vynášející další kartu vedoucí hodnoty
+            val maDalsiStejnouProToceni = souperMaKarty && rukaVynasejiciho.any {
+                it.hodnota == vedouci
+            }
 
             return if (souperPrebil && maCimPrebitZpet) {
                 stav.copy(
@@ -334,6 +346,19 @@ object SedmaEngine {
                     posledniUzavrenyStych = emptyList(),
                     posledniUzavrenyVitez = -1,
                     posledniHlaska = "$jmeno přebil kartou ${karta.celyNazev()} — ${stav.jmenaHracu[vynasejici]} může přebít zpět nebo štych pustit!",
+                    cisloTahu = stav.cisloTahu + 1
+                )
+            } else if (!souperPrebil && stav.variantaPravidel == VariantaPravidel.HOSPODSKA && maDalsiStejnouProToceni) {
+                stav.copy(
+                    ruceHracu = noveRuce,
+                    aktualniStych = novyStych,
+                    vedouciHodnota = vedouci,
+                    prozatimBereHrac = novyDrzitel,
+                    naTahu = vynasejici,
+                    muzePustitStych = true,
+                    posledniUzavrenyStych = emptyList(),
+                    posledniUzavrenyVitez = -1,
+                    posledniHlaska = "$jmeno odhodil ${karta.celyNazev()} — ${stav.jmenaHracu[vynasejici]} může točit další ${vedouci.ceskyNazev}, nebo štych vzít!",
                     cisloTahu = stav.cisloTahu + 1
                 )
             } else {
@@ -421,7 +446,7 @@ object SedmaEngine {
         if (stav.jeKonec) return stav
         val idx = stav.naTahu
 
-        // V hospodských pravidlech bot okamžitě ohlásí Spálenou, pokud na svém tahu drží 4 stejné karty v ruce
+        // V hospodských pravidlech bot okamžitě ohlásí Spálenou, pokud drží 4 stejné karty na ruce
         if (zjistiSpalenouVRuce(stav, idx) != null) {
             return nahlasSpalenouZRuky(stav, idx)
         }
@@ -432,32 +457,51 @@ object SedmaEngine {
         val bodyVeStychu = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
         val jePosledniStychHry = stav.lizaciBalicek.isEmpty() && ruka.size == 1
 
-        // 1. Návrat tahu ve dvou hráčích poté, co soupeř přebil štych (přebít zpět vs. pustit)
+        // 1. Návrat tahu ve dvou hráčích (možnost štych vzít/pustit nebo pokračovat)
         if (stav.muzePustitStych) {
-            if (stav.prozatimBereHrac == idx) {
-                return pustStych(stav, idx)
-            }
             val povolene = zjistiPovoleneKarty(stav, idx)
             val spalenaKarta = najdiKartuProSpalenouVeStychu(stav, povolene)
             if (spalenaKarta != null) {
                 return zahrajKartu(stav, idx, spalenaKarta)
             }
 
-            // Má-li bot další kartu vedoucí hodnoty (mimo sedmy), přebije zpět bez plýtvání sedmičkou
-            val bezSedmy = povolene.firstOrNull { it.hodnota != HodnotaKarty.R7 }
-            if (bezSedmy != null) {
-                return zahrajKartu(stav, idx, bezSedmy)
-            }
+            if (stav.prozatimBereHrac == idx) {
+                // Bot už štych drží (hospodské točení karet):
+                // Nikdy neplýtvá sedmičkou a nikdy nepřihazuje bodovanou 10/Eso na už vyhraný štych (např. desítku na eso).
+                // Nebodované karty (osmičky, devítky, figury) točí, aby ze soupeře vytáhl body.
+                val dalsiStejnaBezSedmy = povolene.firstOrNull {
+                    it.hodnota == stav.vedouciHodnota && it.hodnota != HodnotaKarty.R7
+                } ?: return pustStych(stav, idx)
 
-            // Sedmičku použije jen tehdy, jsou-li ve štychu body, jde-li o poslední štych (+10 b.), nebo drží-li jen sedmy
-            val sedmicka = povolene.firstOrNull { it.hodnota == HodnotaKarty.R7 }
-            val maSmyslPrebitSedmou = bodyVeStychu >= 10 ||
-                jePosledniStychHry ||
-                (stav.lizaciBalicek.isEmpty() && ruka.all { it.hodnota == HodnotaKarty.R7 })
-            return if (sedmicka != null && maSmyslPrebitSedmou) {
-                zahrajKartu(stav, idx, sedmicka)
+                if (dalsiStejnaBezSedmy.hodnota.bodyMariasSedma >= 10) {
+                    return pustStych(stav, idx)
+                }
+                if (bodyVeStychu == 0) {
+                    return zahrajKartu(stav, idx, dalsiStejnaBezSedmy)
+                }
+                val maKrytiProDalsiToceni = ruka.any { it.hodnota == HodnotaKarty.R7 } ||
+                    ruka.count { it.hodnota == stav.vedouciHodnota } >= 2
+                return if (maKrytiProDalsiToceni) {
+                    zahrajKartu(stav, idx, dalsiStejnaBezSedmy)
+                } else {
+                    pustStych(stav, idx)
+                }
             } else {
-                pustStych(stav, idx)
+                // Soupeř štych přebil -> vrať přebití stejnou hodnotou bez plýtvání sedmou;
+                // sedmičku použij jen o body nebo v boji o poslední štych (+10 b.).
+                val bezSedmy = povolene.firstOrNull { it.hodnota != HodnotaKarty.R7 }
+                if (bezSedmy != null) {
+                    return zahrajKartu(stav, idx, bezSedmy)
+                }
+                val sedmicka = povolene.firstOrNull { it.hodnota == HodnotaKarty.R7 }
+                val maSmyslPrebitSedmou = bodyVeStychu >= 10 ||
+                    jePosledniStychHry ||
+                    (stav.lizaciBalicek.isEmpty() && ruka.all { it.hodnota == HodnotaKarty.R7 })
+                return if (sedmicka != null && maSmyslPrebitSedmou) {
+                    zahrajKartu(stav, idx, sedmicka)
+                } else {
+                    pustStych(stav, idx)
+                }
             }
         }
 
@@ -479,7 +523,6 @@ object SedmaEngine {
             }
 
             if (nuloveBezSedmy.isNotEmpty()) {
-                // Vynášet přednostně z dvojice/trojice nebodovaných karet, aby měl bot čím přebít zpět bez ztráty sedmy
                 val vybranaNulova = nuloveBezSedmy.maxByOrNull { k ->
                     nuloveBezSedmy.count { it.hodnota == k.hodnota }
                 } ?: nuloveBezSedmy.first()

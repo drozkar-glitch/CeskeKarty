@@ -291,6 +291,12 @@ object HospodaZvuk {
             val predchoziTym = novy.tymHrace(predchoziDrzitel)
             val novyTym = novy.tymHrace(novyDrzitel)
 
+            val toceniVlastnihoStychu = novy.pocetHracu == 2 &&
+                hranyStych.size >= 3 &&
+                hranyStych.size % 2 == 1 &&
+                predchoziDrzitel == posledni.indexHrace &&
+                novyDrzitel == posledni.indexHrace
+
             if (novyDrzitel == posledni.indexHrace && novyTym != predchoziTym) {
                 if (posledni.karta.hodnota == HodnotaKarty.R7) {
                     prehrajKlipNeboTts("s_sedma_bere", "Šup tam sedmu, ten je můj!", posledni.jmenoHrace, posledni.indexHrace)
@@ -299,6 +305,8 @@ object HospodaZvuk {
                 } else {
                     prehrajKlipNeboTts("s_stejna", "Stejná, beru zatím!", posledni.jmenoHrace, posledni.indexHrace, jeDulezita = false)
                 }
+            } else if (toceniVlastnihoStychu) {
+                prehrajKlipNeboTts("s_pritlacim", "Ještě jednu stejnou, přitlačím!", posledni.jmenoHrace, posledni.indexHrace, jeDulezita = false)
             } else if (novy.pocetHracu == 4 &&
                 posledni.karta.hodnota.bodyMariasSedma == 10 &&
                 novy.tymHrace(posledni.indexHrace) == novyTym &&
