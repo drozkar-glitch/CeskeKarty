@@ -172,6 +172,29 @@ data class Karta(
                 )
             )
         }
+
+        private fun poradiHodnotySedma(hodnota: HodnotaKarty): Int = when (hodnota) {
+            HodnotaKarty.ESO -> 0
+            HodnotaKarty.R10 -> 1
+            HodnotaKarty.R7 -> 2
+            HodnotaKarty.KRAL -> 3
+            HodnotaKarty.SVRSEK -> 4
+            HodnotaKarty.SPODEK -> 5
+            HodnotaKarty.R9 -> 6
+            HodnotaKarty.R8 -> 7
+        }
+
+        /**
+         * Řazení ruky pro Sedmu zleva: Esa -> Desítky -> Sedmičky -> Králové -> Svrškové -> Spodkové -> Devítky -> Osmičky.
+         */
+        fun seradRukuSedma(karty: List<Karta>): List<Karta> {
+            return karty.sortedWith(
+                compareBy<Karta>(
+                    { poradiHodnotySedma(it.hodnota) },
+                    { it.barva.poradiRuky }
+                )
+            )
+        }
     }
 }
 

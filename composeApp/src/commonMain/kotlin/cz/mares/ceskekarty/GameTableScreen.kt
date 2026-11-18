@@ -676,22 +676,22 @@ fun GameTableScreen(
             val celkovaSirka = maxWidth
             val celkovaVyska = maxHeight
             val naSirku = celkovaSirka > celkovaVyska
-            val naVyskuDostMista = !naSirku && celkovaVyska >= 680.dp
+            val dostupnaSirkaStreduDp = (celkovaSirka.value - 16f).coerceAtLeast(240f)
 
             val sirkaKartyRuky: Dp = if (naSirku) {
-                (celkovaVyska.value * 0.17f).coerceIn(50f, 64f).dp
+                (celkovaVyska.value * 0.165f).coerceIn(48f, 62f).dp
             } else {
                 (celkovaSirka.value * 0.205f).coerceIn(66f, 79f).dp
             }
             val sirkaBalickuPrsi: Dp = if (naSirku) {
-                (celkovaVyska.value * 0.22f).coerceIn(62f, 84f).dp
+                (celkovaVyska.value * 0.155f).coerceIn(48f, 68f).dp
             } else {
-                min(celkovaSirka.value * 0.29f, celkovaVyska.value * 0.15f).coerceIn(86f, 110f).dp
+                min(celkovaSirka.value * 0.23f, celkovaVyska.value * 0.122f).coerceIn(72f, 92f).dp
             }
             val sirkaKartyStolu: Dp = if (naSirku) {
-                (celkovaVyska.value * 0.195f).coerceIn(56f, 74f).dp
+                (celkovaVyska.value * 0.155f).coerceIn(48f, 68f).dp
             } else {
-                min(celkovaSirka.value * 0.23f, celkovaVyska.value * 0.128f).coerceIn(76f, 94f).dp
+                min(celkovaSirka.value * 0.23f, celkovaVyska.value * 0.122f).coerceIn(72f, 92f).dp
             }
 
             Column(
@@ -773,6 +773,7 @@ fun GameTableScreen(
                                 stav = s,
                                 lokalniIndex = lokalniIndex,
                                 sirkaKarty = sirkaBalickuPrsi,
+                                dostupnaSirkaDp = dostupnaSirkaStreduDp,
                                 naSirku = naSirku,
                                 onLiznoutNeboStat = {
                                     val novy = PrsiEngine.lizniNeboStuj(s, lokalniIndex)
@@ -792,9 +793,9 @@ fun GameTableScreen(
                                 stav = s,
                                 lokalniIndex = lokalniIndex,
                                 sirkaKarty = sirkaKartyStolu,
-                                dostupnaSirkaDp = (celkovaSirka.value - 16f).coerceAtLeast(240f),
+                                dostupnaSirkaDp = dostupnaSirkaStreduDp,
                                 naSirku = naSirku,
-                                talonNadStychem = naVyskuDostMista,
+                                talonNadStychem = true,
                                 zobrazitUzavrenyStych = zobrazitUzavrenyStychSedma,
                                 onPustitNeboVzitStych = {
                                     val novy = SedmaEngine.pustStych(s, lokalniIndex)
@@ -814,7 +815,7 @@ fun GameTableScreen(
                                 stav = s,
                                 lokalniIndex = lokalniIndex,
                                 sirkaKarty = sirkaKartyStolu,
-                                talonNadStychem = naVyskuDostMista,
+                                talonNadStychem = true,
                                 zobrazitUzavrenyStych = zobrazitUzavrenyStychMarias,
                                 vybraneDoTalonu = vybraneKartyDoTalonu,
                                 planovanyZavazek = planovanyZavazekMariase,

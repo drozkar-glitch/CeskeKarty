@@ -15,6 +15,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +46,7 @@ internal fun StredStoluPrsi(
     stav: StavPrsi,
     lokalniIndex: Int,
     sirkaKarty: Dp,
+    dostupnaSirkaDp: Float,
     naSirku: Boolean,
     onLiznoutNeboStat: () -> Unit,
     onZvolitBarvuSvrskem: (BarvaKarty) -> Unit
@@ -54,9 +56,24 @@ internal fun StredStoluPrsi(
         PrsiEngine.zjistiPovoleneKarty(stav, lokalniIndex)
     }
 
+    val vynosKarty = stav.odhazovaciBalicek
+    val odhozScroll = rememberScrollState()
+    LaunchedEffect(vynosKarty.size) {
+        if (vynosKarty.size > 1) {
+            odhozScroll.animateScrollTo(odhozScroll.maxValue)
+        }
+    }
+
+    val delitelRady = vynosKarty.size.coerceIn(3, 4).toFloat()
+    val maxNaJednu = (dostupnaSirkaDp - 16f - (delitelRady - 1f) * 7f) / delitelRady
+    val sirkaVrchni: Dp = min(sirkaKarty.value, maxNaJednu).coerceAtLeast(if (naSirku) 48f else 62f).dp
+    val sirkaPredchozi: Dp = (sirkaVrchni.value * 0.90f).dp
+    val sirkaLizaciho: Dp = (sirkaKarty.value * if (naSirku) 0.78f else 0.86f).dp
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
+        modifier = Modifier.verticalScroll(rememberScrollState())
     ) {
         Text(
             text = stav.posledniHlaska,
@@ -74,29 +91,51 @@ internal fun StredStoluPrsi(
                 .padding(horizontal = 12.dp, vertical = 4.dp)
         )
 
-        Spacer(modifier = Modifier.height(if (naSirku) 6.dp else 12.dp))
+        Spacer(modifier = Modifier.height(if (naSirku) 4.dp else 7.dp))
+
+        KartaRubComposable(
+            sirka = sirkaLizaciho,
+            pocetVBalicku = stav.lizaciBalicek.size,
+            popisek = if (stav.aktivniEsoStoji) "STÁT" else "LÍZAT",
+            zvyseneZvyrazneni = naTahuLokalni && !stav.cekaNaVolbuBarvy && hratelneKarty.isEmpty(),
+            onClick = if (naTahuLokalni && !stav.cekaNaVolbuBarvy) onLiznoutNeboStat else null
+        )
+
+        Spacer(modifier = Modifier.height(if (naSirku) 5.dp else 8.dp))
 
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(if (naSirku) 20.dp else 26.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(odhozScroll)
+                .widthIn(min = dostupnaSirkaDp.dp)
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            KartaRubComposable(
-                sirka = sirkaKarty,
-                pocetVBalicku = stav.lizaciBalicek.size,
-                popisek = if (stav.aktivniEsoStoji) "STÁT" else "LÍZAT",
-                zvyseneZvyrazneni = naTahuLokalni && !stav.cekaNaVolbuBarvy && hratelneKarty.isEmpty(),
-                onClick = if (naTahuLokalni && !stav.cekaNaVolbuBarvy) onLiznoutNeboStat else null
-            )
-
-            KartaLiceComposable(
-                karta = stav.vrchniKarta,
-                sirka = sirkaKarty,
-                stitekNavic = stav.zvolenaBarvaSvrskem?.ceskyNazev
-            )
+            vynosKarty.forEachIndexed { idx, karta ->
+                val jeVrchni = idx == vynosKarty.lastIndex
+                val stitek = if (jeVrchni) {
+                    stav.zvolenaBarvaSvrskem?.ceskyNazev
+                        ?: if (vynosKarty.size > 1) "VRCHNÍ" else null
+                } else {
+                    null
+                }
+                Box(
+                    modifier = Modifier.graphicsLayer {
+                        alpha = if (jeVrchni) 1f else 0.78f
+                    }
+                ) {
+                    KartaLiceComposable(
+                        karta = karta,
+                        sirka = if (jeVrchni) sirkaVrchni else sirkaPredchozi,
+                        stitekNavic = stitek
+                    )
+                }
+            }
         }
 
         if (naTahuLokalni && !stav.cekaNaVolbuBarvy) {
-            Spacer(modifier = Modifier.height(if (naSirku) 6.dp else 12.dp))
+            Spacer(modifier = Modifier.height(if (naSirku) 5.dp else 8.dp))
             val popisekAkce = when {
                 stav.aktivniEsoStoji -> "Stát 1 kolo (potvrdit eso)"
                 stav.aktivniSedmyPocet > 0 -> "Líznout ${sklonujKartyAkuzativ(stav.aktivniSedmyPocet * 2)}"
@@ -116,7 +155,7 @@ internal fun StredStoluPrsi(
                         jemnaHaptika()
                         onLiznoutNeboStat()
                     }
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 7.dp)
             ) {
                 Text(
                     text = popisekAkce,
@@ -131,7 +170,7 @@ internal fun StredStoluPrsi(
         }
 
         if (naTahuLokalni && stav.cekaNaVolbuBarvy) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
@@ -306,7 +345,9 @@ private fun StychSedmaBox(
     jeNahledSebraneho: Boolean,
     jeSpalena: Boolean,
     zakladniSirkaKarty: Dp,
-    sirkaKartyVeStychu: Dp
+    sirkaKartyVeStychu: Dp,
+    mezeraKaret: Dp,
+    minSirkaKontejneruDp: Float
 ) {
     if (vyrezKaret.isEmpty()) {
         Box(
@@ -325,6 +366,13 @@ private fun StychSedmaBox(
             )
         }
         return
+    }
+
+    val stychScroll = rememberScrollState()
+    LaunchedEffect(vyrezKaret.size) {
+        if (vyrezKaret.size > 4) {
+            stychScroll.animateScrollTo(stychScroll.maxValue)
+        }
     }
 
     var kmitaniPlamene = 0f
@@ -357,11 +405,21 @@ private fun StychSedmaBox(
         }
     }
 
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-        modifier = Modifier
-            .horizontalScroll(rememberScrollState())
+    val radekModifier = if (minSirkaKontejneruDp > 0f) {
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(stychScroll)
+            .widthIn(min = minSirkaKontejneruDp.dp)
+            .padding(horizontal = 4.dp, vertical = if (jeSpalena) 6.dp else 0.dp)
+    } else {
+        Modifier
+            .horizontalScroll(stychScroll)
             .padding(vertical = if (jeSpalena) 6.dp else 0.dp)
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(mezeraKaret, Alignment.CenterHorizontally),
+        modifier = radekModifier
     ) {
         vyrezKaret.forEachIndexed { poradi, hrana ->
             val bereTato = hrana.indexHrace == drzitelStychu &&
@@ -423,7 +481,7 @@ internal fun StredStoluSedma(
     sirkaKarty: Dp,
     dostupnaSirkaDp: Float,
     naSirku: Boolean,
-    talonNadStychem: Boolean,
+    talonNadStychem: Boolean = true,
     zobrazitUzavrenyStych: Boolean,
     onPustitNeboVzitStych: () -> Unit,
     onNahlasitSpalenouZRuky: () -> Unit
@@ -436,22 +494,26 @@ internal fun StredStoluSedma(
     val jeSpalena = stav.spalenaTym >= 0
     val jeNahledSebraneho = stav.aktualniStych.isEmpty() && kartyStychu.isNotEmpty()
     val drzitelNaPlose = if (jeNahledSebraneho) stav.posledniUzavrenyVitez else stav.prozatimBereHrac
-    val vyrezStychu = kartyStychu.takeLast(4)
+    val vyrezStychu = kartyStychu
 
-    val sirkaVeStychu: Dp = if (talonNadStychem && vyrezStychu.isNotEmpty()) {
-        val maxNaJednu = (dostupnaSirkaDp - 24f) / vyrezStychu.size.coerceAtLeast(3).toFloat()
-        min(sirkaKarty.value, maxNaJednu).coerceAtLeast(64f).dp
+    val pocetVeStychu = vyrezStychu.size
+    val mezeraStychuDp = if (pocetVeStychu >= 5) 5f else 7f
+    val sirkaVeStychu: Dp = if (talonNadStychem && pocetVeStychu > 0) {
+        val delitel = pocetVeStychu.coerceIn(3, 6).toFloat()
+        val maxNaJednu = (dostupnaSirkaDp - 16f - (delitel - 1f) * mezeraStychuDp) / delitel
+        min(sirkaKarty.value, maxNaJednu).coerceAtLeast(if (naSirku) 46f else 52f).dp
     } else {
         sirkaKarty
     }
-    val sirkaTalonu: Dp = (sirkaKarty.value * if (talonNadStychem) 0.94f else 0.92f).dp
+    val sirkaTalonu: Dp = (sirkaKarty.value * if (naSirku) 0.78f else 0.88f).dp
     val hodnotaSpaleneZRuky = remember(stav, lokalniIndex) {
         SedmaEngine.zjistiSpalenouVRuce(stav, lokalniIndex)
     }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
+        modifier = Modifier.verticalScroll(rememberScrollState())
     ) {
         if (jeSpalena) {
             Box(
@@ -503,7 +565,7 @@ internal fun StredStoluSedma(
                 .padding(horizontal = 12.dp, vertical = 4.dp)
         )
 
-        Spacer(modifier = Modifier.height(if (naSirku) 5.dp else 8.dp))
+        Spacer(modifier = Modifier.height(if (naSirku) 4.dp else 7.dp))
 
         if (talonNadStychem) {
             KartaRubComposable(
@@ -511,14 +573,16 @@ internal fun StredStoluSedma(
                 pocetVBalicku = stav.lizaciBalicek.size,
                 popisek = "TALON"
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (naSirku) 5.dp else 8.dp))
             StychSedmaBox(
                 vyrezKaret = vyrezStychu,
                 drzitelStychu = drzitelNaPlose,
                 jeNahledSebraneho = jeNahledSebraneho,
                 jeSpalena = jeSpalena,
                 zakladniSirkaKarty = sirkaKarty,
-                sirkaKartyVeStychu = sirkaVeStychu
+                sirkaKartyVeStychu = sirkaVeStychu,
+                mezeraKaret = mezeraStychuDp.dp,
+                minSirkaKontejneruDp = dostupnaSirkaDp
             )
         } else {
             Row(
@@ -536,13 +600,15 @@ internal fun StredStoluSedma(
                     jeNahledSebraneho = jeNahledSebraneho,
                     jeSpalena = jeSpalena,
                     zakladniSirkaKarty = sirkaKarty,
-                    sirkaKartyVeStychu = sirkaVeStychu
+                    sirkaKartyVeStychu = sirkaVeStychu,
+                    mezeraKaret = mezeraStychuDp.dp,
+                    minSirkaKontejneruDp = 0f
                 )
             }
         }
 
         if ((stav.muzePustitStych && stav.naTahu == lokalniIndex && !stav.jeKonec) || hodnotaSpaleneZRuky != null) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (naSirku) 5.dp else 8.dp))
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically

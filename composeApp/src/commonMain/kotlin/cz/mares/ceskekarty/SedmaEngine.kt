@@ -72,7 +72,7 @@ data class StavSedma(
             val jmena = r.text("jm").split(";").let { seznam ->
                 List(pocet) { idx -> seznam.getOrNull(idx) ?: "Hráč ${idx + 1}" }
             }
-            val ruce = List(pocet) { idx -> retezecNaKarty(r.text("r$idx")) }
+            val ruce = List(pocet) { idx -> Karta.seradRukuSedma(retezecNaKarty(r.text("r$idx"))) }
             return StavSedma(
                 pocetHracu = pocet,
                 jmenaHracu = jmena,
@@ -124,7 +124,7 @@ object SedmaEngine {
             repeat(4) {
                 if (balicek.isNotEmpty()) ruka.add(balicek.removeAt(0))
             }
-            Karta.seradRuku(ruka)
+            Karta.seradRukuSedma(ruka)
         }
         val startIndex = zacinajiciHrac.mod(pocet)
         val rezimText = variantaPravidel.kratkyNazev.lowercase()
@@ -177,7 +177,7 @@ object SedmaEngine {
         val jmeno = stav.jmenaHracu[indexHrace]
         val vylozenyStych = ctyriKarty.map { HranaKartaStolu(indexHrace, jmeno, it) }
         val noveRuce = stav.ruceHracu.mapIndexed { idx, r ->
-            if (idx == indexHrace) r.filterNot { it.hodnota == hodnotaCtyrky } else r
+            if (idx == indexHrace) Karta.seradRukuSedma(r.filterNot { it.hodnota == hodnotaCtyrky }) else r
         }
         val viteznyTym = stav.tymHrace(indexHrace)
         return stav.copy(
@@ -224,7 +224,7 @@ object SedmaEngine {
         if (karta !in povolene) return stav
 
         val jmeno = stav.jmenaHracu[indexHrace]
-        val novaRuka = Karta.seradRuku(stav.ruceHracu[indexHrace].filterNot { it == karta })
+        val novaRuka = Karta.seradRukuSedma(stav.ruceHracu[indexHrace].filterNot { it == karta })
         val noveRuce = stav.ruceHracu.mapIndexed { idx, r -> if (idx == indexHrace) novaRuka else r }
 
         val vedouci = stav.vedouciHodnota ?: karta.hodnota
@@ -396,7 +396,7 @@ object SedmaEngine {
             }
         }
 
-        val serazeneRuce = ruceMut.map { Karta.seradRuku(it) }
+        val serazeneRuce = ruceMut.map { Karta.seradRukuSedma(it) }
         val vsechnyPrazdne = serazeneRuce.all { it.isEmpty() }
         val bonusPosledniho = if (vsechnyPrazdne) 10 else 0
 

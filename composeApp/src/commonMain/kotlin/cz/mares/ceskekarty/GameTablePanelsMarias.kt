@@ -54,7 +54,10 @@ private fun VykresliStychMariase(
             )
         }
     } else {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
             for (polozka in kartyNaPlose) {
                 val bereStych = jeNahledSebraneho && polozka.indexHrace == vitezUzavreneho
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -116,7 +119,7 @@ internal fun StredStoluMarias(
     stav: StavMarias,
     lokalniIndex: Int,
     sirkaKarty: Dp,
-    talonNadStychem: Boolean,
+    talonNadStychem: Boolean = true,
     zobrazitUzavrenyStych: Boolean,
     vybraneDoTalonu: List<Karta>,
     planovanyZavazek: ZavazekMariase,
@@ -468,7 +471,7 @@ internal fun StredStoluMarias(
                     else -> emptyList()
                 }
                 val nahledSebraneho = stav.aktualniStych.isEmpty() && stychKarty.isNotEmpty()
-                val sirkaTalonu = (sirkaKarty.value * 0.86f).dp
+                val sirkaTalonu = (sirkaKarty.value * 0.84f).dp
                 val karetVTalonu = stav.talon.size.takeIf { it > 0 } ?: 2
                 val vynasejiciJmeno = stav.jmenaHracu.getOrElse(stav.naTahu) { "Hráč" }
 
@@ -480,14 +483,14 @@ internal fun StredStoluMarias(
                         lineHeight = 14.sp,
                         fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(5.dp))
                     if (talonNadStychem) {
                         KartaRubComposable(
                             sirka = sirkaTalonu,
                             pocetVBalicku = karetVTalonu,
                             popisek = "TALON"
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         VykresliStychMariase(
                             kartyNaPlose = stychKarty,
                             jeNahledSebraneho = nahledSebraneho,
@@ -568,7 +571,7 @@ internal fun SpodniRukaHrace(
         }
         TypHry.SEDMA -> {
             val s = stavSedma
-            kartyVRuce = s?.ruceHracu?.getOrNull(lokalniIndex) ?: emptyList()
+            kartyVRuce = s?.ruceHracu?.getOrNull(lokalniIndex)?.let { Karta.seradRukuSedma(it) } ?: emptyList()
             val hrajeTah = s != null && !s.jeKonec && s.naTahu == lokalniIndex
             hratelneKarty = if (hrajeTah && s != null) SedmaEngine.zjistiPovoleneKarty(s, lokalniIndex) else emptySet()
             aktivniVyberKarty = hrajeTah
@@ -1033,9 +1036,9 @@ internal fun PanelVyuctovaniPartie(
                     modifier = Modifier
                         .weight(1f)
                         .height(46.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
                 ) {
                     val popisekZpet = when {
                         jeOnlineTurnaj && jeTurnajHotovy -> "Zpět k pavouku"
