@@ -1,6 +1,7 @@
 package cz.mares.ceskekarty
 
 import kotlin.math.max
+import kotlin.random.Random
 
 const val CIL_VITEZNYCH_BITEV_DUELU = 3
 const val MAX_HER_DUEL_SERIE = 5
@@ -19,6 +20,19 @@ val TURNAJOVI_BOTI: List<Pair<String, String>> = listOf(
     "bot_standa" to "Standa (Bot)",
     "bot_venca" to "Venca (Bot)"
 )
+
+fun vylosujJmenaOfflineBotu(pocetBotu: Int): List<String> {
+    if (pocetBotu <= 0) return emptyList()
+    return TURNAJOVI_BOTI.shuffled().take(pocetBotu).map { it.second }
+}
+
+private fun vypoctiSeedTurnaje(turnajId: String, casStartuMs: Long): Long {
+    var h = casStartuMs xor -0x340d631b7bdddcdbL
+    for (ch in turnajId) {
+        h = (h xor ch.code.toLong()) * 0x100000001b3L
+    }
+    return if (h == 0L) 1L else h
+}
 
 data class PrahyCas(
     val rok: Int,
@@ -399,7 +413,8 @@ fun vygenerujNahledPavoukaPredStartem(turnaj: PlanovanyTurnaj): List<UzelZapasuP
 
 fun sestavStartovniUzlySHraciABoty(turnaj: PlanovanyTurnaj): Pair<List<HracUStolu>, List<UzelZapasuPavouka>> {
     val zivi = turnaj.ucastnici.filterNot { jeBotDeviceId(it.deviceId) }
-    val dostupniBoti = TURNAJOVI_BOTI.map { (id, jm) -> HracUStolu(id, jm, STARTOVNI_TEREZIANY) }
+    val zamichaniBoti = TURNAJOVI_BOTI.shuffled(Random(vypoctiSeedTurnaje(turnaj.turnajId, turnaj.casStartuMs)))
+    val dostupniBoti = zamichaniBoti.map { (id, jm) -> HracUStolu(id, jm, STARTOVNI_TEREZIANY) }
     var botIdx = 0
 
     if (turnaj.typHry == TypHry.MARIAS) {

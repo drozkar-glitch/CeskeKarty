@@ -202,8 +202,8 @@ fun GameTableScreen(
         ?: nactiVychoziVariantuPravidel()
 
     val vychoziJmenaOffline = remember(aktivniTypHry, pocetHracu, mojePrezdivka) {
-        val botJmena = listOf("Karel (Bot)", "Pepa (Bot)", "Franta (Bot)")
-        listOf(mojePrezdivka) + botJmena.take((pocetHracu - 1).coerceAtLeast(1))
+        val pocetBotu = (pocetHracu - 1).coerceAtLeast(1)
+        listOf(mojePrezdivka) + vylosujJmenaOfflineBotu(pocetBotu)
     }
 
     var cisloOfflineRozdani by remember { mutableStateOf(1) }

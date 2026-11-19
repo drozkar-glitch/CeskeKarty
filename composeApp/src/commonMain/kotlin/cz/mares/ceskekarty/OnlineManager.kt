@@ -1,6 +1,7 @@
 package cz.mares.ceskekarty
 
 import kotlin.math.max
+import kotlin.random.Random
 import kotlinx.coroutines.delay
 
 const val FIREBASE_DB_ZAKLAD = "https://mares-games-default-rtdb.europe-west1.firebasedatabase.app"
@@ -1095,8 +1096,16 @@ object OnlineManager {
         if (idx < 0 || jeBotDeviceId(odpojeneDeviceId)) return stul
 
         val pouzitaIdBotu = stul.hraci.map { it.deviceId }.toSet()
-        val nahradnik = TURNAJOVI_BOTI.firstOrNull { it.first !in pouzitaIdBotu }
-            ?: ("bot_zaskok_$idx" to "Zaskakující Bot")
+        val volniBoti = TURNAJOVI_BOTI.filter { it.first !in pouzitaIdBotu }
+        val nahradnik = if (volniBoti.isNotEmpty()) {
+            var seed = stul.vytvorenoMs xor ((idx + 1).toLong() * 2654435761L)
+            for (ch in stul.roomId) {
+                seed = (seed xor ch.code.toLong()) * 0x100000001b3L
+            }
+            volniBoti[Random(if (seed == 0L) 1L else seed).nextInt(volniBoti.size)]
+        } else {
+            "bot_zaskok_$idx" to "Zaskakující Bot"
+        }
 
         val noviHraci = stul.hraci.mapIndexed { i, h ->
             if (i == idx) HracUStolu(nahradnik.first, nahradnik.second, STARTOVNI_TEREZIANY) else h
