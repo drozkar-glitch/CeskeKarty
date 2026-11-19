@@ -1,32 +1,46 @@
 package cz.mares.ceskekarty
 
+import kotlin.math.abs
+
 enum class FazeMariase {
+    DRAZBA,
     VOLBA_TRUMFU,
     ODKLADANI_TALONU,
     FLEKOVANI,
     SEHRAVKA,
-    KONEC
+    KONEC;
+
+    companion object {
+        fun dleNazvu(text: String): FazeMariase {
+            return entries.firstOrNull { it.name.equals(text.trim(), ignoreCase = true) } ?: VOLBA_TRUMFU
+        }
+    }
 }
 
 enum class ZavazekMariase(
     val nazev: String,
-    val jeBezTrumfu: Boolean,
     val hlasiSto: Boolean,
     val hlasiSedmu: Boolean,
-    val hlasiDveSedmy: Boolean
+    val hlasiDveSedmy: Boolean,
+    val jeBezTrumfu: Boolean,
+    val vahaDrazby: Int
 ) {
-    HRA("Hra", jeBezTrumfu = false, hlasiSto = false, hlasiSedmu = false, hlasiDveSedmy = false),
-    HRA_A_SEDMA("Hra a sedma", jeBezTrumfu = false, hlasiSto = false, hlasiSedmu = true, hlasiDveSedmy = false),
-    HRA_A_DVE_SEDMY("Hra a dvě sedmy", jeBezTrumfu = false, hlasiSto = false, hlasiSedmu = true, hlasiDveSedmy = true),
-    STO("Stovka (100)", jeBezTrumfu = false, hlasiSto = true, hlasiSedmu = false, hlasiDveSedmy = false),
-    STO_A_SEDMA("Sto a sedma", jeBezTrumfu = false, hlasiSto = true, hlasiSedmu = true, hlasiDveSedmy = false),
-    STO_A_DVE_SEDMY("Sto a dvě sedmy", jeBezTrumfu = false, hlasiSto = true, hlasiSedmu = true, hlasiDveSedmy = true),
-    BETL("Betl", jeBezTrumfu = true, hlasiSto = false, hlasiSedmu = false, hlasiDveSedmy = false),
-    DURCH("Durch", jeBezTrumfu = true, hlasiSto = false, hlasiSedmu = false, hlasiDveSedmy = false);
+    HRA("Hra", hlasiSto = false, hlasiSedmu = false, hlasiDveSedmy = false, jeBezTrumfu = false, vahaDrazby = 1),
+    HRA_A_SEDMA("Hra a sedma", hlasiSto = false, hlasiSedmu = true, hlasiDveSedmy = false, jeBezTrumfu = false, vahaDrazby = 2),
+    STO("Stovka", hlasiSto = true, hlasiSedmu = false, hlasiDveSedmy = false, jeBezTrumfu = false, vahaDrazby = 3),
+    BETL("Betl", hlasiSto = false, hlasiSedmu = false, hlasiDveSedmy = false, jeBezTrumfu = true, vahaDrazby = 4),
+    STO_A_SEDMA("Sto a sedma", hlasiSto = true, hlasiSedmu = true, hlasiDveSedmy = false, jeBezTrumfu = false, vahaDrazby = 5),
+    DURCH("Durch", hlasiSto = false, hlasiSedmu = false, hlasiDveSedmy = false, jeBezTrumfu = true, vahaDrazby = 6),
+    HRA_A_DVE_SEDMY("Hra a dvě sedmy", hlasiSto = false, hlasiSedmu = true, hlasiDveSedmy = true, jeBezTrumfu = false, vahaDrazby = 7),
+    STO_A_DVE_SEDMY("Sto a dvě sedmy", hlasiSto = true, hlasiSedmu = true, hlasiDveSedmy = true, jeBezTrumfu = false, vahaDrazby = 8);
 
     companion object {
-        fun dleJmena(jmeno: String): ZavazekMariase {
-            return entries.firstOrNull { it.name == jmeno } ?: HRA
+        val poradiDrazby: List<ZavazekMariase> = entries.sortedBy { it.vahaDrazby }
+
+        fun dleNazvu(text: String): ZavazekMariase? {
+            val cisty = text.trim()
+            if (cisty.isEmpty()) return null
+            return entries.firstOrNull { it.name.equals(cisty, ignoreCase = true) }
         }
     }
 }
@@ -36,6 +50,24 @@ data class TahStychuMariase(
     val jmenoHrace: String,
     val karta: Karta
 )
+
+private fun stychMariaseNaRetezec(stych: List<TahStychuMariase>): String {
+    return stych.joinToString(";") { polozka ->
+        val bezpecneJmeno = polozka.jmenoHrace.replace(";", " ").replace(":", " ").replace("|", " ")
+        "${polozka.indexHrace}:${bezpecneJmeno}:${polozka.karta.kod}"
+    }
+}
+
+private fun retezecNaStychMariase(retezec: String): List<TahStychuMariase> {
+    if (retezec.isBlank()) return emptyList()
+    return retezec.split(";").mapNotNull { zaznam ->
+        val casti = zaznam.split(":")
+        if (casti.size < 3) return@mapNotNull null
+        val idx = casti[0].toIntOrNull() ?: return@mapNotNull null
+        val karta = Karta.zKodu(casti[2]) ?: return@mapNotNull null
+        TahStychuMariase(idx, casti[1], karta)
+    }
+}
 
 data class PolozkaVyuctovaniMariase(
     val popis: String,
@@ -61,153 +93,154 @@ data class VyuctovaniMariase(
 data class StavMarias(
     val jmenaHracu: List<String>,
     val ruceHracu: List<List<Karta>>,
-    val zbytekProForhonta: List<Karta>,
-    val talon: List<Karta>,
-    val faze: FazeMariase,
     val indexForhonta: Int,
     val naTahu: Int,
+    val faze: FazeMariase,
     val trumf: BarvaKarty?,
     val volenoZTalonu: Boolean,
     val zavazek: ZavazekMariase,
+    val zbytekProForhonta: List<Karta>,
+    val talon: List<Karta>,
     val nasobekFlekHra: Int,
     val nasobekFlekSedma: Int,
-    val aktivniFlekHra: Boolean,
-    val aktivniFlekSedma: Boolean,
-    val flekKrok: Int,
-    val cisloStychu: Int,
+    val flekovalHruObrance: Boolean,
+    val flekovalSedmuObrance: Boolean,
+    val pocetOdpovediFlekuVKole: Int,
     val aktualniStych: List<TahStychuMariase>,
+    val cisloStychu: Int,
+    val pocetStychuForhont: Int,
+    val pocetStychuObrana: Int,
     val bodyKaretForhont: Int,
     val bodyKaretObrana: Int,
     val hlaskyForhont: Int,
     val hlaskyObrana: Int,
-    val pocetStychuForhont: Int,
-    val pocetStychuObrana: Int,
-    val stych9VitezIndex: Int,
-    val stych9ViteznaKarta: Karta?,
-    val stych10VitezIndex: Int,
-    val stych10ViteznaKarta: Karta?,
-    val stych10TrumfSedmaOdIndexu: Int,
+    val stavDevatehoStychuSedma: Int,
+    val stavPoslednihoStychuSedma: Int,
     val posledniHlaska: String,
     val cisloTahu: Int,
     val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA,
     val posledniUzavrenyStych: List<TahStychuMariase> = emptyList(),
-    val posledniUzavrenyVitez: Int = -1
+    val posledniUzavrenyVitez: Int = -1,
+    val rezimMariase: RezimMariase = RezimMariase.VOLENY,
+    val pocetHracu: Int = 3,
+    val puvodniForhont: Int = indexForhonta,
+    val nejvyssiNabidka: ZavazekMariase? = null,
+    val prozatimniVitezDrazby: Int = -1,
+    val pasovaliHraci: List<Boolean> = listOf(false, false, false),
+    val slozenoBezHry: Boolean = false,
+    val lizaciBalicek: List<Karta> = emptyList(),
+    val otocenyTrumf: Karta? = null
 ) {
     val jeBetlNeboDurch: Boolean
         get() = zavazek.jeBezTrumfu
 
     fun doKompaktnihoRetezce(): String {
-        val cisteJmena = jmenaHracu.joinToString(",") {
-            it.replace(",", " ").replace("|", " ").replace("=", " ").replace(";", " ")
+        val pole = ArrayList<Pair<String, String>>()
+        pole.add("rm" to rezimMariase.kod)
+        pole.add("ph" to pocetHracu.toString())
+        pole.add("jm" to jmenaHracu.joinToString(";"))
+        for (i in 0 until pocetHracu) {
+            pole.add("r$i" to kartyNaRetezec(ruceHracu.getOrElse(i) { emptyList() }))
         }
-        val ruceText = ruceHracu.joinToString("/") { MariasEngine.zakodujKarty(it) }
-        val stychText = aktualniStych.joinToString(",") { "${it.indexHrace}.${MariasEngine.zakodujJednuKartu(it.karta)}" }
-        val pusText = posledniUzavrenyStych.joinToString(",") { "${it.indexHrace}.${MariasEngine.zakodujJednuKartu(it.karta)}" }
-        val cistaHlaska = posledniHlaska.replace("|", "-").replace("=", "-").replace(";", ",")
-
-        return serializujMapuPoli(
-            listOf(
-                "jm" to cisteJmena,
-                "ru" to ruceText,
-                "zb" to MariasEngine.zakodujKarty(zbytekProForhonta),
-                "ta" to MariasEngine.zakodujKarty(talon),
-                "fa" to faze.name,
-                "fo" to indexForhonta.toString(),
-                "nt" to naTahu.toString(),
-                "tr" to (trumf?.name ?: ""),
-                "vt" to if (volenoZTalonu) "1" else "0",
-                "za" to zavazek.name,
-                "fh" to nasobekFlekHra.toString(),
-                "fs" to nasobekFlekSedma.toString(),
-                "ah" to if (aktivniFlekHra) "1" else "0",
-                "as" to if (aktivniFlekSedma) "1" else "0",
-                "fk" to flekKrok.toString(),
-                "cs" to cisloStychu.toString(),
-                "st" to stychText,
-                "bf" to bodyKaretForhont.toString(),
-                "bo" to bodyKaretObrana.toString(),
-                "hf" to hlaskyForhont.toString(),
-                "ho" to hlaskyObrana.toString(),
-                "sf" to pocetStychuForhont.toString(),
-                "so" to pocetStychuObrana.toString(),
-                "v9" to stych9VitezIndex.toString(),
-                "k9" to (stych9ViteznaKarta?.let { MariasEngine.zakodujJednuKartu(it) } ?: ""),
-                "v10" to stych10VitezIndex.toString(),
-                "k10" to (stych10ViteznaKarta?.let { MariasEngine.zakodujJednuKartu(it) } ?: ""),
-                "ts10" to stych10TrumfSedmaOdIndexu.toString(),
-                "hl" to cistaHlaska,
-                "ct" to cisloTahu.toString(),
-                "vp" to variantaPravidel.kod,
-                "pus" to pusText,
-                "puv" to posledniUzavrenyVitez.toString()
-            )
-        )
+        pole.add("ifh" to indexForhonta.toString())
+        pole.add("pfh" to puvodniForhont.toString())
+        pole.add("nt" to naTahu.toString())
+        pole.add("fz" to faze.name)
+        pole.add("tr" to (trumf?.name ?: ""))
+        pole.add("vzt" to if (volenoZTalonu) "1" else "0")
+        pole.add("zav" to zavazek.name)
+        pole.add("zpf" to kartyNaRetezec(zbytekProForhonta))
+        pole.add("tal" to kartyNaRetezec(talon))
+        pole.add("nfh" to nasobekFlekHra.toString())
+        pole.add("nfs" to nasobekFlekSedma.toString())
+        pole.add("fho" to if (flekovalHruObrance) "1" else "0")
+        pole.add("fso" to if (flekovalSedmuObrance) "1" else "0")
+        pole.add("pof" to pocetOdpovediFlekuVKole.toString())
+        pole.add("ast" to stychMariaseNaRetezec(aktualniStych))
+        pole.add("cst" to cisloStychu.toString())
+        pole.add("psf" to pocetStychuForhont.toString())
+        pole.add("pso" to pocetStychuObrana.toString())
+        pole.add("bkf" to bodyKaretForhont.toString())
+        pole.add("bko" to bodyKaretObrana.toString())
+        pole.add("hlf" to hlaskyForhont.toString())
+        pole.add("hlo" to hlaskyObrana.toString())
+        pole.add("sd9" to stavDevatehoStychuSedma.toString())
+        pole.add("sp10" to stavPoslednihoStychuSedma.toString())
+        pole.add("hl" to posledniHlaska)
+        pole.add("ct" to cisloTahu.toString())
+        pole.add("vp" to variantaPravidel.kod)
+        pole.add("pus" to stychMariaseNaRetezec(posledniUzavrenyStych))
+        pole.add("puv" to posledniUzavrenyVitez.toString())
+        pole.add("nnb" to (nejvyssiNabidka?.name ?: ""))
+        pole.add("pvd" to prozatimniVitezDrazby.toString())
+        pole.add("pas" to pasovaliHraci.joinToString(",") { if (it) "1" else "0" })
+        pole.add("sbh" to if (slozenoBezHry) "1" else "0")
+        pole.add("liz" to kartyNaRetezec(lizaciBalicek))
+        pole.add("otr" to (otocenyTrumf?.kod ?: ""))
+        return serializujMapuPoli(pole)
     }
 
     companion object {
-        private fun dekodujStychMariase(retezec: String, jmena: List<String>): List<TahStychuMariase> {
-            if (retezec.isBlank()) return emptyList()
-            return retezec.split(",").mapNotNull { polozka ->
-                val tecka = polozka.indexOf('.')
-                if (tecka <= 0) return@mapNotNull null
-                val idx = polozka.substring(0, tecka).toIntOrNull() ?: return@mapNotNull null
-                val karta = MariasEngine.dekodujJednuKartu(polozka.substring(tecka + 1)) ?: return@mapNotNull null
-                TahStychuMariase(
-                    indexHrace = idx,
-                    jmenoHrace = jmena.getOrElse(idx) { "Hráč" },
-                    karta = karta
-                )
-            }
-        }
-
         fun zKompaktnihoRetezce(data: String): StavMarias? {
             if (data.isBlank()) return null
             val r = PoleStavuReader(data)
-            val jmena = r.text("jm").split(",").filter { it.isNotBlank() }
-            if (jmena.size != 3) return null
-
-            val ruceCasti = r.text("ru").split("/")
-            val ruce = List(3) { idx ->
-                MariasEngine.dekodujKarty(ruceCasti.getOrElse(idx) { "" })
+            val rezim = RezimMariase.dleKodu(r.text("rm", RezimMariase.VOLENY.kod))
+            val pocet = r.cislo("ph", rezim.pocetHracu).let { if (rezim == RezimMariase.LIZACI) 2 else if (it == 2) 2 else 3 }
+            val zalozniJmena = listOf("Ty", "Karel (Bot)", "Pepa (Bot)")
+            val jmena = r.text("jm").split(";").let { seznam ->
+                List(pocet) { idx ->
+                    seznam.getOrNull(idx)?.takeIf { it.isNotBlank() } ?: zalozniJmena.getOrElse(idx) { "Hráč ${idx + 1}" }
+                }
             }
-            val trumfText = r.text("tr")
-            val trumf = BarvaKarty.entries.firstOrNull { it.name == trumfText }
-            val faze = FazeMariase.entries.firstOrNull { it.name == r.text("fa") } ?: FazeMariase.VOLBA_TRUMFU
-
+            val ruce = List(pocet) { idx -> retezecNaKarty(r.text("r$idx")) }
+            val ifh = r.cislo("ifh", 0).mod(pocet)
+            val pasText = r.text("pas")
+            val pasovali = if (pasText.isBlank()) {
+                List(pocet) { false }
+            } else {
+                val casti = pasText.split(",")
+                List(pocet) { idx -> casti.getOrNull(idx) == "1" }
+            }
             return StavMarias(
                 jmenaHracu = jmena,
                 ruceHracu = ruce,
-                zbytekProForhonta = MariasEngine.dekodujKarty(r.text("zb")),
-                talon = MariasEngine.dekodujKarty(r.text("ta")),
-                faze = faze,
-                indexForhonta = r.cislo("fo", 0).coerceIn(0, 2),
-                naTahu = r.cislo("nt", 0).coerceIn(0, 2),
-                trumf = trumf,
-                volenoZTalonu = r.text("vt") == "1",
-                zavazek = ZavazekMariase.dleJmena(r.text("za", "HRA")),
-                nasobekFlekHra = r.cislo("fh", 1).coerceIn(1, 32),
-                nasobekFlekSedma = r.cislo("fs", 1).coerceIn(1, 32),
-                aktivniFlekHra = r.text("ah", "1") == "1",
-                aktivniFlekSedma = r.text("as", "0") == "1",
-                flekKrok = r.cislo("fk", 0),
-                cisloStychu = r.cislo("cs", 1),
-                aktualniStych = dekodujStychMariase(r.text("st"), jmena),
-                bodyKaretForhont = r.cislo("bf", 0),
-                bodyKaretObrana = r.cislo("bo", 0),
-                hlaskyForhont = r.cislo("hf", 0),
-                hlaskyObrana = r.cislo("ho", 0),
-                pocetStychuForhont = r.cislo("sf", 0),
-                pocetStychuObrana = r.cislo("so", 0),
-                stych9VitezIndex = r.cislo("v9", -1),
-                stych9ViteznaKarta = MariasEngine.dekodujJednuKartu(r.text("k9")),
-                stych10VitezIndex = r.cislo("v10", -1),
-                stych10ViteznaKarta = MariasEngine.dekodujJednuKartu(r.text("k10")),
-                stych10TrumfSedmaOdIndexu = r.cislo("ts10", -1),
-                posledniHlaska = r.text("hl", ""),
-                cisloTahu = r.cislo("ct", 0),
+                indexForhonta = ifh,
+                naTahu = r.cislo("nt", ifh).mod(pocet),
+                faze = FazeMariase.dleNazvu(r.text("fz", FazeMariase.VOLBA_TRUMFU.name)),
+                trumf = BarvaKarty.dleNazvu(r.text("tr")),
+                volenoZTalonu = r.pravda("vzt", false),
+                zavazek = ZavazekMariase.dleNazvu(r.text("zav")) ?: ZavazekMariase.HRA,
+                zbytekProForhonta = retezecNaKarty(r.text("zpf")),
+                talon = retezecNaKarty(r.text("tal")),
+                nasobekFlekHra = r.cislo("nfh", 1).coerceAtLeast(1),
+                nasobekFlekSedma = r.cislo("nfs", 1).coerceAtLeast(1),
+                flekovalHruObrance = r.pravda("fho", false),
+                flekovalSedmuObrance = r.pravda("fso", false),
+                pocetOdpovediFlekuVKole = r.cislo("pof", 0),
+                aktualniStych = retezecNaStychMariase(r.text("ast")),
+                cisloStychu = r.cislo("cst", 1),
+                pocetStychuForhont = r.cislo("psf", 0),
+                pocetStychuObrana = r.cislo("pso", 0),
+                bodyKaretForhont = r.cislo("bkf", 0),
+                bodyKaretObrana = r.cislo("bko", 0),
+                hlaskyForhont = r.cislo("hlf", 0),
+                hlaskyObrana = r.cislo("hlo", 0),
+                stavDevatehoStychuSedma = r.cislo("sd9", 0),
+                stavPoslednihoStychuSedma = r.cislo("sp10", 0),
+                posledniHlaska = r.text("hl"),
+                cisloTahu = r.cislo("ct", 1),
                 variantaPravidel = VariantaPravidel.dleKodu(r.text("vp", VariantaPravidel.HOSPODSKA.kod)),
-                posledniUzavrenyStych = dekodujStychMariase(r.text("pus"), jmena),
-                posledniUzavrenyVitez = r.cislo("puv", -1)
+                posledniUzavrenyStych = retezecNaStychMariase(r.text("pus")),
+                posledniUzavrenyVitez = r.cislo("puv", -1),
+                rezimMariase = rezim,
+                pocetHracu = pocet,
+                puvodniForhont = r.cislo("pfh", ifh).mod(pocet),
+                nejvyssiNabidka = ZavazekMariase.dleNazvu(r.text("nnb")),
+                prozatimniVitezDrazby = r.cislo("pvd", -1),
+                pasovaliHraci = pasovali,
+                slozenoBezHry = r.pravda("sbh", false),
+                lizaciBalicek = retezecNaKarty(r.text("liz")),
+                otocenyTrumf = Karta.zKodu(r.text("otr"))
             )
         }
     }
@@ -215,307 +248,261 @@ data class StavMarias(
 
 object MariasEngine {
 
-    fun zakodujJednuKartu(karta: Karta): String {
-        val b = when (karta.barva) {
-            BarvaKarty.CERVENE -> 'C'
-            BarvaKarty.KULE -> 'K'
-            BarvaKarty.ZELENE -> 'Z'
-            BarvaKarty.ZALUDY -> 'A'
-        }
-        val h = when (karta.hodnota) {
-            HodnotaKarty.R7 -> '7'
-            HodnotaKarty.R8 -> '8'
-            HodnotaKarty.R9 -> '9'
-            HodnotaKarty.R10 -> 'X'
-            HodnotaKarty.SPODEK -> 'J'
-            HodnotaKarty.SVRSEK -> 'Q'
-            HodnotaKarty.KRAL -> 'K'
-            HodnotaKarty.ESO -> 'E'
-        }
-        return "$b$h"
-    }
-
-    fun dekodujJednuKartu(kod: String): Karta? {
-        val cisty = kod.trim()
-        if (cisty.length != 2) return null
-        val barva = when (cisty[0]) {
-            'C' -> BarvaKarty.CERVENE
-            'K' -> BarvaKarty.KULE
-            'Z' -> BarvaKarty.ZELENE
-            'A' -> BarvaKarty.ZALUDY
-            else -> return null
-        }
-        val hodnota = when (cisty[1]) {
-            '7' -> HodnotaKarty.R7
-            '8' -> HodnotaKarty.R8
-            '9' -> HodnotaKarty.R9
-            'X' -> HodnotaKarty.R10
-            'J' -> HodnotaKarty.SPODEK
-            'Q' -> HodnotaKarty.SVRSEK
-            'K' -> HodnotaKarty.KRAL
-            'E' -> HodnotaKarty.ESO
-            else -> return null
-        }
-        return Karta(barva, hodnota)
-    }
-
-    fun zakodujKarty(karty: List<Karta>): String {
-        if (karty.isEmpty()) return ""
-        return karty.joinToString(".") { zakodujJednuKartu(it) }
-    }
-
-    fun dekodujKarty(text: String): List<Karta> {
-        if (text.isBlank()) return emptyList()
-        return text.split(".").mapNotNull { dekodujJednuKartu(it) }
-    }
-
-    fun nazevStupneFleku(nasobek: Int): String = when (nasobek) {
-        2 -> "Flek (2×)"
-        4 -> "Re (4×)"
-        8 -> "Tutti (8×)"
-        16 -> "Boty (16×)"
-        32 -> "Kalhoty (32×)"
-        else -> "1×"
-    }
-
-    private fun silaKarty(hodnota: HodnotaKarty, bezTrumfu: Boolean): Int {
-        return if (bezTrumfu) {
-            when (hodnota) {
-                HodnotaKarty.R7 -> 1
-                HodnotaKarty.R8 -> 2
-                HodnotaKarty.R9 -> 3
-                HodnotaKarty.R10 -> 4
-                HodnotaKarty.SPODEK -> 5
-                HodnotaKarty.SVRSEK -> 6
-                HodnotaKarty.KRAL -> 7
-                HodnotaKarty.ESO -> 8
-            }
-        } else {
-            when (hodnota) {
-                HodnotaKarty.R7 -> 1
-                HodnotaKarty.R8 -> 2
-                HodnotaKarty.R9 -> 3
-                HodnotaKarty.SPODEK -> 4
-                HodnotaKarty.SVRSEK -> 5
-                HodnotaKarty.KRAL -> 6
-                HodnotaKarty.R10 -> 7
-                HodnotaKarty.ESO -> 8
-            }
-        }
-    }
-
-    private fun bodyKarty(hodnota: HodnotaKarty): Int {
-        return if (hodnota == HodnotaKarty.ESO || hodnota == HodnotaKarty.R10) 10 else 0
-    }
-
-    private fun bodyHlaskyKartyVRuce(karta: Karta, ruka: List<Karta>, trumf: BarvaKarty?, bezTrumfu: Boolean): Int {
-        if (bezTrumfu) return 0
-        if (karta.hodnota != HodnotaKarty.SVRSEK && karta.hodnota != HodnotaKarty.KRAL) return 0
-        val parova = if (karta.hodnota == HodnotaKarty.SVRSEK) HodnotaKarty.KRAL else HodnotaKarty.SVRSEK
-        return if (ruka.any { it.barva == karta.barva && it.hodnota == parova }) {
-            if (karta.barva == trumf) 40 else 20
-        } else {
-            0
-        }
-    }
-
-    private fun seradRuku(karty: List<Karta>, trumf: BarvaKarty?, bezTrumfu: Boolean): List<Karta> {
-        return karty.sortedWith(
-            compareBy<Karta>(
-                { k ->
-                    if (!bezTrumfu && trumf != null && k.barva == trumf) -1
-                    else when (k.barva) {
-                        BarvaKarty.CERVENE -> 0
-                        BarvaKarty.KULE -> 1
-                        BarvaKarty.ZELENE -> 2
-                        BarvaKarty.ZALUDY -> 3
-                    }
-                },
-                { k -> -silaKarty(k.hodnota, bezTrumfu) }
-            )
-        )
-    }
-
-    private fun celyNazevKarty(karta: Karta): String {
-        val barvaSlovo = when (karta.barva) {
-            BarvaKarty.CERVENE -> "Červená"
-            BarvaKarty.KULE -> "Kulová"
-            BarvaKarty.ZELENE -> "Zelená"
-            BarvaKarty.ZALUDY -> "Žaludová"
-        }
-        val hodnotaSlovo = when (karta.hodnota) {
-            HodnotaKarty.R7 -> "sedma"
-            HodnotaKarty.R8 -> "osma"
-            HodnotaKarty.R9 -> "devítka"
-            HodnotaKarty.R10 -> "desítka"
-            HodnotaKarty.SPODEK -> "spodek"
-            HodnotaKarty.SVRSEK -> "svršek"
-            HodnotaKarty.KRAL -> "král"
-            HodnotaKarty.ESO -> "eso"
-        }
-        return "$barvaSlovo $hodnotaSlovo"
-    }
-
     fun novaHra(
         jmenaHracu: List<String>,
         indexForhonta: Int = 0,
-        balicek: List<Karta> = Karta.vytvorZamichanyBalicek(),
-        variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
+        predmichanyBalicek: List<Karta>? = null,
+        variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA,
+        rezimMariase: RezimMariase = RezimMariase.VOLENY
     ): StavMarias {
-        val upravenaJmena = when {
-            jmenaHracu.size >= 3 -> jmenaHracu.take(3)
-            else -> (jmenaHracu + listOf("Karel", "Pepa", "Franta")).take(3)
+        val balicek = (predmichanyBalicek?.takeIf { it.size == 32 } ?: Karta.vytvorZamichanyBalicek()).toMutableList()
+
+        if (rezimMariase == RezimMariase.LIZACI) {
+            val zalozni2 = listOf("Ty", "Karel (Bot)")
+            val jmena2 = List(2) { idx -> jmenaHracu.getOrNull(idx)?.takeIf { it.isNotBlank() } ?: zalozni2[idx] }
+            val start2 = indexForhonta.mod(2)
+            return MariasVariantyEngine.novaHraLizaci(jmena2, start2, balicek, variantaPravidel)
         }
-        val forhont = indexForhonta.coerceIn(0, 2)
-        val obrance1 = (forhont + 1) % 3
-        val obrance2 = (forhont + 2) % 3
 
-        val zdroj = if (balicek.size == 32) balicek else Karta.vytvorZamichanyBalicek()
-        val prvnich7Forhont = seradRuku(zdroj.subList(0, 7), null, false)
-        val zbytek5Forhont = zdroj.subList(7, 12)
-        val rukaObr1 = seradRuku(zdroj.subList(12, 22), null, false)
-        val rukaObr2 = seradRuku(zdroj.subList(22, 32), null, false)
+        val zalozni3 = listOf("Ty", "Karel (Bot)", "Pepa (Bot)")
+        val jmena3 = List(3) { idx -> jmenaHracu.getOrNull(idx)?.takeIf { it.isNotBlank() } ?: zalozni3[idx] }
+        val startForhont = indexForhonta.mod(3)
 
-        val ruce = MutableList(3) { emptyList<Karta>() }
-        ruce[forhont] = prvnich7Forhont
-        ruce[obrance1] = rukaObr1
-        ruce[obrance2] = rukaObr2
+        if (rezimMariase == RezimMariase.LICITOVANY) {
+            return MariasVariantyEngine.novaHraLicitovany(jmena3, startForhont, balicek, variantaPravidel)
+        }
+
+        // Volený mariáš pro 3 hráče: forhont dostane 7 karet k volbě trumfu (+ 5 čeká v balíčku), obrana po 10 kartách
+        val ruceMut = List(3) { ArrayList<Karta>(10) }
+        repeat(7) { if (balicek.isNotEmpty()) ruceMut[startForhont].add(balicek.removeAt(0)) }
+        val obrance1 = (startForhont + 1) % 3
+        val obrance2 = (startForhont + 2) % 3
+        repeat(5) { if (balicek.isNotEmpty()) ruceMut[obrance1].add(balicek.removeAt(0)) }
+        repeat(5) { if (balicek.isNotEmpty()) ruceMut[obrance2].add(balicek.removeAt(0)) }
+        val zbytek5 = ArrayList<Karta>(5)
+        repeat(5) { if (balicek.isNotEmpty()) zbytek5.add(balicek.removeAt(0)) }
+        repeat(5) { if (balicek.isNotEmpty()) ruceMut[obrance1].add(balicek.removeAt(0)) }
+        repeat(5) { if (balicek.isNotEmpty()) ruceMut[obrance2].add(balicek.removeAt(0)) }
+
+        val serazene = ruceMut.map { Karta.seradRuku(it) }
+        val rezimPravidelText = variantaPravidel.kratkyNazev.lowercase()
 
         return StavMarias(
-            jmenaHracu = upravenaJmena,
-            ruceHracu = ruce,
-            zbytekProForhonta = zbytek5Forhont,
-            talon = emptyList(),
+            jmenaHracu = jmena3,
+            ruceHracu = serazene,
+            indexForhonta = startForhont,
+            naTahu = startForhont,
             faze = FazeMariase.VOLBA_TRUMFU,
-            indexForhonta = forhont,
-            naTahu = forhont,
             trumf = null,
             volenoZTalonu = false,
             zavazek = ZavazekMariase.HRA,
+            zbytekProForhonta = zbytek5,
+            talon = emptyList(),
             nasobekFlekHra = 1,
             nasobekFlekSedma = 1,
-            aktivniFlekHra = false,
-            aktivniFlekSedma = false,
-            flekKrok = 0,
-            cisloStychu = 1,
+            flekovalHruObrance = false,
+            flekovalSedmuObrance = false,
+            pocetOdpovediFlekuVKole = 0,
             aktualniStych = emptyList(),
+            cisloStychu = 1,
+            pocetStychuForhont = 0,
+            pocetStychuObrana = 0,
             bodyKaretForhont = 0,
             bodyKaretObrana = 0,
             hlaskyForhont = 0,
             hlaskyObrana = 0,
-            pocetStychuForhont = 0,
-            pocetStychuObrana = 0,
-            stych9VitezIndex = -1,
-            stych9ViteznaKarta = null,
-            stych10VitezIndex = -1,
-            stych10ViteznaKarta = null,
-            stych10TrumfSedmaOdIndexu = -1,
-            posledniHlaska = "Rozdáno (${variantaPravidel.kratkyNazev.lowercase()} pravidla)! Forhont ${upravenaJmena[forhont]} volí trumf ze 7 karet.",
+            stavDevatehoStychuSedma = 0,
+            stavPoslednihoStychuSedma = 0,
+            posledniHlaska = "Volený mariáš ($rezimPravidelText) — trumf volí ${jmena3[startForhont]}.",
             cisloTahu = 1,
             variantaPravidel = variantaPravidel,
             posledniUzavrenyStych = emptyList(),
-            posledniUzavrenyVitez = -1
+            posledniUzavrenyVitez = -1,
+            rezimMariase = RezimMariase.VOLENY,
+            pocetHracu = 3,
+            puvodniForhont = startForhont
         )
+    }
+
+    fun zjistiPovoleneNabidkyDrazby(stav: StavMarias, indexHrace: Int): List<ZavazekMariase> {
+        return MariasVariantyEngine.zjistiPovoleneNabidkyDrazby(stav, indexHrace)
+    }
+
+    fun provedNabidkuDrazby(stav: StavMarias, indexHrace: Int, nabidka: ZavazekMariase?): StavMarias {
+        return MariasVariantyEngine.provedNabidkuDrazby(stav, indexHrace, nabidka)
+    }
+
+    fun muzeVymenitTrumfovouSedmu(stav: StavMarias, indexHrace: Int): Boolean {
+        return MariasVariantyEngine.muzeVymenitTrumfovouSedmu(stav, indexHrace)
+    }
+
+    fun vymenTrumfovouSedmu(stav: StavMarias, indexHrace: Int): StavMarias {
+        return MariasVariantyEngine.vymenTrumfovouSedmu(stav, indexHrace)
+    }
+
+    fun nazevStupneFleku(novyNasobek: Int): String {
+        return when (novyNasobek) {
+            2 -> "Flek"
+            4 -> "Re"
+            8 -> "Tutti"
+            16 -> "Boty"
+            32 -> "Kalhoty"
+            else -> "${novyNasobek}×"
+        }
+    }
+
+    fun maPravouSedmu(stav: StavMarias, vybraneDoTalonu: List<Karta> = emptyList()): Boolean {
+        val trumf = stav.trumf ?: return false
+        val ruka = stav.ruceHracu.getOrNull(stav.indexForhonta) ?: return false
+        val poOdlozeni = ruka.filterNot { it in vybraneDoTalonu }
+        return Karta(trumf, HodnotaKarty.R7) in poOdlozeni
+    }
+
+    fun maPraveDveSedmy(stav: StavMarias, vybraneDoTalonu: List<Karta> = emptyList()): Boolean {
+        if (!maPravouSedmu(stav, vybraneDoTalonu)) return false
+        val ruka = stav.ruceHracu.getOrNull(stav.indexForhonta) ?: return false
+        val poOdlozeni = ruka.filterNot { it in vybraneDoTalonu }
+        return poOdlozeni.count { it.hodnota == HodnotaKarty.R7 } >= 2
     }
 
     fun zvolTrumfNeboHruBezTrumfu(
         stav: StavMarias,
         zvolenyTrumf: BarvaKarty?,
-        zTalonu: Boolean,
-        pocatecniZavazek: ZavazekMariase = ZavazekMariase.HRA
+        volitZTalonu: Boolean,
+        planovanyZavazek: ZavazekMariase = ZavazekMariase.HRA
     ): StavMarias {
         if (stav.faze != FazeMariase.VOLBA_TRUMFU) return stav
-        val forhont = stav.indexForhonta
+        val fh = stav.indexForhonta
+        val jmeno = stav.jmenaHracu.getOrElse(fh) { "Forhont" }
+        val spojena12 = stav.ruceHracu[fh] + stav.zbytekProForhonta
 
-        val urcenyZavazek = when {
-            zTalonu -> ZavazekMariase.HRA
-            pocatecniZavazek.jeBezTrumfu -> pocatecniZavazek
-            else -> ZavazekMariase.HRA
-        }
-        val kartaZTalonu = stav.zbytekProForhonta.lastOrNull()
-        val urcenyTrumf = when {
-            urcenyZavazek.jeBezTrumfu -> null
-            zTalonu -> kartaZTalonu?.barva ?: BarvaKarty.CERVENE
-            else -> zvolenyTrumf ?: BarvaKarty.CERVENE
-        }
-
-        val dvanactKaret = seradRuku(
-            stav.ruceHracu[forhont] + stav.zbytekProForhonta,
-            urcenyTrumf,
-            urcenyZavazek.jeBezTrumfu
-        )
-        val noveRuce = stav.ruceHracu.mapIndexed { idx, ruka ->
-            if (idx == forhont) dvanactKaret else seradRuku(ruka, urcenyTrumf, urcenyZavazek.jeBezTrumfu)
-        }
-
-        val hlaska = when {
-            urcenyZavazek.jeBezTrumfu ->
-                "${stav.jmenaHracu[forhont]} chystá ${urcenyZavazek.nazev} a odkládá 2 karty do talonu."
-            zTalonu && kartaZTalonu != null ->
-                "${stav.jmenaHracu[forhont]} volil z talonu (${celyNazevKarty(kartaZTalonu)}) — trumfem jsou ${urcenyTrumf?.ceskyNazev}!"
-            else ->
-                "${stav.jmenaHracu[forhont]} zvolil trumf ${urcenyTrumf?.ceskyNazev} a odkládá 2 karty do talonu."
+        if (planovanyZavazek.jeBezTrumfu) {
+            if (stav.rezimMariase == RezimMariase.LICITOVANY) {
+                if (planovanyZavazek == ZavazekMariase.BETL && !MariasVariantyEngine.muzeVolitRovnouBetl(stav)) return stav
+                if (planovanyZavazek == ZavazekMariase.DURCH && !MariasVariantyEngine.muzeVolitRovnouDurch(stav)) return stav
+            }
+            val serazena = Karta.seradRuku(spojena12, trumf = null, betlNeboDurch = true)
+            val noveRuce = stav.ruceHracu.mapIndexed { idx, r -> if (idx == fh) serazena else r }
+            return stav.copy(
+                ruceHracu = noveRuce,
+                faze = FazeMariase.ODKLADANI_TALONU,
+                trumf = null,
+                volenoZTalonu = false,
+                zavazek = planovanyZavazek,
+                zbytekProForhonta = emptyList(),
+                posledniHlaska = "$jmeno volí ${planovanyZavazek.nazev} a odkládá 2 karty do talonu.",
+                cisloTahu = stav.cisloTahu + 1
+            )
         }
 
-        return stav.copy(
+        if (volitZTalonu && stav.rezimMariase == RezimMariase.VOLENY && stav.zbytekProForhonta.isNotEmpty()) {
+            val otocena = stav.zbytekProForhonta.last()
+            val trumfBarva = otocena.barva
+            val serazena = Karta.seradRuku(spojena12, trumf = trumfBarva, betlNeboDurch = false)
+            val noveRuce = stav.ruceHracu.mapIndexed { idx, r -> if (idx == fh) serazena else r }
+            return stav.copy(
+                ruceHracu = noveRuce,
+                faze = FazeMariase.ODKLADANI_TALONU,
+                trumf = trumfBarva,
+                volenoZTalonu = true,
+                zavazek = ZavazekMariase.HRA,
+                zbytekProForhonta = emptyList(),
+                posledniHlaska = "$jmeno volí z talonu (${otocena.celyNazev()} -> trumf ${trumfBarva.ceskyNazev}) a odkládá 2 karty.",
+                cisloTahu = stav.cisloTahu + 1
+            )
+        }
+
+        val barva = zvolenyTrumf ?: return stav
+        if (stav.rezimMariase == RezimMariase.LICITOVANY && barva !in MariasVariantyEngine.zjistiPovoleneTrumfyPoDrazbe(stav)) {
+            return stav
+        }
+        val serazena = Karta.seradRuku(spojena12, trumf = barva, betlNeboDurch = false)
+        val noveRuce = stav.ruceHracu.mapIndexed { idx, r -> if (idx == fh) serazena else r }
+        val vychoziZavazek = if (stav.rezimMariase == RezimMariase.LICITOVANY && stav.nejvyssiNabidka != null) {
+            stav.nejvyssiNabidka
+        } else {
+            ZavazekMariase.HRA
+        }
+        val predbeznyStav = stav.copy(
             ruceHracu = noveRuce,
-            zbytekProForhonta = emptyList(),
             faze = FazeMariase.ODKLADANI_TALONU,
-            naTahu = forhont,
-            trumf = urcenyTrumf,
-            volenoZTalonu = zTalonu && !urcenyZavazek.jeBezTrumfu,
-            zavazek = urcenyZavazek,
-            posledniHlaska = hlaska,
+            trumf = barva,
+            volenoZTalonu = false,
+            zavazek = vychoziZavazek,
+            zbytekProForhonta = emptyList()
+        )
+        val platneZavazky = zjistiPovoleneZavazkyTalonu(predbeznyStav)
+        val upravenyZavazek = if (vychoziZavazek in platneZavazky) {
+            vychoziZavazek
+        } else {
+            platneZavazky.firstOrNull() ?: ZavazekMariase.HRA
+        }
+        return predbeznyStav.copy(
+            zavazek = upravenyZavazek,
+            posledniHlaska = "$jmeno volí trumf ${barva.ceskyNazev} a odkládá 2 karty do talonu.",
             cisloTahu = stav.cisloTahu + 1
         )
     }
 
-    fun maPravouSedmu(stav: StavMarias, vybraneDoTalonu: List<Karta> = emptyList()): Boolean {
-        val trumf = stav.trumf ?: return false
-        val zbyvajiciRuka = (stav.ruceHracu.getOrNull(stav.indexForhonta) ?: emptyList()) - vybraneDoTalonu.toSet()
-        return zbyvajiciRuka.any { it.barva == trumf && it.hodnota == HodnotaKarty.R7 }
-    }
-
-    fun maPraveDveSedmy(stav: StavMarias, vybraneDoTalonu: List<Karta> = emptyList()): Boolean {
-        val trumf = stav.trumf ?: return false
-        val zbyvajiciRuka = (stav.ruceHracu.getOrNull(stav.indexForhonta) ?: emptyList()) - vybraneDoTalonu.toSet()
-        val maTrumfovou = zbyvajiciRuka.any { it.barva == trumf && it.hodnota == HodnotaKarty.R7 }
-        val maVedlejsi = zbyvajiciRuka.any { it.barva != trumf && it.hodnota == HodnotaKarty.R7 }
-        return maTrumfovou && maVedlejsi
-    }
-
-    /**
-     * Seznam povolených závazků při odkládání talonu podle zvolených pravidel:
-     * - Hospodská pravidla povolují i falešnou sedmu / dvě sedmy jako blaf.
-     * - Svazová pravidla dovolují hlásit sedmu / dvě sedmy výhradně tehdy, když je forhont skutečně drží.
-     */
     fun zjistiPovoleneZavazkyTalonu(stav: StavMarias): List<ZavazekMariase> {
-        if (stav.volenoZTalonu) return listOf(ZavazekMariase.HRA)
-        if (stav.trumf == null) return listOf(ZavazekMariase.BETL, ZavazekMariase.DURCH)
+        val minVaha = if (stav.rezimMariase == RezimMariase.LICITOVANY) {
+            stav.nejvyssiNabidka?.vahaDrazby ?: 1
+        } else {
+            1
+        }
 
-        val vsechny = listOf(
+        if (stav.zavazek.jeBezTrumfu) {
+            return listOf(ZavazekMariase.BETL, ZavazekMariase.DURCH)
+                .filter { it.vahaDrazby >= minVaha }
+                .ifEmpty { listOf(stav.zavazek) }
+        }
+
+        if (stav.volenoZTalonu) {
+            val zTalonuMoznosti = listOf(
+                ZavazekMariase.HRA,
+                ZavazekMariase.HRA_A_SEDMA,
+                ZavazekMariase.STO,
+                ZavazekMariase.STO_A_SEDMA,
+                ZavazekMariase.HRA_A_DVE_SEDMY,
+                ZavazekMariase.STO_A_DVE_SEDMY
+            )
+            return zTalonuMoznosti.filter { zav ->
+                if (stav.variantaPravidel == VariantaPravidel.SVAZOVA) {
+                    when {
+                        zav.hlasiDveSedmy -> maPraveDveSedmy(stav)
+                        zav.hlasiSedmu -> maPravouSedmu(stav)
+                        else -> true
+                    }
+                } else {
+                    true
+                }
+            }
+        }
+
+        val poradiTalonu = listOf(
             ZavazekMariase.HRA,
             ZavazekMariase.HRA_A_SEDMA,
-            ZavazekMariase.HRA_A_DVE_SEDMY,
             ZavazekMariase.STO,
             ZavazekMariase.STO_A_SEDMA,
+            ZavazekMariase.HRA_A_DVE_SEDMY,
             ZavazekMariase.STO_A_DVE_SEDMY,
             ZavazekMariase.BETL,
             ZavazekMariase.DURCH
         )
-        if (stav.variantaPravidel == VariantaPravidel.HOSPODSKA) {
-            return vsechny
-        }
 
-        val ma7Celkem = maPravouSedmu(stav, emptyList())
-        val ma2SedmyCelkem = maPraveDveSedmy(stav, emptyList())
-        return vsechny.filter { zav ->
-            when {
-                zav.hlasiDveSedmy -> ma2SedmyCelkem
-                zav.hlasiSedmu -> ma7Celkem
-                else -> true
+        val vysledek = poradiTalonu.filter { zav ->
+            if (zav.vahaDrazby < minVaha) return@filter false
+            if (stav.variantaPravidel == VariantaPravidel.SVAZOVA) {
+                when {
+                    zav.hlasiDveSedmy -> maPraveDveSedmy(stav)
+                    zav.hlasiSedmu -> maPravouSedmu(stav)
+                    else -> true
+                }
+            } else {
+                true
             }
         }
+        return vysledek.ifEmpty { listOf(ZavazekMariase.STO) }
     }
 
     fun zjistiKartyPovoleneDoTalonu(stav: StavMarias, planovanyZavazek: ZavazekMariase): Set<Karta> {
@@ -523,206 +510,274 @@ object MariasEngine {
         if (planovanyZavazek.jeBezTrumfu) {
             return ruka.toSet()
         }
-        var kandidati = ruka.filter { it.hodnota != HodnotaKarty.ESO && it.hodnota != HodnotaKarty.R10 }
 
-        // Ve svazových pravidlech chráníme hlášenou trumfovou sedmu (a jedinou vedlejší sedmu u dvou sedem) před odložením do talonu
-        if (stav.variantaPravidel == VariantaPravidel.SVAZOVA && planovanyZavazek.hlasiSedmu && stav.trumf != null) {
-            kandidati = kandidati.filterNot { it.barva == stav.trumf && it.hodnota == HodnotaKarty.R7 }
+        // V trumfové hře nelze do talonu odložit eso ani desítku
+        var povolene = ruka.filter {
+            it.hodnota != HodnotaKarty.ESO && it.hodnota != HodnotaKarty.R10
+        }
+
+        if (stav.variantaPravidel == VariantaPravidel.SVAZOVA && stav.trumf != null) {
+            val trumfSedma = Karta(stav.trumf, HodnotaKarty.R7)
+            if (planovanyZavazek.hlasiSedmu) {
+                povolene = povolene.filterNot { it == trumfSedma }
+            }
             if (planovanyZavazek.hlasiDveSedmy) {
-                val vedlejsiSedmy = ruka.filter { it.barva != stav.trumf && it.hodnota == HodnotaKarty.R7 }
-                if (vedlejsiSedmy.size <= 1) {
-                    kandidati = kandidati.filterNot { it in vedlejsiSedmy }
+                val vsechnySedmy = ruka.filter { it.hodnota == HodnotaKarty.R7 }
+                if (vsechnySedmy.size <= 2) {
+                    povolene = povolene.filterNot { it.hodnota == HodnotaKarty.R7 }
                 }
             }
         }
-        return if (kandidati.size >= 2) kandidati.toSet() else ruka.toSet()
+
+        return if (povolene.size >= 2) povolene.toSet() else ruka.toSet()
     }
 
     fun potvrdTalonAZavazek(
         stav: StavMarias,
-        odlozeneKarty: List<Karta>,
+        odkladaneKarty: List<Karta>,
         zvolenyZavazek: ZavazekMariase
     ): StavMarias {
-        if (stav.faze != FazeMariase.ODKLADANI_TALONU) return stav
-        val forhont = stav.indexForhonta
-        val ruka = stav.ruceHracu[forhont]
-        if (odlozeneKarty.size != 2 || !ruka.containsAll(odlozeneKarty)) return stav
+        if (stav.faze != FazeMariase.ODKLADANI_TALONU || odkladaneKarty.size != 2) return stav
+        val povoleneZavazky = zjistiPovoleneZavazkyTalonu(stav)
+        val platnyZavazek = if (zvolenyZavazek in povoleneZavazky) {
+            zvolenyZavazek
+        } else {
+            povoleneZavazky.firstOrNull() ?: return stav
+        }
 
-        var platnyZavazek = if (stav.volenoZTalonu) ZavazekMariase.HRA else zvolenyZavazek
+        val povoleneKarty = zjistiKartyPovoleneDoTalonu(stav, platnyZavazek)
+        if (!odkladaneKarty.all { it in povoleneKarty }) return stav
         if (stav.variantaPravidel == VariantaPravidel.SVAZOVA) {
-            if (platnyZavazek.hlasiDveSedmy && !maPraveDveSedmy(stav, odlozeneKarty)) {
-                platnyZavazek = if (maPravouSedmu(stav, odlozeneKarty)) {
-                    if (platnyZavazek.hlasiSto) ZavazekMariase.STO_A_SEDMA else ZavazekMariase.HRA_A_SEDMA
-                } else {
-                    if (platnyZavazek.hlasiSto) ZavazekMariase.STO else ZavazekMariase.HRA
-                }
-            } else if (platnyZavazek.hlasiSedmu && !maPravouSedmu(stav, odlozeneKarty)) {
-                platnyZavazek = if (platnyZavazek.hlasiSto) ZavazekMariase.STO else ZavazekMariase.HRA
-            }
+            if (platnyZavazek.hlasiDveSedmy && !maPraveDveSedmy(stav, odkladaneKarty)) return stav
+            if (platnyZavazek.hlasiSedmu && !maPravouSedmu(stav, odkladaneKarty)) return stav
         }
 
-        val povolene = zjistiKartyPovoleneDoTalonu(stav, platnyZavazek)
-        if (!odlozeneKarty.all { it in povolene }) return stav
+        val fh = stav.indexForhonta
+        val novyTrumf = if (platnyZavazek.jeBezTrumfu) null else stav.trumf
+        val bezTrumfu = platnyZavazek.jeBezTrumfu
 
-        val platnyTrumf = if (platnyZavazek.jeBezTrumfu) null else (stav.trumf ?: BarvaKarty.CERVENE)
-        val novaRukaForhonta = seradRuku(ruka - odlozeneKarty.toSet(), platnyTrumf, platnyZavazek.jeBezTrumfu)
-        val noveRuce = stav.ruceHracu.mapIndexed { idx, h ->
-            if (idx == forhont) novaRukaForhonta else seradRuku(h, platnyTrumf, platnyZavazek.jeBezTrumfu)
+        val zbylaRukaForhonta = stav.ruceHracu[fh].toMutableList()
+        for (k in odkladaneKarty) {
+            zbylaRukaForhonta.remove(k)
         }
 
-        val bodyTalonuObrana = if (platnyZavazek.jeBezTrumfu) 0 else odlozeneKarty.sumOf { bodyKarty(it.hodnota) }
-        val obrance1 = (forhont + 1) % 3
-        val popisTrumfu = if (platnyZavazek.jeBezTrumfu) "" else " (${platnyTrumf?.ceskyNazev})"
+        val noveRuce = stav.ruceHracu.mapIndexed { idx, r ->
+            val zdroj = if (idx == fh) zbylaRukaForhonta else r
+            Karta.seradRuku(zdroj, trumf = novyTrumf, betlNeboDurch = bezTrumfu)
+        }
+
+        val prvniObrance = (fh + 1) % 3
+        val jmenoFh = stav.jmenaHracu.getOrElse(fh) { "Forhont" }
+        val popisTrumfu = if (bezTrumfu) "bez trumfů" else (novyTrumf?.ceskyNazev ?: "")
 
         return stav.copy(
             ruceHracu = noveRuce,
-            talon = odlozeneKarty,
-            faze = FazeMariase.FLEKOVANI,
-            trumf = platnyTrumf,
+            trumf = novyTrumf,
+            volenoZTalonu = if (bezTrumfu) false else stav.volenoZTalonu,
             zavazek = platnyZavazek,
-            naTahu = obrance1,
+            talon = odkladaneKarty,
+            faze = FazeMariase.FLEKOVANI,
+            naTahu = prvniObrance,
             nasobekFlekHra = 1,
             nasobekFlekSedma = 1,
-            aktivniFlekHra = true,
-            aktivniFlekSedma = platnyZavazek.hlasiSedmu,
-            flekKrok = 0,
-            bodyKaretObrana = bodyTalonuObrana,
-            posledniHlaska = "${stav.jmenaHracu[forhont]} hlásí: ${platnyZavazek.nazev}$popisTrumfu! Obrana se vyjadřuje k fleku.",
+            flekovalHruObrance = false,
+            flekovalSedmuObrance = false,
+            pocetOdpovediFlekuVKole = 0,
+            posledniHlaska = "$jmenoFh odložil talon a hlásí ${platnyZavazek.nazev} ($popisTrumfu)! Vyjadřuje se ${stav.jmenaHracu[prvniObrance]}.",
             cisloTahu = stav.cisloTahu + 1
         )
     }
 
     fun muzeHracFlekHry(stav: StavMarias, indexHrace: Int): Boolean {
-        if (stav.faze != FazeMariase.FLEKOVANI || stav.naTahu != indexHrace || !stav.aktivniFlekHra) return false
+        if (stav.faze != FazeMariase.FLEKOVANI || stav.naTahu != indexHrace) return false
+        if (stav.nasobekFlekHra >= 32) return false
         return if (indexHrace == stav.indexForhonta) {
-            stav.nasobekFlekHra == 2 || stav.nasobekFlekHra == 8
+            stav.flekovalHruObrance && (stav.nasobekFlekHra == 2 || stav.nasobekFlekHra == 8)
         } else {
-            stav.nasobekFlekHra == 1 || stav.nasobekFlekHra == 4 || stav.nasobekFlekHra == 16
+            !stav.flekovalHruObrance && (stav.nasobekFlekHra == 1 || stav.nasobekFlekHra == 4 || stav.nasobekFlekHra == 16)
         }
     }
 
     fun muzeHracFlekSedmy(stav: StavMarias, indexHrace: Int): Boolean {
-        if (stav.faze != FazeMariase.FLEKOVANI || stav.naTahu != indexHrace || !stav.aktivniFlekSedma) return false
-        if (!stav.zavazek.hlasiSedmu) return false
+        if (stav.faze != FazeMariase.FLEKOVANI || stav.naTahu != indexHrace) return false
+        if (!stav.zavazek.hlasiSedmu || stav.nasobekFlekSedma >= 32) return false
         return if (indexHrace == stav.indexForhonta) {
-            stav.nasobekFlekSedma == 2 || stav.nasobekFlekSedma == 8
+            stav.flekovalSedmuObrance && (stav.nasobekFlekSedma == 2 || stav.nasobekFlekSedma == 8)
         } else {
-            stav.nasobekFlekSedma == 1 || stav.nasobekFlekSedma == 4 || stav.nasobekFlekSedma == 16
+            !stav.flekovalSedmuObrance && (stav.nasobekFlekSedma == 1 || stav.nasobekFlekSedma == 4 || stav.nasobekFlekSedma == 16)
+        }
+    }
+
+    private fun kdoVynasiPrvniStych(stav: StavMarias): Int {
+        return if (stav.rezimMariase == RezimMariase.LICITOVANY && !stav.jeBetlNeboDurch) {
+            stav.puvodniForhont
+        } else {
+            stav.indexForhonta
         }
     }
 
     fun odpovezNaFlekovani(
         stav: StavMarias,
         indexHrace: Int,
-        zvednoutHru: Boolean,
-        zvednoutSedmu: Boolean
+        flekHra: Boolean,
+        flekSedma: Boolean
     ): StavMarias {
         if (stav.faze != FazeMariase.FLEKOVANI || stav.naTahu != indexHrace) return stav
 
-        val forhont = stav.indexForhonta
-        val obrance1 = (forhont + 1) % 3
-        val obrance2 = (forhont + 2) % 3
+        val opravduHra = flekHra && muzeHracFlekHry(stav, indexHrace)
+        val opravduSedma = flekSedma && muzeHracFlekSedmy(stav, indexHrace)
+        val novyNasobekHra = if (opravduHra) (stav.nasobekFlekHra * 2).coerceAtMost(32) else stav.nasobekFlekHra
+        val novyNasobekSedma = if (opravduSedma) (stav.nasobekFlekSedma * 2).coerceAtMost(32) else stav.nasobekFlekSedma
+        val jmeno = stav.jmenaHracu.getOrElse(indexHrace) { "Hráč" }
 
-        val platnyZdvihHry = zvednoutHru && muzeHracFlekHry(stav, indexHrace)
-        val platnyZdvihSedmy = zvednoutSedmu && muzeHracFlekSedmy(stav, indexHrace)
-
-        val novyNasHra = if (platnyZdvihHry) (stav.nasobekFlekHra * 2).coerceAtMost(32) else stav.nasobekFlekHra
-        val novyNasSedma = if (platnyZdvihSedmy) (stav.nasobekFlekSedma * 2).coerceAtMost(32) else stav.nasobekFlekSedma
-
-        val jmeno = stav.jmenaHracu[indexHrace]
-        val reakceText = when {
-            platnyZdvihHry && platnyZdvihSedmy ->
-                "$jmeno dává ${nazevStupneFleku(novyNasHra)} na hru i ${nazevStupneFleku(novyNasSedma)} na sedmu!"
-            platnyZdvihHry ->
-                "$jmeno dává ${nazevStupneFleku(novyNasHra)} na hru!"
-            platnyZdvihSedmy ->
-                "$jmeno dává ${nazevStupneFleku(novyNasSedma)} na ${if (stav.zavazek.hlasiDveSedmy) "dvě sedmy" else "sedmu"}!"
+        val popisAkce = when {
+            opravduHra && opravduSedma ->
+                "hlásí ${nazevStupneFleku(novyNasobekHra)} na hru i ${nazevStupneFleku(novyNasobekSedma)} na sedmu"
+            opravduHra ->
+                "hlásí ${nazevStupneFleku(novyNasobekHra)} na hru (${novyNasobekHra}×)"
+            opravduSedma ->
+                "hlásí ${nazevStupneFleku(novyNasobekSedma)} na sedmu (${novyNasobekSedma}×)"
             else ->
-                "$jmeno hlásí: Dobrý."
+                "říká Dobrý"
         }
 
-        if (stav.flekKrok == 0) {
-            val obr2MuzeHru = stav.aktivniFlekHra && (novyNasHra == 1 || novyNasHra == 4 || novyNasHra == 16)
-            val obr2MuzeSedmu = stav.aktivniFlekSedma && stav.zavazek.hlasiSedmu &&
-                (novyNasSedma == 1 || novyNasSedma == 4 || novyNasSedma == 16)
-            if (obr2MuzeHru || obr2MuzeSedmu) {
+        // Odpovídá forhont (Re / Boty nebo Dobrý)
+        if (indexHrace == stav.indexForhonta) {
+            if (!opravduHra && !opravduSedma) {
+                val vynasi = kdoVynasiPrvniStych(stav)
                 return stav.copy(
-                    nasobekFlekHra = novyNasHra,
-                    nasobekFlekSedma = novyNasSedma,
-                    flekKrok = 1,
-                    naTahu = obrance2,
-                    posledniHlaska = reakceText,
+                    faze = FazeMariase.SEHRAVKA,
+                    naTahu = vynasi,
+                    flekovalHruObrance = false,
+                    flekovalSedmuObrance = false,
+                    pocetOdpovediFlekuVKole = 0,
+                    posledniHlaska = "$jmeno $popisAkce — začíná sehrávka, vynáší ${stav.jmenaHracu[vynasi]}!",
                     cisloTahu = stav.cisloTahu + 1
                 )
             }
-            return ukonciKoloObranyVeFlekovani(stav, novyNasHra, novyNasSedma, reakceText)
+
+            val prvniObrance = (stav.indexForhonta + 1) % 3
+            val docasny = stav.copy(
+                nasobekFlekHra = novyNasobekHra,
+                nasobekFlekSedma = novyNasobekSedma,
+                flekovalHruObrance = false,
+                flekovalSedmuObrance = false,
+                naTahu = prvniObrance,
+                pocetOdpovediFlekuVKole = 0
+            )
+            val muzeObranaZvednout = muzeHracFlekHry(docasny, prvniObrance) || muzeHracFlekSedmy(docasny, prvniObrance)
+            return if (muzeObranaZvednout) {
+                docasny.copy(
+                    posledniHlaska = "$jmeno $popisAkce! Vyjadřuje se ${stav.jmenaHracu[prvniObrance]}.",
+                    cisloTahu = stav.cisloTahu + 1
+                )
+            } else {
+                val vynasi = kdoVynasiPrvniStych(stav)
+                docasny.copy(
+                    faze = FazeMariase.SEHRAVKA,
+                    naTahu = vynasi,
+                    posledniHlaska = "$jmeno $popisAkce — začíná sehrávka, vynáší ${stav.jmenaHracu[vynasi]}!",
+                    cisloTahu = stav.cisloTahu + 1
+                )
+            }
         }
 
-        if (stav.flekKrok == 1) {
-            return ukonciKoloObranyVeFlekovani(stav, novyNasHra, novyNasSedma, reakceText)
+        // Odpovídá obránce (1. nebo 2. obránce v kole)
+        val zvedlaHruObrana = stav.flekovalHruObrance || opravduHra
+        val zvedlaSedmuObrana = stav.flekovalSedmuObrance || opravduSedma
+        val novyPocetOdpovedi = stav.pocetOdpovediFlekuVKole + 1
+        val druhyObrance = (stav.indexForhonta + 2) % 3
+
+        if (novyPocetOdpovedi == 1 && indexHrace != druhyObrance) {
+            val docasnyProDruheho = stav.copy(
+                nasobekFlekHra = novyNasobekHra,
+                nasobekFlekSedma = novyNasobekSedma,
+                flekovalHruObrance = zvedlaHruObrana,
+                flekovalSedmuObrance = zvedlaSedmuObrana,
+                naTahu = druhyObrance,
+                pocetOdpovediFlekuVKole = 1
+            )
+            val muzeDruhyCokoliv = muzeHracFlekHry(docasnyProDruheho, druhyObrance) ||
+                muzeHracFlekSedmy(docasnyProDruheho, druhyObrance)
+            if (muzeDruhyCokoliv) {
+                return docasnyProDruheho.copy(
+                    posledniHlaska = "$jmeno $popisAkce — vyjadřuje se ${stav.jmenaHracu[druhyObrance]}.",
+                    cisloTahu = stav.cisloTahu + 1
+                )
+            }
         }
 
-        val daleAktivniHra = stav.aktivniFlekHra && (novyNasHra == 4 || novyNasHra == 16)
-        val daleAktivniSedma = stav.aktivniFlekSedma && stav.zavazek.hlasiSedmu && (novyNasSedma == 4 || novyNasSedma == 16)
+        val docasnyProForhonta = stav.copy(
+            nasobekFlekHra = novyNasobekHra,
+            nasobekFlekSedma = novyNasobekSedma,
+            flekovalHruObrance = zvedlaHruObrana,
+            flekovalSedmuObrance = zvedlaSedmuObrana,
+            naTahu = stav.indexForhonta,
+            pocetOdpovediFlekuVKole = 0
+        )
+        val muzeForhontZvednout = muzeHracFlekHry(docasnyProForhonta, stav.indexForhonta) ||
+            muzeHracFlekSedmy(docasnyProForhonta, stav.indexForhonta)
 
-        return if (daleAktivniHra || daleAktivniSedma) {
-            stav.copy(
-                nasobekFlekHra = novyNasHra,
-                nasobekFlekSedma = novyNasSedma,
-                aktivniFlekHra = daleAktivniHra,
-                aktivniFlekSedma = daleAktivniSedma,
-                flekKrok = 0,
-                naTahu = obrance1,
-                posledniHlaska = reakceText,
+        return if (muzeForhontZvednout) {
+            docasnyProForhonta.copy(
+                posledniHlaska = "$jmeno $popisAkce! Reaguje forhont ${stav.jmenaHracu[stav.indexForhonta]}.",
                 cisloTahu = stav.cisloTahu + 1
             )
         } else {
-            stav.copy(
-                nasobekFlekHra = novyNasHra,
-                nasobekFlekSedma = novyNasSedma,
-                aktivniFlekHra = false,
-                aktivniFlekSedma = false,
+            val vynasi = kdoVynasiPrvniStych(stav)
+            docasnyProForhonta.copy(
                 faze = FazeMariase.SEHRAVKA,
-                naTahu = forhont,
-                posledniHlaska = "$reakceText Začíná sehrávka — vynáší ${stav.jmenaHracu[forhont]}.",
+                naTahu = vynasi,
+                flekovalHruObrance = false,
+                flekovalSedmuObrance = false,
+                posledniHlaska = "$jmeno $popisAkce — začíná sehrávka, vynáší ${stav.jmenaHracu[vynasi]}!",
                 cisloTahu = stav.cisloTahu + 1
             )
         }
     }
 
-    private fun ukonciKoloObranyVeFlekovani(
-        stav: StavMarias,
-        novyNasHra: Int,
-        novyNasSedma: Int,
-        reakceText: String
-    ): StavMarias {
-        val forhont = stav.indexForhonta
-        val daleAktivniHra = stav.aktivniFlekHra && (novyNasHra == 2 || novyNasHra == 8)
-        val daleAktivniSedma = stav.aktivniFlekSedma && stav.zavazek.hlasiSedmu && (novyNasSedma == 2 || novyNasSedma == 8)
-
-        return if (daleAktivniHra || daleAktivniSedma) {
-            stav.copy(
-                nasobekFlekHra = novyNasHra,
-                nasobekFlekSedma = novyNasSedma,
-                aktivniFlekHra = daleAktivniHra,
-                aktivniFlekSedma = daleAktivniSedma,
-                flekKrok = 2,
-                naTahu = forhont,
-                posledniHlaska = "$reakceText Na řadě je forhont ${stav.jmenaHracu[forhont]}.",
-                cisloTahu = stav.cisloTahu + 1
-            )
-        } else {
-            stav.copy(
-                nasobekFlekHra = novyNasHra,
-                nasobekFlekSedma = novyNasSedma,
-                aktivniFlekHra = false,
-                aktivniFlekSedma = false,
-                faze = FazeMariase.SEHRAVKA,
-                naTahu = forhont,
-                posledniHlaska = "$reakceText Začíná sehrávka — vynáší ${stav.jmenaHracu[forhont]}.",
-                cisloTahu = stav.cisloTahu + 1
-            )
+    fun zjistiPovoleneKarty(stav: StavMarias, indexHrace: Int): Set<Karta> {
+        if (stav.rezimMariase == RezimMariase.LIZACI) {
+            return MariasVariantyEngine.zjistiPovoleneKartyLizaci(stav, indexHrace)
         }
+        if (stav.faze != FazeMariase.SEHRAVKA || stav.naTahu != indexHrace) return emptySet()
+        val ruka = stav.ruceHracu.getOrNull(indexHrace) ?: return emptySet()
+        if (ruka.isEmpty()) return emptySet()
+        if (stav.aktualniStych.isEmpty()) return ruka.toSet()
+
+        val barvaVynosu = stav.aktualniStych.first().karta.barva
+        val bezTrumfu = stav.jeBetlNeboDurch
+        val trumf = if (bezTrumfu) null else stav.trumf
+
+        val vBarveVynosu = ruka.filter { it.barva == barvaVynosu }
+        if (vBarveVynosu.isNotEmpty()) {
+            val uzPadlCiziTrumf = trumf != null &&
+                barvaVynosu != trumf &&
+                stav.aktualniStych.any { it.karta.barva == trumf }
+            if (uzPadlCiziTrumf) {
+                return vBarveVynosu.toSet()
+            }
+            val nejvyssiSilaVBarve = stav.aktualniStych
+                .filter { it.karta.barva == barvaVynosu }
+                .maxOf { it.karta.silaProMarias(bezTrumfu) }
+            val vyssi = vBarveVynosu.filter { it.silaProMarias(bezTrumfu) > nejvyssiSilaVBarve }
+            return (if (vyssi.isNotEmpty()) vyssi else vBarveVynosu).toSet()
+        }
+
+        if (trumf != null) {
+            val trumfyVRuce = ruka.filter { it.barva == trumf }
+            if (trumfyVRuce.isNotEmpty()) {
+                val trumfyVeStychu = stav.aktualniStych.filter { it.karta.barva == trumf }
+                if (trumfyVeStychu.isNotEmpty()) {
+                    val nejvyssiTrumf = trumfyVeStychu.maxOf { it.karta.silaProMarias(false) }
+                    val vyssiTrumfy = trumfyVRuce.filter { it.silaProMarias(false) > nejvyssiTrumf }
+                    return (if (vyssiTrumfy.isNotEmpty()) vyssiTrumfy else trumfyVRuce).toSet()
+                }
+                return trumfyVRuce.toSet()
+            }
+        }
+
+        return ruka.toSet()
     }
 
     private fun urciVitezeStychu(
@@ -737,808 +792,707 @@ object MariasEngine {
             emptyList()
         }
         return if (trumfoveTahy.isNotEmpty()) {
-            trumfoveTahy.maxBy { silaKarty(it.karta.hodnota, bezTrumfu = false) }
+            trumfoveTahy.maxBy { it.karta.silaProMarias(false) }
         } else {
             stych.filter { it.karta.barva == barvaVynosu }
-                .maxBy { silaKarty(it.karta.hodnota, bezTrumfu = bezTrumfu) }
+                .maxBy { it.karta.silaProMarias(bezTrumfu) }
         }
-    }
-
-    fun zjistiPovoleneKarty(stav: StavMarias, indexHrace: Int): Set<Karta> {
-        if (stav.faze != FazeMariase.SEHRAVKA || stav.naTahu != indexHrace) return emptySet()
-        val ruka = stav.ruceHracu.getOrNull(indexHrace) ?: return emptySet()
-        if (ruka.isEmpty()) return emptySet()
-        if (stav.aktualniStych.isEmpty()) return ruka.toSet()
-
-        val bezTrumfu = stav.jeBetlNeboDurch
-        val trumf = stav.trumf
-        val barvaVynosu = stav.aktualniStych.first().karta.barva
-        val kartyVBarve = ruka.filter { it.barva == barvaVynosu }
-
-        if (kartyVBarve.isNotEmpty()) {
-            val uzTrumfnutoCizimTrumfem = !bezTrumfu && trumf != null &&
-                barvaVynosu != trumf && stav.aktualniStych.any { it.karta.barva == trumf }
-            if (uzTrumfnutoCizimTrumfem) {
-                return kartyVBarve.toSet()
-            }
-            val nejvyssiSilaVeStychu = stav.aktualniStych
-                .filter { it.karta.barva == barvaVynosu }
-                .maxOf { silaKarty(it.karta.hodnota, bezTrumfu) }
-            val vyssiKarty = kartyVBarve.filter { silaKarty(it.hodnota, bezTrumfu) > nejvyssiSilaVeStychu }
-            return if (vyssiKarty.isNotEmpty()) vyssiKarty.toSet() else kartyVBarve.toSet()
-        }
-
-        if (!bezTrumfu && trumf != null) {
-            val trumfyVRuce = ruka.filter { it.barva == trumf }
-            if (trumfyVRuce.isNotEmpty()) {
-                val trumfyVeStychu = stav.aktualniStych.filter { it.karta.barva == trumf }
-                if (trumfyVeStychu.isEmpty()) {
-                    return trumfyVRuce.toSet()
-                }
-                val maxTrumfVeStychu = trumfyVeStychu.maxOf { silaKarty(it.karta.hodnota, false) }
-                val vyssiTrumfy = trumfyVRuce.filter { silaKarty(it.hodnota, false) > maxTrumfVeStychu }
-                return if (vyssiTrumfy.isNotEmpty()) vyssiTrumfy.toSet() else trumfyVRuce.toSet()
-            }
-        }
-
-        return ruka.toSet()
     }
 
     fun zahrajKartu(stav: StavMarias, indexHrace: Int, karta: Karta): StavMarias {
+        if (stav.rezimMariase == RezimMariase.LIZACI) {
+            return MariasVariantyEngine.zahrajKartuLizaci(stav, indexHrace, karta)
+        }
         val povolene = zjistiPovoleneKarty(stav, indexHrace)
         if (karta !in povolene) return stav
 
-        val rukaPred = stav.ruceHracu[indexHrace]
-        val jmenoHrace = stav.jmenaHracu[indexHrace]
+        val jmeno = stav.jmenaHracu.getOrElse(indexHrace) { "Hráč" }
+        val zbylaRuka = Karta.seradRuku(
+            stav.ruceHracu[indexHrace].filterNot { it == karta },
+            trumf = if (stav.jeBetlNeboDurch) null else stav.trumf,
+            betlNeboDurch = stav.jeBetlNeboDurch
+        )
+        val noveRuce = stav.ruceHracu.mapIndexed { idx, r -> if (idx == indexHrace) zbylaRuka else r }
 
-        val bodyHlaskyTahu = bodyHlaskyKartyVRuce(karta, rukaPred, stav.trumf, stav.jeBetlNeboDurch)
+        var noveHlaskyForhont = stav.hlaskyForhont
+        var noveHlaskyObrana = stav.hlaskyObrana
+        var hlaskaPrirustekText = ""
 
-        val noveHlaskyForhont = stav.hlaskyForhont + if (indexHrace == stav.indexForhonta) bodyHlaskyTahu else 0
-        val noveHlaskyObrana = stav.hlaskyObrana + if (indexHrace != stav.indexForhonta) bodyHlaskyTahu else 0
-        val hlaskaPridavek = if (bodyHlaskyTahu > 0) " (Hláška $bodyHlaskyTahu!)" else ""
+        if (!stav.jeBetlNeboDurch && (karta.hodnota == HodnotaKarty.SVRSEK || karta.hodnota == HodnotaKarty.KRAL)) {
+            val parova = if (karta.hodnota == HodnotaKarty.SVRSEK) HodnotaKarty.KRAL else HodnotaKarty.SVRSEK
+            if (zbylaRuka.any { it.barva == karta.barva && it.hodnota == parova }) {
+                val hodnotaHlasky = if (karta.barva == stav.trumf) 40 else 20
+                if (indexHrace == stav.indexForhonta) {
+                    noveHlaskyForhont += hodnotaHlasky
+                } else {
+                    noveHlaskyObrana += hodnotaHlasky
+                }
+                hlaskaPrirustekText = " (+hláška $hodnotaHlasky!)"
+            }
+        }
 
-        val novaRuka = rukaPred - karta
-        val noveRuce = stav.ruceHracu.mapIndexed { idx, r -> if (idx == indexHrace) novaRuka else r }
-        val novyStych = stav.aktualniStych + TahStychuMariase(indexHrace, jmenoHrace, karta)
+        val novyStych = stav.aktualniStych + TahStychuMariase(indexHrace, jmeno, karta)
 
         if (novyStych.size < 3) {
+            val dalsi = (indexHrace + 1) % 3
+            val akce = if (novyStych.size == 1) "vynáší" else "přikládá"
             return stav.copy(
                 ruceHracu = noveRuce,
                 aktualniStych = novyStych,
-                naTahu = (indexHrace + 1) % 3,
+                naTahu = dalsi,
                 hlaskyForhont = noveHlaskyForhont,
                 hlaskyObrana = noveHlaskyObrana,
                 posledniUzavrenyStych = emptyList(),
                 posledniUzavrenyVitez = -1,
-                posledniHlaska = "$jmenoHrace nese ${celyNazevKarty(karta)}$hlaskaPridavek.",
+                posledniHlaska = "$jmeno $akce ${karta.celyNazev()}$hlaskaPrirustekText.",
                 cisloTahu = stav.cisloTahu + 1
             )
         }
 
         val viteznyTah = urciVitezeStychu(novyStych, stav.trumf, stav.jeBetlNeboDurch)
-        val vitezIdx = viteznyTah.indexHrace
-        val bereForhont = vitezIdx == stav.indexForhonta
-        val jePosledniStych = stav.cisloStychu >= 10 || noveRuce.all { it.isEmpty() }
+        val vitez = viteznyTah.indexHrace
+        val bereForhont = vitez == stav.indexForhonta
+        val jeDesatyStych = stav.cisloStychu >= 10 || noveRuce.all { it.isEmpty() }
 
-        val bodyVeStychu = if (stav.jeBetlNeboDurch) {
-            0
-        } else {
-            novyStych.sumOf { bodyKarty(it.karta.hodnota) } + if (jePosledniStych) 10 else 0
-        }
-
-        val novyPocetStychuForhont = stav.pocetStychuForhont + if (bereForhont) 1 else 0
-        val novyPocetStychuObrana = stav.pocetStychuObrana + if (!bereForhont) 1 else 0
+        val bodyVeStychu = novyStych.sumOf { it.karta.hodnota.bodyMariasSedma } + if (jeDesatyStych) 10 else 0
         val noveBodyForhont = stav.bodyKaretForhont + if (bereForhont) bodyVeStychu else 0
         val noveBodyObrana = stav.bodyKaretObrana + if (!bereForhont) bodyVeStychu else 0
+        val noveStychyForhont = stav.pocetStychuForhont + if (bereForhont) 1 else 0
+        val noveStychyObrana = stav.pocetStychuObrana + if (!bereForhont) 1 else 0
 
-        val novyV9 = if (stav.cisloStychu == 9) vitezIdx else stav.stych9VitezIndex
-        val novaK9 = if (stav.cisloStychu == 9) viteznyTah.karta else stav.stych9ViteznaKarta
-        val novyV10 = if (jePosledniStych) vitezIdx else stav.stych10VitezIndex
-        val novaK10 = if (jePosledniStych) viteznyTah.karta else stav.stych10ViteznaKarta
-
-        val novyTrumf7Od = if (jePosledniStych && stav.trumf != null && !stav.jeBetlNeboDurch) {
-            novyStych.firstOrNull { it.karta.barva == stav.trumf && it.karta.hodnota == HodnotaKarty.R7 }?.indexHrace ?: -1
-        } else {
-            stav.stych10TrumfSedmaOdIndexu
+        var novyStav9Sedma = stav.stavDevatehoStychuSedma
+        if (!stav.jeBetlNeboDurch && stav.cisloStychu == 9) {
+            val tahFh = novyStych.firstOrNull { it.indexHrace == stav.indexForhonta }
+            if (tahFh != null && tahFh.karta.hodnota == HodnotaKarty.R7 && tahFh.karta.barva != stav.trumf) {
+                novyStav9Sedma = if (bereForhont) 1 else -1
+            }
         }
 
-        val selhalBetl = stav.zavazek == ZavazekMariase.BETL && novyPocetStychuForhont > 0
-        val selhalDurch = stav.zavazek == ZavazekMariase.DURCH && novyPocetStychuObrana > 0
-        val konecHry = jePosledniStych || selhalBetl || selhalDurch
+        var novyStav10Sedma = stav.stavPoslednihoStychuSedma
+        if (!stav.jeBetlNeboDurch && jeDesatyStych && stav.trumf != null) {
+            val trumfSedma = Karta(stav.trumf, HodnotaKarty.R7)
+            val tahTrumf7 = novyStych.firstOrNull { it.karta == trumfSedma }
+            if (tahTrumf7 != null) {
+                novyStav10Sedma = if (tahTrumf7.indexHrace == stav.indexForhonta) {
+                    if (bereForhont) 1 else -1
+                } else {
+                    if (!bereForhont) 2 else -2
+                }
+            }
+        }
 
-        val souhrnStychu = when {
-            selhalBetl -> "${stav.jmenaHracu[stav.indexForhonta]} vzal štych — Betl je prohraný!"
-            selhalDurch -> "${viteznyTah.jmenoHrace} vzal štych — Durch je prohraný!"
-            jePosledniStych -> "Poslední štych bere ${viteznyTah.jmenoHrace} kartou ${celyNazevKarty(viteznyTah.karta)}$hlaskaPridavek!"
-            else -> "${stav.cisloStychu}. štych bere ${viteznyTah.jmenoHrace} (${celyNazevKarty(viteznyTah.karta)})$hlaskaPridavek."
+        val padlBetl = stav.zavazek == ZavazekMariase.BETL && bereForhont
+        val padlDurch = stav.zavazek == ZavazekMariase.DURCH && !bereForhont
+        val jeKonecSehravky = jeDesatyStych || padlBetl || padlDurch
+
+        val jmenoViteze = stav.jmenaHracu.getOrElse(vitez) { "Hráč" }
+        val textHlasky = when {
+            padlBetl ->
+                "$jmenoViteze musel vzít štych — Betl padl!"
+            padlDurch ->
+                "$jmenoViteze bere štych forhontovi — Durch padl!"
+            jeDesatyStych ->
+                "$jmenoViteze bere poslední 10. štych (+10 b.)$hlaskaPrirustekText! Konec rozdání."
+            else ->
+                "$jmenoViteze bere ${stav.cisloStychu}. štych (${bodyVeStychu} b.)$hlaskaPrirustekText a vynáší."
         }
 
         return stav.copy(
             ruceHracu = noveRuce,
-            faze = if (konecHry) FazeMariase.KONEC else FazeMariase.SEHRAVKA,
-            naTahu = vitezIdx,
-            cisloStychu = if (konecHry) stav.cisloStychu else stav.cisloStychu + 1,
             aktualniStych = emptyList(),
+            naTahu = vitez,
+            cisloStychu = if (jeKonecSehravky) stav.cisloStychu else stav.cisloStychu + 1,
+            pocetStychuForhont = noveStychyForhont,
+            pocetStychuObrana = noveStychyObrana,
             bodyKaretForhont = noveBodyForhont,
             bodyKaretObrana = noveBodyObrana,
             hlaskyForhont = noveHlaskyForhont,
             hlaskyObrana = noveHlaskyObrana,
-            pocetStychuForhont = novyPocetStychuForhont,
-            pocetStychuObrana = novyPocetStychuObrana,
-            stych9VitezIndex = novyV9,
-            stych9ViteznaKarta = novaK9,
-            stych10VitezIndex = novyV10,
-            stych10ViteznaKarta = novaK10,
-            stych10TrumfSedmaOdIndexu = novyTrumf7Od,
+            stavDevatehoStychuSedma = novyStav9Sedma,
+            stavPoslednihoStychuSedma = novyStav10Sedma,
+            faze = if (jeKonecSehravky) FazeMariase.KONEC else FazeMariase.SEHRAVKA,
             posledniUzavrenyStych = novyStych,
-            posledniUzavrenyVitez = vitezIdx,
-            posledniHlaska = souhrnStychu,
+            posledniUzavrenyVitez = vitez,
+            posledniHlaska = textHlasky,
             cisloTahu = stav.cisloTahu + 1
         )
     }
 
+    private fun soucastHlasky(ruka: List<Karta>, karta: Karta): Boolean {
+        if (karta.hodnota != HodnotaKarty.SVRSEK && karta.hodnota != HodnotaKarty.KRAL) return false
+        val druha = if (karta.hodnota == HodnotaKarty.SVRSEK) HodnotaKarty.KRAL else HodnotaKarty.SVRSEK
+        return ruka.any { it.barva == karta.barva && it.hodnota == druha }
+    }
+
+    fun provedTahBota(stav: StavMarias): StavMarias {
+        if (stav.faze == FazeMariase.KONEC) return stav
+        if (stav.rezimMariase == RezimMariase.LIZACI) {
+            return MariasVariantyEngine.provedTahBotaLizaci(stav)
+        }
+
+        return when (stav.faze) {
+            FazeMariase.DRAZBA -> MariasVariantyEngine.provedTahDrazbyBota(stav)
+            FazeMariase.VOLBA_TRUMFU -> provedVolbuTrumfuBota(stav)
+            FazeMariase.ODKLADANI_TALONU -> provedOdlozeniTalonuBota(stav)
+            FazeMariase.FLEKOVANI -> provedFlekovaniBota(stav)
+            FazeMariase.SEHRAVKA -> provedSehravkuBota(stav)
+            FazeMariase.KONEC -> stav
+        }
+    }
+
+    private fun provedVolbuTrumfuBota(stav: StavMarias): StavMarias {
+        if (stav.rezimMariase == RezimMariase.LICITOVANY) {
+            return MariasVariantyEngine.zvolTrumfPoDrazbeBot(stav)
+        }
+        val fh = stav.indexForhonta
+        val ruka7 = stav.ruceHracu.getOrNull(fh) ?: return stav
+
+        // Zkontroluj čistý Durch ze 7 karet
+        val pocetEs = ruka7.count { it.hodnota == HodnotaKarty.ESO }
+        val pocetKralu = ruka7.count { it.hodnota == HodnotaKarty.KRAL }
+        if (pocetEs >= 4 && pocetKralu >= 2) {
+            return zvolTrumfNeboHruBezTrumfu(stav, null, false, ZavazekMariase.DURCH)
+        }
+
+        var nejlepsiBarva: BarvaKarty? = null
+        var nejSkore = -1
+        for (barva in BarvaKarty.entries) {
+            val vBarve = ruka7.filter { it.barva == barva }
+            if (vBarve.isEmpty()) continue
+            val hl40 = if (
+                Karta(barva, HodnotaKarty.SVRSEK) in ruka7 &&
+                Karta(barva, HodnotaKarty.KRAL) in ruka7
+            ) 24 else 0
+            val skore = vBarve.size * 15 + vBarve.sumOf { it.hodnota.silaMarias } + hl40 +
+                if (barva == BarvaKarty.CERVENE && vBarve.size >= 3) 6 else 0
+            if (skore > nejSkore) {
+                nejSkore = skore
+                nejlepsiBarva = barva
+            }
+        }
+
+        val nejdelsiBarvaPocet = BarvaKarty.entries.maxOf { b -> ruka7.count { it.barva == b } }
+        return if (nejdelsiBarvaPocet <= 2 && nejSkore < 42 && stav.zbytekProForhonta.isNotEmpty()) {
+            zvolTrumfNeboHruBezTrumfu(stav, null, volitZTalonu = true)
+        } else {
+            zvolTrumfNeboHruBezTrumfu(stav, nejlepsiBarva ?: BarvaKarty.CERVENE, volitZTalonu = false)
+        }
+    }
+
+    private fun vyberDveKartyDoTalonuBot(
+        stav: StavMarias,
+        plan: ZavazekMariase
+    ): List<Karta> {
+        val ruka12 = stav.ruceHracu[stav.indexForhonta]
+        val povolene = zjistiKartyPovoleneDoTalonu(stav, plan).toList()
+        if (povolene.size <= 2) return povolene
+
+        if (plan == ZavazekMariase.BETL) {
+            return povolene.sortedByDescending { it.hodnota.silaBetlDurch }.take(2)
+        }
+        if (plan == ZavazekMariase.DURCH) {
+            return povolene.sortedBy { it.hodnota.silaBetlDurch }.take(2)
+        }
+
+        val trumf = stav.trumf
+        val trumfSedma = trumf?.let { Karta(it, HodnotaKarty.R7) }
+
+        return povolene.sortedWith(
+            compareBy<Karta>(
+                { if (it.barva == trumf) 1 else 0 },
+                { if (it == trumfSedma) 1 else 0 },
+                { if (plan.hlasiDveSedmy && it.hodnota == HodnotaKarty.R7) 1 else 0 },
+                { if (soucastHlasky(ruka12, it)) 1 else 0 },
+                { ruka12.count { k -> k.barva == it.barva } },
+                { it.hodnota.silaMarias }
+            )
+        ).take(2)
+    }
+
+    private fun provedOdlozeniTalonuBota(stav: StavMarias): StavMarias {
+        val povoleneZavazky = zjistiPovoleneZavazkyTalonu(stav)
+        if (stav.zavazek.jeBezTrumfu) {
+            val odhoz = vyberDveKartyDoTalonuBot(stav, stav.zavazek)
+            return potvrdTalonAZavazek(stav, odhoz, stav.zavazek)
+        }
+
+        val ruka12 = stav.ruceHracu[stav.indexForhonta]
+        val trumf = stav.trumf
+        val zakladniOdhoz = vyberDveKartyDoTalonuBot(stav, povoleneZavazky.first())
+        val ruka10 = ruka12.filterNot { it in zakladniOdhoz }
+
+        val trumfy = ruka10.filter { it.barva == trumf }
+        val maTrumf7 = trumf != null && Karta(trumf, HodnotaKarty.R7) in ruka10
+        val vedlejsiEsa = ruka10.count { it.barva != trumf && it.hodnota == HodnotaKarty.ESO }
+        val trumfVysoke = trumfy.count {
+            it.hodnota == HodnotaKarty.ESO || it.hodnota == HodnotaKarty.R10 || it.hodnota == HodnotaKarty.KRAL
+        }
+        val hlaskyVlastni = BarvaKarty.entries.sumOf { b ->
+            if (Karta(b, HodnotaKarty.SVRSEK) in ruka10 && Karta(b, HodnotaKarty.KRAL) in ruka10) {
+                if (b == trumf) 40 else 20
+            } else 0
+        }
+        val odhadBodu = trumfy.size * 8 + trumfVysoke * 9 + vedlejsiEsa * 12 + hlaskyVlastni + 10
+
+        val chteny = when {
+            ZavazekMariase.STO_A_SEDMA in povoleneZavazky && maTrumf7 && trumfy.size >= 5 && odhadBodu >= 106 ->
+                ZavazekMariase.STO_A_SEDMA
+            ZavazekMariase.STO in povoleneZavazky && trumfy.size >= 4 && odhadBodu >= 102 ->
+                ZavazekMariase.STO
+            ZavazekMariase.HRA_A_SEDMA in povoleneZavazky && maTrumf7 && trumfy.size >= 5 && trumfVysoke >= 2 ->
+                ZavazekMariase.HRA_A_SEDMA
+            else ->
+                povoleneZavazky.first()
+        }
+
+        val definitivniZavazek = if (chteny.vahaDrazby >= (stav.nejvyssiNabidka?.vahaDrazby ?: 1) && chteny in povoleneZavazky) {
+            chteny
+        } else {
+            povoleneZavazky.first()
+        }
+        val definitivniOdhoz = vyberDveKartyDoTalonuBot(stav, definitivniZavazek)
+        return potvrdTalonAZavazek(stav, definitivniOdhoz, definitivniZavazek)
+    }
+
+    private fun provedFlekovaniBota(stav: StavMarias): StavMarias {
+        val idx = stav.naTahu
+        val ruka = stav.ruceHracu.getOrNull(idx) ?: return odpovezNaFlekovani(stav, idx, false, false)
+        val lzeHra = muzeHracFlekHry(stav, idx)
+        val lzeSedma = muzeHracFlekSedmy(stav, idx)
+
+        if (!lzeHra && !lzeSedma) {
+            return odpovezNaFlekovani(stav, idx, false, false)
+        }
+
+        val trumf = stav.trumf
+        if (idx == stav.indexForhonta) {
+            val trumfy = ruka.count { it.barva == trumf }
+            val esa = ruka.count { it.hodnota == HodnotaKarty.ESO }
+            val daReHra = lzeHra && stav.nasobekFlekHra <= 2 && (trumfy >= 6 || (trumfy >= 5 && esa >= 3))
+            val daReSedma = lzeSedma && stav.nasobekFlekSedma <= 2 && trumfy >= 6 &&
+                trumf != null && Karta(trumf, HodnotaKarty.ESO) in ruka && Karta(trumf, HodnotaKarty.R7) in ruka
+            return odpovezNaFlekovani(stav, idx, daReHra, daReSedma)
+        } else {
+            val trumfy = ruka.filter { it.barva == trumf }
+            val esa = ruka.count { it.hodnota == HodnotaKarty.ESO }
+            val daFlekHra = lzeHra && stav.nasobekFlekHra == 1 && when (stav.zavazek) {
+                ZavazekMariase.DURCH -> esa >= 2 || ruka.any { b ->
+                    itMaKrytehoKrala(ruka, b.barva)
+                }
+                ZavazekMariase.BETL -> ruka.count { it.hodnota == HodnotaKarty.R7 || it.hodnota == HodnotaKarty.R8 } >= 5
+                else -> trumfy.size >= 4 || (trumfy.size >= 3 && esa >= 2)
+            }
+            val daFlekSedma = lzeSedma && stav.nasobekFlekSedma == 1 && trumf != null && (
+                Karta(trumf, HodnotaKarty.R7) in ruka ||
+                    (trumfy.size >= 4 && trumfy.any { it.hodnota == HodnotaKarty.ESO || it.hodnota == HodnotaKarty.R10 })
+                )
+            return odpovezNaFlekovani(stav, idx, daFlekHra, daFlekSedma)
+        }
+    }
+
+    private fun itMaKrytehoKrala(ruka: List<Karta>, barva: BarvaKarty): Boolean {
+        val vBarve = ruka.filter { it.barva == barva }
+        return vBarve.size >= 4 && vBarve.any { it.hodnota == HodnotaKarty.KRAL }
+    }
+
+    private fun provedSehravkuBota(stav: StavMarias): StavMarias {
+        val idx = stav.naTahu
+        val povolene = zjistiPovoleneKarty(stav, idx).toList()
+        if (povolene.isEmpty()) return stav
+        if (povolene.size == 1) return zahrajKartu(stav, idx, povolene.first())
+
+        val ruka = stav.ruceHracu[idx]
+        val jsemForhont = idx == stav.indexForhonta
+        val trumf = if (stav.jeBetlNeboDurch) null else stav.trumf
+        val trumfSedma = trumf?.let { Karta(it, HodnotaKarty.R7) }
+
+        // Speciální taktika pro Betl
+        if (stav.zavazek == ZavazekMariase.BETL) {
+            if (jsemForhont) {
+                if (stav.aktualniStych.isEmpty()) {
+                    return zahrajKartu(stav, idx, povolene.minBy { it.hodnota.silaBetlDurch })
+                }
+                val barvaVynosu = stav.aktualniStych.first().karta.barva
+                val nejvyssiNaStole = stav.aktualniStych
+                    .filter { it.karta.barva == barvaVynosu }
+                    .maxOf { it.karta.hodnota.silaBetlDurch }
+                val podlez = povolene
+                    .filter { it.barva == barvaVynosu && it.hodnota.silaBetlDurch < nejvyssiNaStole }
+                    .maxByOrNull { it.hodnota.silaBetlDurch }
+                if (podlez != null) return zahrajKartu(stav, idx, podlez)
+                val ciziOdhoz = povolene.filter { it.barva != barvaVynosu }.maxByOrNull { it.hodnota.silaBetlDurch }
+                if (ciziOdhoz != null) return zahrajKartu(stav, idx, ciziOdhoz)
+                return zahrajKartu(stav, idx, povolene.minBy { it.hodnota.silaBetlDurch })
+            } else {
+                return zahrajKartu(stav, idx, povolene.minBy { it.hodnota.silaBetlDurch })
+            }
+        }
+
+        // Speciální taktika pro Durch
+        if (stav.zavazek == ZavazekMariase.DURCH) {
+            return if (jsemForhont) {
+                zahrajKartu(stav, idx, povolene.maxBy { it.hodnota.silaBetlDurch })
+            } else {
+                if (stav.aktualniStych.isEmpty()) {
+                    zahrajKartu(stav, idx, povolene.maxBy { it.hodnota.silaBetlDurch })
+                } else {
+                    val vynesenaBarva = stav.aktualniStych.first().karta.barva
+                    val maxSila = stav.aktualniStych.filter { it.karta.barva == vynesenaBarva }
+                        .maxOf { it.karta.hodnota.silaBetlDurch }
+                    val prebij = povolene.filter { it.barva == vynesenaBarva && it.hodnota.silaBetlDurch > maxSila }
+                        .maxByOrNull { it.hodnota.silaBetlDurch }
+                    zahrajKartu(stav, idx, prebij ?: povolene.minBy { it.hodnota.silaBetlDurch })
+                }
+            }
+        }
+
+        // Trumfová hra — šetření trumfové sedmy do 10. štychu
+        val kandidatiBezTrumf7 = if (trumfSedma != null && stav.cisloStychu < 10 && povolene.size > 1) {
+            povolene.filterNot { it == trumfSedma }.ifEmpty { povolene }
+        } else {
+            povolene
+        }
+
+        // 1) Výnos do štychu
+        if (stav.aktualniStych.isEmpty()) {
+            val hlaskova = kandidatiBezTrumf7.firstOrNull { soucastHlasky(ruka, it) }
+            if (hlaskova != null) return zahrajKartu(stav, idx, hlaskova)
+
+            if (jsemForhont) {
+                val silnyTrumf = kandidatiBezTrumf7
+                    .filter { it.barva == trumf && (it.hodnota == HodnotaKarty.ESO || it.hodnota == HodnotaKarty.R10) }
+                    .maxByOrNull { it.hodnota.silaMarias }
+                if (silnyTrumf != null && stav.cisloStychu <= 4) {
+                    return zahrajKartu(stav, idx, silnyTrumf)
+                }
+                val vedlejsiEso = kandidatiBezTrumf7.firstOrNull { it.barva != trumf && it.hodnota == HodnotaKarty.ESO }
+                if (vedlejsiEso != null) return zahrajKartu(stav, idx, vedlejsiEso)
+            } else {
+                val vedlejsiEso = kandidatiBezTrumf7.firstOrNull { it.barva != trumf && it.hodnota == HodnotaKarty.ESO }
+                if (vedlejsiEso != null) return zahrajKartu(stav, idx, vedlejsiEso)
+                val kratkaNulova = kandidatiBezTrumf7
+                    .filter { it.barva != trumf && it.hodnota.bodyMariasSedma == 0 }
+                    .minByOrNull { it.hodnota.silaMarias }
+                if (kratkaNulova != null) return zahrajKartu(stav, idx, kratkaNulova)
+            }
+
+            val vybrana = kandidatiBezTrumf7.minByOrNull { it.hodnota.bodyMariasSedma * 10 + it.hodnota.silaMarias }
+                ?: povolene.first()
+            return zahrajKartu(stav, idx, vybrana)
+        }
+
+        // 2) Hra na 2. nebo 3. pozici ve štychu
+        val prozatimVitez = urciVitezeStychu(stav.aktualniStych, trumf, false).indexHrace
+        val prozatimBereMojeStrana = if (jsemForhont) {
+            prozatimVitez == stav.indexForhonta
+        } else {
+            prozatimVitez != stav.indexForhonta
+        }
+
+        val vitezneKarty = kandidatiBezTrumf7.filter { k ->
+            val testStych = stav.aktualniStych + TahStychuMariase(idx, "", k)
+            val vit = urciVitezeStychu(testStych, trumf, false).indexHrace
+            if (jsemForhont) vit == stav.indexForhonta else vit != stav.indexForhonta
+        }
+
+        if (stav.aktualniStych.size == 2 && prozatimBereMojeStrana) {
+            // Spoluhráč v obraně už štych bere -> namaž mu desítku nebo eso!
+            val namaz = kandidatiBezTrumf7
+                .filter { it.hodnota.bodyMariasSedma >= 10 && it.barva != trumf }
+                .maxByOrNull { it.hodnota.silaMarias }
+                ?: kandidatiBezTrumf7.firstOrNull { it.hodnota.bodyMariasSedma >= 10 }
+            if (namaz != null) return zahrajKartu(stav, idx, namaz)
+        }
+
+        if (vitezneKarty.isNotEmpty()) {
+            val bodyNaStole = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
+            val vybranaVitezna = if (bodyNaStole >= 10 || stav.aktualniStych.size == 2) {
+                vitezneKarty.maxByOrNull { it.hodnota.bodyMariasSedma * 10 - it.hodnota.silaMarias }!!
+            } else {
+                vitezneKarty.minByOrNull { it.hodnota.silaMarias }!!
+            }
+            return zahrajKartu(stav, idx, vybranaVitezna)
+        }
+
+        // Štych bere soupeř -> odhoď nejlevnější nebodovanou kartu
+        val nejlevnejsiOdhoz = kandidatiBezTrumf7.minWithOrNull(
+            compareBy<Karta>(
+                { it.hodnota.bodyMariasSedma },
+                { if (soucastHlasky(ruka, it)) 1 else 0 },
+                { it.hodnota.silaMarias }
+            )
+        ) ?: povolene.first()
+        return zahrajKartu(stav, idx, nejlevnejsiOdhoz)
+    }
+
     fun vyhodnotMariase(stav: StavMarias): VyuctovaniMariase {
-        val forhont = stav.indexForhonta
-        val jmenoForhonta = stav.jmenaHracu[forhont]
+        if (stav.slozenoBezHry) {
+            return MariasVariantyEngine.vyhodnotSlozenouDrazbu(stav)
+        }
+        if (stav.rezimMariase == RezimMariase.LIZACI) {
+            return MariasVariantyEngine.vyhodnotLizaciMariase(stav)
+        }
+
+        val fh = stav.indexForhonta
+        val forhontJmeno = stav.jmenaHracu.getOrElse(fh) { "Forhont" }
+        val cerveneNasobek = if (!stav.jeBetlNeboDurch && stav.trumf == BarvaKarty.CERVENE) 2 else 1
         val polozky = ArrayList<PolozkaVyuctovaniMariase>()
 
-        if (stav.jeBetlNeboDurch) {
-            val jeDurch = stav.zavazek == ZavazekMariase.DURCH
-            val vyhralForhont = if (jeDurch) {
-                stav.pocetStychuObrana == 0 && stav.pocetStychuForhont == 10
-            } else {
-                stav.pocetStychuForhont == 0
-            }
-            val zaklad = if (jeDurch) 100 else 50
-            val sazbaNaObrance = zaklad * stav.nasobekFlekHra
-            val znamenkoForhont = if (vyhralForhont) 1 else -1
-            val bilanceNaObrance = znamenkoForhont * sazbaNaObrance
+        var jednotkyProForhontaNaObrance = 0
 
+        if (stav.zavazek == ZavazekMariase.BETL) {
+            val uhral = stav.pocetStychuForhont == 0
+            val sazba = 5 * stav.nasobekFlekHra
+            jednotkyProForhontaNaObrance = if (uhral) sazba else -sazba
             polozky.add(
                 PolozkaVyuctovaniMariase(
-                    popis = "Závazek ${stav.zavazek.nazev} (${stav.nasobekFlekHra}×)",
-                    hodnotaText = if (vyhralForhont) "Uhráno!" else "Prohráno",
+                    popis = "Závazek Betl (${stav.nasobekFlekHra}×)",
+                    hodnotaText = if (uhral) "Uhráno (0 štychů)" else "Padl (${sklonujStychyMariase(stav.pocetStychuForhont)})",
                     jeZvyraznena = true
                 )
             )
+        } else if (stav.zavazek == ZavazekMariase.DURCH) {
+            val uhral = stav.pocetStychuObrana == 0
+            val sazba = 10 * stav.nasobekFlekHra
+            jednotkyProForhontaNaObrance = if (uhral) sazba else -sazba
             polozky.add(
                 PolozkaVyuctovaniMariase(
-                    popis = "Sazba na každého obránce",
-                    hodnotaText = formatujTereziany(bilanceNaObrance, seZnaminkem = true)
+                    popis = "Závazek Durch (${stav.nasobekFlekHra}×)",
+                    hodnotaText = if (uhral) "Uhráno (všech 10 štychů)" else "Padl (obrana vzala štych)",
+                    jeZvyraznena = true
+                )
+            )
+        } else {
+            val bodyTalonu = stav.talon.sumOf { it.karta.hodnota.bodyMariasSedma }
+            val platneHlaskyF = if (stav.pocetStychuForhont > 0) stav.hlaskyForhont else 0
+            val platneHlaskyO = if (stav.pocetStychuObrana > 0) stav.hlaskyObrana else 0
+            val kartyF = stav.bodyKaretForhont
+            val kartyO = stav.bodyKaretObrana + bodyTalonu
+            val celkemF = kartyF + platneHlaskyF
+            val celkemO = kartyO + platneHlaskyO
+
+            polozky.add(
+                PolozkaVyuctovaniMariase(
+                    popis = "Forhont ($forhontJmeno)",
+                    hodnotaText = "$celkemF b. (${kartyF}+hl. $platneHlaskyF • ${sklonujStychyMariase(stav.pocetStychuForhont)})",
+                    jeZvyraznena = celkemF > celkemO
+                )
+            )
+            polozky.add(
+                PolozkaVyuctovaniMariase(
+                    popis = "Obrana",
+                    hodnotaText = "$celkemO b. (${kartyO}+hl. $platneHlaskyO • ${sklonujStychyMariase(stav.pocetStychuObrana)})",
+                    jeZvyraznena = celkemO > celkemF
                 )
             )
 
-            val hraciVys = stav.jmenaHracu.mapIndexed { idx, jm ->
-                val jeF = idx == forhont
-                val zmena = if (jeF) bilanceNaObrance * 2 else -bilanceNaObrance
-                val vyhra = if (jeF) vyhralForhont else !vyhralForhont
-                HracVyuctovaniMariase(
-                    indexHrace = idx,
-                    jmenoHrace = jm,
-                    jeVitez = vyhra,
-                    bodyZapasu = zmena,
-                    zmenaTerezianu = zmena
-                )
+            val trumfPopis = buildString {
+                append(stav.trumf?.ceskyNazev ?: "—")
+                if (cerveneNasobek == 2) append(" (2×)")
+                if (stav.volenoZTalonu) append(" • z talonu")
             }
-            return VyuctovaniMariase(
-                nadpis = if (vyhralForhont) "$jmenoForhonta uhrál ${stav.zavazek.nazev}!" else "$jmenoForhonta prohrál ${stav.zavazek.nazev}!",
-                podnadpis = "Štychy forhont ${stav.pocetStychuForhont} : obrana ${stav.pocetStychuObrana} • ${stav.variantaPravidel.kratkyNazev}",
-                polozky = polozky,
-                hraci = hraciVys
+            polozky.add(
+                PolozkaVyuctovaniMariase(
+                    popis = "Trumfy",
+                    hodnotaText = trumfPopis,
+                    jeZvyraznena = cerveneNasobek == 2
+                )
             )
+
+            // 1. Vyhodnocení samotné Hry / Stovky
+            if (stav.zavazek.hlasiSto) {
+                val uhralSto = celkemF >= 100
+                val nadSto = if (uhralSto) (celkemF - 100) / 10 else 0
+                val sazbaSto = (4 + nadSto) * cerveneNasobek * stav.nasobekFlekHra
+                jednotkyProForhontaNaObrance += if (uhralSto) sazbaSto else -(4 * cerveneNasobek * stav.nasobekFlekHra)
+                polozky.add(
+                    PolozkaVyuctovaniMariase(
+                        popis = "Hlášená stovka (${stav.nasobekFlekHra}×)",
+                        hodnotaText = if (uhralSto) "Uhráno ($celkemF b.)" else "Neuhral ($celkemF b.)",
+                        jeZvyraznena = true
+                    )
+                )
+            } else {
+                val vyhraHry = celkemF > celkemO
+                if (vyhraHry && celkemF >= 100) {
+                    val nadSto = (celkemF - 100) / 10
+                    val sazbaTichaSto = (2 + nadSto) * cerveneNasobek * stav.nasobekFlekHra
+                    jednotkyProForhontaNaObrance += sazbaTichaSto
+                    polozky.add(
+                        PolozkaVyuctovaniMariase(
+                            popis = "Tichá stovka forhonta ($celkemF b.)",
+                            hodnotaText = "+${sazbaTichaSto * 10} b. od každého",
+                            jeZvyraznena = true
+                        )
+                    )
+                } else if (!vyhraHry && celkemO >= 100) {
+                    val nadSto = (celkemO - 100) / 10
+                    val sazbaTichaStoObr = (2 + nadSto) * cerveneNasobek * stav.nasobekFlekHra
+                    jednotkyProForhontaNaObrance -= sazbaTichaStoObr
+                    polozky.add(
+                        PolozkaVyuctovaniMariase(
+                            popis = "Tichá stovka obrany ($celkemO b.)",
+                            hodnotaText = "-${sazbaTichaStoObr * 10} b. každému",
+                            jeZvyraznena = true
+                        )
+                    )
+                } else {
+                    val sazbaHry = 1 * cerveneNasobek * stav.nasobekFlekHra
+                    jednotkyProForhontaNaObrance += if (vyhraHry) sazbaHry else -sazbaHry
+                    polozky.add(
+                        PolozkaVyuctovaniMariase(
+                            popis = "Hra (${stav.nasobekFlekHra}×)",
+                            hodnotaText = if (vyhraHry) "Uhráno na body" else "Obrana ubránila",
+                            jeZvyraznena = false
+                        )
+                    )
+                }
+
+                if (vyhraHry && stav.pocetStychuObrana == 0) {
+                    val kanar = 1 * cerveneNasobek * stav.nasobekFlekHra
+                    jednotkyProForhontaNaObrance += kanar
+                    polozky.add(
+                        PolozkaVyuctovaniMariase(
+                            popis = "Kanár (obrana bez štychu)",
+                            hodnotaText = "+${kanar * 10} b. od každého",
+                            jeZvyraznena = true
+                        )
+                    )
+                } else if (!vyhraHry && stav.pocetStychuForhont == 0) {
+                    val kanar = 1 * cerveneNasobek * stav.nasobekFlekHra
+                    jednotkyProForhontaNaObrance -= kanar
+                    polozky.add(
+                        PolozkaVyuctovaniMariase(
+                            popis = "Kanár (forhont bez štychu)",
+                            hodnotaText = "-${kanar * 10} b. každému",
+                            jeZvyraznena = true
+                        )
+                    )
+                }
+            }
+
+            // 2. Vyhodnocení Sedmy / Dvou sedem (hlášené i tiché)
+            if (stav.zavazek.hlasiDveSedmy) {
+                val uhralObe = stav.stavDevatehoStychuSedma == 1 && stav.stavPoslednihoStychuSedma == 1
+                val zabita = stav.stavDevatehoStychuSedma == -1 || stav.stavPoslednihoStychuSedma == -1
+                val sazba2x7 = 8 * cerveneNasobek * stav.nasobekFlekSedma
+                jednotkyProForhontaNaObrance += if (uhralObe) sazba2x7 else -sazba2x7
+                polozky.add(
+                    PolozkaVyuctovaniMariase(
+                        popis = if (zabita) "Zabitá hlášená sedma (2×7 • ${stav.nasobekFlekSedma}×)" else "Hlášené dvě sedmy (${stav.nasobekFlekSedma}×)",
+                        hodnotaText = if (uhralObe) "Obě sedmy uhrány!" else "Neuhráno",
+                        jeZvyraznena = true
+                    )
+                )
+            } else if (stav.zavazek.hlasiSedmu) {
+                val uhral7 = stav.stavPoslednihoStychuSedma == 1
+                val zabita7 = stav.stavPoslednihoStychuSedma == -1
+                val sazba7 = 4 * cerveneNasobek * stav.nasobekFlekSedma
+                jednotkyProForhontaNaObrance += if (uhral7) sazba7 else -sazba7
+                polozky.add(
+                    PolozkaVyuctovaniMariase(
+                        popis = if (zabita7) "Zabitá hlášená sedma (${stav.nasobekFlekSedma}×)" else "Hlášená sedma (${stav.nasobekFlekSedma}×)",
+                        hodnotaText = if (uhral7) "Sedma doma!" else "Neuhráno",
+                        jeZvyraznena = true
+                    )
+                )
+            } else {
+                if (stav.stavDevatehoStychuSedma == 1 && stav.stavPoslednihoStychuSedma == 1) {
+                    val s2 = 4 * cerveneNasobek
+                    jednotkyProForhontaNaObrance += s2
+                    polozky.add(
+                        PolozkaVyuctovaniMariase(
+                            popis = "Tiché dvě sedmy forhonta",
+                            hodnotaText = "+${s2 * 10} b. od každého",
+                            jeZvyraznena = true
+                        )
+                    )
+                } else {
+                    when (stav.stavPoslednihoStychuSedma) {
+                        1 -> {
+                            val s7 = 2 * cerveneNasobek
+                            jednotkyProForhontaNaObrance += s7
+                            polozky.add(
+                                PolozkaVyuctovaniMariase(
+                                    popis = "Tichá sedma forhonta v 10. štychu",
+                                    hodnotaText = "+${s7 * 10} b. od každého",
+                                    jeZvyraznena = true
+                                )
+                            )
+                        }
+                        -1 -> {
+                            val z7 = 2 * cerveneNasobek
+                            jednotkyProForhontaNaObrance -= z7
+                            polozky.add(
+                                PolozkaVyuctovaniMariase(
+                                    popis = "Zabitá tichá sedma forhonta",
+                                    hodnotaText = "-${z7 * 10} b. každému",
+                                    jeZvyraznena = true
+                                )
+                            )
+                        }
+                        2 -> {
+                            val s7 = 2 * cerveneNasobek
+                            jednotkyProForhontaNaObrance -= s7
+                            polozky.add(
+                                PolozkaVyuctovaniMariase(
+                                    popis = "Tichá sedma obrany v 10. štychu",
+                                    hodnotaText = "-${s7 * 10} b. každému",
+                                    jeZvyraznena = true
+                                )
+                            )
+                        }
+                        -2 -> {
+                            val z7 = 2 * cerveneNasobek
+                            jednotkyProForhontaNaObrance += z7
+                            polozky.add(
+                                PolozkaVyuctovaniMariase(
+                                    popis = "Forhont zabil tichou sedmu obrany",
+                                    hodnotaText = "+${z7 * 10} b. od každého",
+                                    jeZvyraznena = true
+                                )
+                            )
+                        }
+                    }
+                }
+            }
         }
 
-        val trumf = stav.trumf ?: BarvaKarty.KULE
-        val nasobekCervene = if (trumf == BarvaKarty.CERVENE) 2 else 1
-
-        val platneHlaskyF = if (stav.pocetStychuForhont > 0) stav.hlaskyForhont else 0
-        val platneHlaskyO = if (stav.pocetStychuObrana > 0) stav.hlaskyObrana else 0
-        val celkemF = stav.bodyKaretForhont + platneHlaskyF
-        val celkemO = stav.bodyKaretObrana + platneHlaskyO
+        val naObranceTereziany = jednotkyProForhontaNaObrance * 10
+        val ziskForhonta = naObranceTereziany * 2
+        val ziskObrance = -naObranceTereziany
 
         polozky.add(
             PolozkaVyuctovaniMariase(
-                popis = "Body a hlášky ($jmenoForhonta vs. Obrana)",
-                hodnotaText = "$celkemF b. : $celkemO b."
+                popis = "Sazba na obránce",
+                hodnotaText = "${abs(naObranceTereziany)} tereziánů (forhont ${if (ziskForhonta >= 0) "+" else ""}$ziskForhonta)",
+                jeZvyraznena = true
             )
         )
-        if (trumf == BarvaKarty.CERVENE) {
-            polozky.add(
-                PolozkaVyuctovaniMariase(
-                    popis = "Červené trumfy",
-                    hodnotaText = "2× sazba"
-                )
-            )
+
+        val nadpis = when {
+            ziskForhonta > 0 -> "Forhont $forhontJmeno vyhrává!"
+            ziskForhonta < 0 -> "Obrana porazila forhonta!"
+            else -> "Smír u stolu!"
         }
 
-        val bilanceHlavniNaObrance: Int
-        if (stav.zavazek.hlasiSto) {
-            val uhranaStovka = celkemF >= 100
-            val nadStoBonus = if (uhranaStovka) ((celkemF - 100) / 10) * 10 else 0
-            val sazba = (40 + nadStoBonus) * nasobekCervene * stav.nasobekFlekHra
-            bilanceHlavniNaObrance = if (uhranaStovka) sazba else -sazba
-            polozky.add(
-                PolozkaVyuctovaniMariase(
-                    popis = "Hlášená Stovka (${stav.nasobekFlekHra}×)",
-                    hodnotaText = (if (uhranaStovka) "+" else "-") + "$sazba / obr.",
-                    jeZvyraznena = true
-                )
-            )
-        } else {
-            val vyhralHru = celkemF > celkemO
-            if (vyhralHru) {
-                val tichaStovka = celkemF >= 100
-                val kanar = stav.pocetStychuObrana == 0
-                val zaklad = when {
-                    tichaStovka -> 20 + ((celkemF - 100) / 10) * 10
-                    kanar -> 20
-                    else -> 10
-                }
-                val sazba = zaklad * nasobekCervene * stav.nasobekFlekHra
-                bilanceHlavniNaObrance = sazba
-                val nazevPol = when {
-                    tichaStovka -> "Uhraná Tichá stovka (${stav.nasobekFlekHra}×)"
-                    kanar -> "Uhraná Hra s kanárem (${stav.nasobekFlekHra}×)"
-                    else -> "Uhraná Hra (${stav.nasobekFlekHra}×)"
-                }
-                polozky.add(PolozkaVyuctovaniMariase(nazevPol, "+$sazba / obr.", jeZvyraznena = true))
-            } else {
-                val tichaStovkaObr = celkemO >= 100
-                val kanarObr = stav.pocetStychuForhont == 0
-                val zaklad = when {
-                    tichaStovkaObr -> 20 + ((celkemO - 100) / 10) * 10
-                    kanarObr -> 20
-                    else -> 10
-                }
-                val sazba = zaklad * nasobekCervene * stav.nasobekFlekHra
-                bilanceHlavniNaObrance = -sazba
-                val nazevPol = when {
-                    tichaStovkaObr -> "Tichá stovka obrany (${stav.nasobekFlekHra}×)"
-                    else -> "Prohraná Hra (${stav.nasobekFlekHra}×)"
-                }
-                polozky.add(PolozkaVyuctovaniMariase(nazevPol, "-$sazba / obr.", jeZvyraznena = true))
-            }
-        }
-
-        val uhrana9Netrumf7F = stav.stych9VitezIndex == forhont &&
-            stav.stych9ViteznaKarta?.hodnota == HodnotaKarty.R7 &&
-            stav.stych9ViteznaKarta.barva != trumf
-
-        val uhrana10Trumf7F = stav.stych10VitezIndex == forhont &&
-            stav.stych10ViteznaKarta == Karta(trumf, HodnotaKarty.R7)
-
-        val uhrana10Trumf7Obr = stav.stych10VitezIndex != -1 && stav.stych10VitezIndex != forhont &&
-            stav.stych10ViteznaKarta == Karta(trumf, HodnotaKarty.R7)
-
-        var bilanceSedmyNaObrance = 0
-        if (stav.zavazek.hlasiDveSedmy) {
-            val splneno = uhrana9Netrumf7F && uhrana10Trumf7F
-            val sazba = 40 * nasobekCervene * stav.nasobekFlekSedma
-            bilanceSedmyNaObrance = if (splneno) sazba else -sazba
-            val popisSedem = when {
-                splneno -> "Uhrané Dvě sedmy (${stav.nasobekFlekSedma}×)"
-                stav.stych10TrumfSedmaOdIndexu == forhont && !uhrana10Trumf7F ->
-                    "Zabitá trumfová sedma (Dvě sedmy ${stav.nasobekFlekSedma}×)"
-                else -> "Nesplněné dvě sedmy (${stav.nasobekFlekSedma}×)"
-            }
-            polozky.add(
-                PolozkaVyuctovaniMariase(
-                    popis = popisSedem,
-                    hodnotaText = (if (splneno) "+" else "-") + "$sazba / obr.",
-                    jeZvyraznena = true
-                )
-            )
-        } else if (stav.zavazek.hlasiSedmu) {
-            val sazba = 20 * nasobekCervene * stav.nasobekFlekSedma
-            if (uhrana10Trumf7F) {
-                bilanceSedmyNaObrance += sazba
-                polozky.add(
-                    PolozkaVyuctovaniMariase(
-                        popis = "Uhraná sedma (${stav.nasobekFlekSedma}×)",
-                        hodnotaText = "+$sazba / obr.",
-                        jeZvyraznena = true
-                    )
-                )
-                if (uhrana9Netrumf7F) {
-                    val tichaDruha = 10 * nasobekCervene
-                    bilanceSedmyNaObrance += tichaDruha
-                    polozky.add(
-                        PolozkaVyuctovaniMariase(
-                            popis = "Druhá tichá sedma v 9. štychu",
-                            hodnotaText = "+$tichaDruha / obr."
-                        )
-                    )
-                }
-            } else {
-                bilanceSedmyNaObrance -= sazba
-                val popisPadu = if (stav.stych10TrumfSedmaOdIndexu == forhont) {
-                    "Zabitá sedma v 10. štychu (${stav.nasobekFlekSedma}×)"
-                } else {
-                    "Nesplněná sedma (${stav.nasobekFlekSedma}×)"
-                }
-                polozky.add(
-                    PolozkaVyuctovaniMariase(
-                        popis = popisPadu,
-                        hodnotaText = "-$sazba / obr.",
-                        jeZvyraznena = true
-                    )
-                )
-            }
-        } else {
-            if (uhrana10Trumf7F && uhrana9Netrumf7F) {
-                val sazba = 20 * nasobekCervene
-                bilanceSedmyNaObrance += sazba
-                polozky.add(
-                    PolozkaVyuctovaniMariase(
-                        popis = "Tiché dvě sedmy (9. a 10. štych)!",
-                        hodnotaText = "+$sazba / obr.",
-                        jeZvyraznena = true
-                    )
-                )
-            } else if (uhrana10Trumf7F) {
-                val sazba = 10 * nasobekCervene
-                bilanceSedmyNaObrance += sazba
-                polozky.add(
-                    PolozkaVyuctovaniMariase(
-                        popis = "Tichá (utajená) sedma v 10. štychu!",
-                        hodnotaText = "+$sazba / obr.",
-                        jeZvyraznena = true
-                    )
-                )
-            } else if (uhrana10Trumf7Obr) {
-                val sazba = 10 * nasobekCervene
-                bilanceSedmyNaObrance -= sazba
-                polozky.add(
-                    PolozkaVyuctovaniMariase(
-                        popis = "Tichá sedma obrany v 10. štychu!",
-                        hodnotaText = "-$sazba / obr.",
-                        jeZvyraznena = true
-                    )
-                )
-            } else if (stav.stych10TrumfSedmaOdIndexu != -1) {
-                val sazba = 10 * nasobekCervene
-                if (stav.stych10TrumfSedmaOdIndexu == forhont && stav.stych10VitezIndex != forhont) {
-                    bilanceSedmyNaObrance -= sazba
-                    polozky.add(
-                        PolozkaVyuctovaniMariase(
-                            popis = "Zabitá tichá sedma forhonta v 10. štychu!",
-                            hodnotaText = "-$sazba / obr.",
-                            jeZvyraznena = true
-                        )
-                    )
-                } else if (stav.stych10TrumfSedmaOdIndexu != forhont && stav.stych10VitezIndex == forhont) {
-                    bilanceSedmyNaObrance += sazba
-                    polozky.add(
-                        PolozkaVyuctovaniMariase(
-                            popis = "Forhont zabil tichou sedmu obrany!",
-                            hodnotaText = "+$sazba / obr.",
-                            jeZvyraznena = true
-                        )
-                    )
-                }
-            }
-        }
-
-        val soucetNaObrance = bilanceHlavniNaObrance + bilanceSedmyNaObrance
-        val celkovyZiskForhonta = soucetNaObrance * 2
-        val forhontCelkoveUspel = celkovyZiskForhonta > 0 || (celkovyZiskForhonta == 0 && bilanceHlavniNaObrance > 0)
-
-        val hraciVys = stav.jmenaHracu.mapIndexed { idx, jm ->
-            val jeF = idx == forhont
-            val zmena = if (jeF) celkovyZiskForhonta else -soucetNaObrance
-            val vyhra = if (jeF) forhontCelkoveUspel else !forhontCelkoveUspel
+        val hraci = List(3) { idx ->
+            val jeFh = idx == fh
+            val zmena = if (jeFh) ziskForhonta else ziskObrance
             HracVyuctovaniMariase(
                 indexHrace = idx,
-                jmenoHrace = jm,
-                jeVitez = vyhra,
+                jmenoHrace = stav.jmenaHracu.getOrElse(idx) { "Hráč ${idx + 1}" },
+                jeVitez = zmena > 0,
                 bodyZapasu = zmena,
                 zmenaTerezianu = zmena
             )
         }
 
-        val nadpis = when {
-            celkovyZiskForhonta > 0 -> "$jmenoForhonta vyhrál rozdání!"
-            celkovyZiskForhonta < 0 -> "Obrana porazila forhonta ($jmenoForhonta)!"
-            else -> "Smír (hra proti sedmě)!"
-        }
         return VyuctovaniMariase(
             nadpis = nadpis,
-            podnadpis = "${stav.zavazek.nazev} (${trumf.ceskyNazev}) • Body $celkemF : $celkemO • ${stav.variantaPravidel.kratkyNazev}",
+            podnadpis = "${stav.rezimMariase.plnyNazev} (${stav.zavazek.nazev}) • ${stav.variantaPravidel.kratkyNazev} pravidla",
             polozky = polozky,
-            hraci = hraciVys
+            hraci = hraci
         )
-    }
-
-    private fun vyberTahBotaBetl(stav: StavMarias, botIdx: Int, povolene: List<Karta>, ruka: List<Karta>): Karta {
-        val jeForhont = botIdx == stav.indexForhonta
-        if (jeForhont) {
-            if (stav.aktualniStych.isEmpty()) {
-                // Forhont v Betlu vynáší nejnižší bezpečnou kartu z barvy s nízkým průměrem
-                return povolene.minByOrNull { k ->
-                    val vBarve = ruka.filter { it.barva == k.barva }
-                    silaKarty(k.hodnota, true) * 10 + vBarve.sumOf { silaKarty(it.hodnota, true) }
-                } ?: povolene.first()
-            }
-            val neberouci = povolene.filter { k ->
-                val zkusebni = stav.aktualniStych + TahStychuMariase(botIdx, "", k)
-                urciVitezeStychu(zkusebni, null, bezTrumfu = true).indexHrace != botIdx
-            }
-            if (neberouci.isNotEmpty()) {
-                // Podlez nebo odhoď nejvyšší nebezpečnou kartu (např. krále pod eso nebo vysokou v cizí barvě)
-                return neberouci.maxByOrNull { k ->
-                    val pocetNizsichKryti = ruka.count {
-                        it.barva == k.barva && silaKarty(it.hodnota, true) < silaKarty(k.hodnota, true)
-                    }
-                    silaKarty(k.hodnota, true) * 12 - pocetNizsichKryti * 3
-                } ?: neberouci.first()
-            }
-            // Vynucené přebití: přebij co nejnižší kartou, aby druhý obránce za tebou musel vzít štych sám
-            return povolene.minByOrNull { silaKarty(it.hodnota, true) } ?: povolene.first()
-        } else {
-            // Obrana proti Betlu: cílem je donutit forhonta vzít alespoň 1 štych
-            if (stav.aktualniStych.isEmpty()) {
-                return povolene.minByOrNull { silaKarty(it.hodnota, true) } ?: povolene.first()
-            }
-            val prozatimVitez = urciVitezeStychu(stav.aktualniStych, null, bezTrumfu = true)
-            val neberouci = povolene.filter { k ->
-                val zkusebni = stav.aktualniStych + TahStychuMariase(botIdx, "", k)
-                urciVitezeStychu(zkusebni, null, bezTrumfu = true).indexHrace != botIdx
-            }
-            if (prozatimVitez.indexHrace == stav.indexForhonta && neberouci.isNotEmpty()) {
-                // Forhont už štych bere -> nepřebíjej ho! Odhoď vysokou kartu a nech mu štych k prohře Betlu.
-                return neberouci.maxByOrNull { silaKarty(it.hodnota, true) } ?: neberouci.first()
-            }
-            if (stav.aktualniStych.size == 1 && stav.aktualniStych.first().indexHrace != stav.indexForhonta) {
-                // Parťák vynesl a forhont hraje až třetí: nepřebíjej vysoko, nebo při šikaně zahoď vysokou kartu
-                if (neberouci.isNotEmpty()) {
-                    return neberouci.maxByOrNull { silaKarty(it.hodnota, true) } ?: neberouci.first()
-                }
-                return povolene.minByOrNull { silaKarty(it.hodnota, true) } ?: povolene.first()
-            }
-            return povolene.minByOrNull { silaKarty(it.hodnota, true) } ?: povolene.first()
-        }
-    }
-
-    private fun vyberTahBotaDurch(stav: StavMarias, botIdx: Int, povolene: List<Karta>, ruka: List<Karta>): Karta {
-        val jeForhont = botIdx == stav.indexForhonta
-        if (jeForhont) {
-            if (stav.aktualniStych.isEmpty()) {
-                // V Durchu se nehraje na body (10 je nízká karta se silou 4!), vynášej esa a nejvyšší karty z dlouhých barev
-                return povolene.maxByOrNull { k ->
-                    val delkaBarvy = ruka.count { it.barva == k.barva }
-                    silaKarty(k.hodnota, true) * 15 + delkaBarvy * 4
-                } ?: povolene.first()
-            }
-            val vitezne = povolene.filter { k ->
-                val zkusebni = stav.aktualniStych + TahStychuMariase(botIdx, "", k)
-                urciVitezeStychu(zkusebni, null, bezTrumfu = true).indexHrace == botIdx
-            }
-            if (vitezne.isNotEmpty()) {
-                return if (stav.aktualniStych.size == 2) {
-                    vitezne.minByOrNull { silaKarty(it.hodnota, true) } ?: vitezne.first()
-                } else {
-                    vitezne.maxByOrNull { silaKarty(it.hodnota, true) } ?: vitezne.first()
-                }
-            }
-            return povolene.minByOrNull { silaKarty(it.hodnota, true) } ?: povolene.first()
-        } else {
-            // Obrana proti Durchu: jediný získaný štych okamžitě poráží forhonta!
-            if (stav.aktualniStych.isEmpty()) {
-                val esa = povolene.filter { it.hodnota == HodnotaKarty.ESO }
-                if (esa.isNotEmpty()) return esa.first()
-                return povolene.maxByOrNull { silaKarty(it.hodnota, true) } ?: povolene.first()
-            }
-            val vitezne = povolene.filter { k ->
-                val zkusebni = stav.aktualniStych + TahStychuMariase(botIdx, "", k)
-                urciVitezeStychu(zkusebni, null, bezTrumfu = true).indexHrace == botIdx
-            }
-            if (vitezne.isNotEmpty()) {
-                return vitezne.maxByOrNull { silaKarty(it.hodnota, true) } ?: vitezne.first()
-            }
-            // Štych nejde vzít -> šetři si esa a krále v ostatních barvách jako zádržky proti Durchu!
-            return povolene.minByOrNull { silaKarty(it.hodnota, true) } ?: povolene.first()
-        }
-    }
-
-    fun provedTahBota(stav: StavMarias): StavMarias {
-        val botIdx = stav.naTahu
-        val ruka = stav.ruceHracu.getOrNull(botIdx) ?: return stav
-
-        return when (stav.faze) {
-            FazeMariase.VOLBA_TRUMFU -> {
-                val pocetEs = ruka.count { it.hodnota == HodnotaKarty.ESO }
-                val pocetKraluSeSvymEsem = ruka.count { k ->
-                    k.hodnota == HodnotaKarty.KRAL && ruka.any { it.barva == k.barva && it.hodnota == HodnotaKarty.ESO }
-                }
-                if (pocetEs >= 4 || (pocetEs >= 3 && pocetKraluSeSvymEsem >= 3)) {
-                    return zvolTrumfNeboHruBezTrumfu(stav, null, zTalonu = false, pocatecniZavazek = ZavazekMariase.DURCH)
-                }
-                val nizkeKarty = ruka.count {
-                    it.hodnota == HodnotaKarty.R7 || it.hodnota == HodnotaKarty.R8 || it.hodnota == HodnotaKarty.R9
-                }
-                if (nizkeKarty >= 6) {
-                    return zvolTrumfNeboHruBezTrumfu(stav, null, zTalonu = false, pocatecniZavazek = ZavazekMariase.BETL)
-                }
-
-                var nejBarva: BarvaKarty? = null
-                var nejSkore = -1
-                for (b in BarvaKarty.entries) {
-                    val vBarve = ruka.filter { it.barva == b }
-                    val maHlasku = vBarve.any { it.hodnota == HodnotaKarty.SVRSEK } &&
-                        vBarve.any { it.hodnota == HodnotaKarty.KRAL }
-                    val opatrnostCervenych = if (b == BarvaKarty.CERVENE && vBarve.size < 3) -5 else 0
-                    val skore = vBarve.size * 12 +
-                        vBarve.sumOf { silaKarty(it.hodnota, false) } +
-                        (if (maHlasku) 18 else 0) +
-                        opatrnostCervenych
-                    if (skore > nejSkore) {
-                        nejSkore = skore
-                        nejBarva = b
-                    }
-                }
-                if (nejSkore < 32) {
-                    zvolTrumfNeboHruBezTrumfu(stav, null, zTalonu = true)
-                } else {
-                    zvolTrumfNeboHruBezTrumfu(stav, nejBarva, zTalonu = false)
-                }
-            }
-
-            FazeMariase.ODKLADANI_TALONU -> {
-                val trumf = stav.trumf
-                val povolene = zjistiKartyPovoleneDoTalonu(stav, stav.zavazek).toList()
-                if (povolene.size < 2) return stav
-
-                // V Betlu odkládáme 2 nejnebezpečnější VYSOKÉ karty, nikoliv sedmy a osmy!
-                if (stav.zavazek == ZavazekMariase.BETL) {
-                    val odhozBetl = povolene.sortedByDescending { k ->
-                        val pocetNizsichVBarve = ruka.count {
-                            it.barva == k.barva && silaKarty(it.hodnota, true) < silaKarty(k.hodnota, true)
-                        }
-                        silaKarty(k.hodnota, true) * 15 - pocetNizsichVBarve * 4
-                    }.take(2)
-                    return potvrdTalonAZavazek(stav, odhozBetl, ZavazekMariase.BETL)
-                }
-
-                // V Durchu odkládáme 2 nejslabší ztrátové karty z barev bez souvislého vršku
-                if (stav.zavazek == ZavazekMariase.DURCH) {
-                    val odhozDurch = povolene.sortedBy { k ->
-                        val maEsoVBarve = ruka.any { it.barva == k.barva && it.hodnota == HodnotaKarty.ESO }
-                        silaKarty(k.hodnota, true) * 12 + (if (maEsoVBarve) 20 else 0)
-                    }.take(2)
-                    return potvrdTalonAZavazek(stav, odhozDurch, ZavazekMariase.DURCH)
-                }
-
-                val pocetTrumfuCelkem = if (trumf != null) ruka.count { it.barva == trumf } else 0
-                val drziTrumf7 = trumf != null && ruka.any { it.barva == trumf && it.hodnota == HodnotaKarty.R7 }
-                val vedlejsi7KrytaEsem = ruka.firstOrNull { k ->
-                    k.barva != trumf && k.hodnota == HodnotaKarty.R7 &&
-                        ruka.any { it.barva == k.barva && it.hodnota == HodnotaKarty.ESO }
-                }
-                val chystaDveSedmy = !stav.volenoZTalonu && pocetTrumfuCelkem >= 6 && drziTrumf7 && vedlejsi7KrytaEsem != null
-
-                val serazeneProOdhoz = povolene.sortedBy { k ->
-                    val jeTrumf = trumf != null && k.barva == trumf
-                    val tvoriHlasku = bodyHlaskyKartyVRuce(k, ruka, trumf, false) > 0
-                    val chraniDruhouSedmu = chystaDveSedmy && k == vedlejsi7KrytaEsem
-                    val delkaBarvy = ruka.count { it.barva == k.barva }
-                    val maEsoVBarve = ruka.any { it.barva == k.barva && it.hodnota == HodnotaKarty.ESO }
-                    (if (jeTrumf) 500 else 0) +
-                        (if (chraniDruhouSedmu) 400 else 0) +
-                        (if (tvoriHlasku) 250 else 0) +
-                        (if (maEsoVBarve) 25 else 0) +
-                        delkaBarvy * 8 +
-                        silaKarty(k.hodnota, false)
-                }
-                val odhoz = serazeneProOdhoz.take(2)
-                val zbytek = ruka - odhoz.toSet()
-
-                val cilZavazek = if (stav.volenoZTalonu || stav.zavazek.jeBezTrumfu) {
-                    stav.zavazek
-                } else {
-                    val pocetTrumfu = zbytek.count { it.barva == trumf }
-                    val maTrumf7 = trumf != null && zbytek.any { it.barva == trumf && it.hodnota == HodnotaKarty.R7 }
-                    val maVedlejsi7SEsem = zbytek.any { k ->
-                        k.barva != trumf && k.hodnota == HodnotaKarty.R7 &&
-                            zbytek.any { it.barva == k.barva && it.hodnota == HodnotaKarty.ESO }
-                    }
-                    val ma40Hlasku = trumf != null &&
-                        zbytek.any { it.barva == trumf && it.hodnota == HodnotaKarty.SVRSEK } &&
-                        zbytek.any { it.barva == trumf && it.hodnota == HodnotaKarty.KRAL }
-                    val pocetEsADesitek = zbytek.count { it.hodnota == HodnotaKarty.ESO || it.hodnota == HodnotaKarty.R10 }
-
-                    when {
-                        ma40Hlasku && pocetTrumfu >= 5 && pocetEsADesitek >= 4 && maTrumf7 -> ZavazekMariase.STO_A_SEDMA
-                        ma40Hlasku && pocetTrumfu >= 5 && pocetEsADesitek >= 4 -> ZavazekMariase.STO
-                        pocetTrumfu >= 6 && maTrumf7 && maVedlejsi7SEsem -> ZavazekMariase.HRA_A_DVE_SEDMY
-                        pocetTrumfu >= 5 && maTrumf7 -> ZavazekMariase.HRA_A_SEDMA
-                        else -> ZavazekMariase.HRA
-                    }
-                }
-                potvrdTalonAZavazek(stav, odhoz, cilZavazek)
-            }
-
-            FazeMariase.FLEKOVANI -> {
-                val trumf = stav.trumf
-                val pocetEsADesitek = ruka.count { it.hodnota == HodnotaKarty.ESO || it.hodnota == HodnotaKarty.R10 }
-                val pocetTrumfu = if (trumf != null) ruka.count { it.barva == trumf } else 0
-                val maTrumf7 = trumf != null && ruka.any { it.barva == trumf && it.hodnota == HodnotaKarty.R7 }
-
-                val chceZvednoutHru = if (muzeHracFlekHry(stav, botIdx)) {
-                    when {
-                        stav.zavazek == ZavazekMariase.BETL ->
-                            ruka.count { it.hodnota == HodnotaKarty.R7 || it.hodnota == HodnotaKarty.R8 } >= 4 && stav.nasobekFlekHra <= 2
-                        stav.zavazek == ZavazekMariase.DURCH ->
-                            ruka.count { it.hodnota == HodnotaKarty.ESO } >= 2 && stav.nasobekFlekHra <= 2
-                        botIdx == stav.indexForhonta ->
-                            pocetTrumfu >= 5 && pocetEsADesitek >= 4 && stav.nasobekFlekHra <= 2
-                        else ->
-                            (pocetTrumfu >= 4 && pocetEsADesitek >= 3 && stav.nasobekFlekHra == 1) ||
-                                (pocetTrumfu >= 5 && pocetEsADesitek >= 4 && stav.nasobekFlekHra <= 4)
-                    }
-                } else false
-
-                val chceZvednoutSedmu = if (muzeHracFlekSedmy(stav, botIdx)) {
-                    if (botIdx != stav.indexForhonta && maTrumf7) {
-                        true
-                    } else if (botIdx != stav.indexForhonta) {
-                        pocetTrumfu >= 4 && stav.nasobekFlekSedma == 1
-                    } else {
-                        maTrumf7 && pocetTrumfu >= 6 && stav.nasobekFlekSedma == 2
-                    }
-                } else false
-
-                odpovezNaFlekovani(stav, botIdx, chceZvednoutHru, chceZvednoutSedmu)
-            }
-
-            FazeMariase.SEHRAVKA -> {
-                val povolene = zjistiPovoleneKarty(stav, botIdx).toList()
-                if (povolene.isEmpty()) return stav
-                if (povolene.size == 1) return zahrajKartu(stav, botIdx, povolene.first())
-
-                if (stav.zavazek == ZavazekMariase.BETL) {
-                    return zahrajKartu(stav, botIdx, vyberTahBotaBetl(stav, botIdx, povolene, ruka))
-                }
-                if (stav.zavazek == ZavazekMariase.DURCH) {
-                    return zahrajKartu(stav, botIdx, vyberTahBotaDurch(stav, botIdx, povolene, ruka))
-                }
-
-                val trumf = stav.trumf
-                val jeForhont = botIdx == stav.indexForhonta
-
-                // Ochrana hlášené (případně i tiché) sedmy před předčasným vyhozením
-                val kandidati = if (jeForhont && stav.zavazek.hlasiSedmu && stav.cisloStychu < 10 && trumf != null) {
-                    val bezTrumf7 = povolene.filterNot { it.barva == trumf && it.hodnota == HodnotaKarty.R7 }
-                    val poOchraneTrumf7 = bezTrumf7.ifEmpty { povolene }
-                    if (stav.zavazek.hlasiDveSedmy && stav.cisloStychu < 9) {
-                        val bezSedem = poOchraneTrumf7.filterNot { it.hodnota == HodnotaKarty.R7 }
-                        bezSedem.ifEmpty { poOchraneTrumf7 }
-                    } else if (stav.zavazek.hlasiDveSedmy && stav.cisloStychu == 9 && stav.aktualniStych.isEmpty()) {
-                        val vedlejsi7 = poOchraneTrumf7.filter { it.barva != trumf && it.hodnota == HodnotaKarty.R7 }
-                        vedlejsi7.ifEmpty { poOchraneTrumf7 }
-                    } else {
-                        poOchraneTrumf7
-                    }
-                } else if (stav.cisloStychu < 10 && trumf != null) {
-                    // Nevyhazuj zbytečně trumfovou sedmu místo trumfové osmy/devítky (šetři šanci na tichou sedmu)
-                    val jineNebodovaneTrumfy = povolene.any {
-                        it.barva == trumf && it.hodnota != HodnotaKarty.R7 && bodyKarty(it.hodnota) == 0
-                    }
-                    if (jineNebodovaneTrumfy) {
-                        povolene.filterNot { it.barva == trumf && it.hodnota == HodnotaKarty.R7 }.ifEmpty { povolene }
-                    } else {
-                        povolene
-                    }
-                } else {
-                    povolene
-                }
-
-                // 1) Výnos do prázdného štychu v trumfové hře
-                if (stav.aktualniStych.isEmpty()) {
-                    val vybranaVynos = kandidati.maxByOrNull { k ->
-                        val jeTrumf = trumf != null && k.barva == trumf
-                        val hlaska = bodyHlaskyKartyVRuce(k, ruka, trumf, false)
-                        val maEsoStejneBarvy = ruka.any { it.barva == k.barva && it.hodnota == HodnotaKarty.ESO }
-                        val pocetTrumfuVRuce = if (trumf != null) ruka.count { it.barva == trumf } else 0
-
-                        when {
-                            // Forhont s hlášenou sedmou/stovkou a silnými trumfy nejprve vytahuje soupeřům trumfy
-                            jeForhont && jeTrumf && k.hodnota == HodnotaKarty.ESO &&
-                                (stav.zavazek.hlasiSedmu || stav.zavazek.hlasiSto || pocetTrumfuVRuce >= 4) -> 130
-                            // Hláška 40 nebo 20 (vynášíme přednostně krále, aby zůstal nižší svršek)
-                            hlaska == 40 -> 120 + (if (k.hodnota == HodnotaKarty.KRAL) 5 else 0)
-                            !jeTrumf && k.hodnota == HodnotaKarty.ESO -> 110
-                            hlaska == 20 -> 100 + (if (k.hodnota == HodnotaKarty.KRAL) 5 else 0)
-                            jeForhont && jeTrumf && maEsoStejneBarvy && k.hodnota == HodnotaKarty.R10 -> 92
-                            jeForhont && jeTrumf && pocetTrumfuVRuce >= 4 && bodyKarty(k.hodnota) == 0 ->
-                                75 + silaKarty(k.hodnota, false)
-                            // Nikdy dobrovolně nevynášej nechráněnou desítku přímo soupeřům do esa!
-                            k.hodnota == HodnotaKarty.R10 && !maEsoStejneBarvy -> 5
-                            k.hodnota == HodnotaKarty.ESO && jeTrumf -> 65
-                            else -> 35 + silaKarty(k.hodnota, false)
-                        }
-                    } ?: kandidati.first()
-                    return zahrajKartu(stav, botIdx, vybranaVynos)
-                }
-
-                // 2) Třetí (poslední) hráč ve štychu — přesně ví, kdo štych získá
-                if (stav.aktualniStych.size == 2) {
-                    val prozatimVitez = urciVitezeStychu(stav.aktualniStych, trumf, false)
-                    if (!jeForhont && prozatimVitez.indexHrace != stav.indexForhonta) {
-                        // Parťák v obraně už štych drží -> namaž desítku/eso nebo zahlaš 20/40!
-                        val namazNeboHlaska = kandidati.maxByOrNull { k ->
-                            val hlaska = bodyHlaskyKartyVRuce(k, ruka, trumf, false)
-                            val jeTrumf = trumf != null && k.barva == trumf
-                            hlaska * 3 +
-                                bodyKarty(k.hodnota) * 10 -
-                                (if (jeTrumf) 12 else 0) -
-                                silaKarty(k.hodnota, false)
-                        } ?: kandidati.first()
-                        return zahrajKartu(stav, botIdx, namazNeboHlaska)
-                    }
-
-                    val vitezneKarty = kandidati.filter { k ->
-                        val zkusebni = stav.aktualniStych + TahStychuMariase(botIdx, "", k)
-                        urciVitezeStychu(zkusebni, trumf, false).indexHrace == botIdx
-                    }
-                    val vybranaTreti = if (vitezneKarty.isNotEmpty()) {
-                        // Na 3. místě bere jakákoliv vítězná karta jistě -> zpeněž hlášku nebo vlastní desítku!
-                        vitezneKarty.maxByOrNull { k ->
-                            val hlaska = bodyHlaskyKartyVRuce(k, ruka, trumf, false)
-                            val bonusDesitky = if (k.hodnota == HodnotaKarty.R10) 25 else if (k.hodnota == HodnotaKarty.ESO) 12 else 0
-                            hlaska * 3 + bonusDesitky - silaKarty(k.hodnota, false)
-                        } ?: vitezneKarty.first()
-                    } else {
-                        // Štych bere soupeř -> nedej mu desítku/eso (pokud nejsi nucen), ale klidně zahlaš 20/40
-                        kandidati.minByOrNull { k ->
-                            val hlaska = bodyHlaskyKartyVRuce(k, ruka, trumf, false)
-                            val rozbijiHlasku = hlaska == 0 && (k.hodnota == HodnotaKarty.SVRSEK || k.hodnota == HodnotaKarty.KRAL)
-                            bodyKarty(k.hodnota) * 20 - hlaska * 2 + (if (rozbijiHlasku) 4 else 0) + silaKarty(k.hodnota, false)
-                        } ?: kandidati.first()
-                    }
-                    return zahrajKartu(stav, botIdx, vybranaTreti)
-                }
-
-                // 3) Druhý hráč ve štychu (za ním hraje ještě třetí hráč)
-                val prvniTah = stav.aktualniStych.first()
-                val vyneslPartak = !jeForhont && prvniTah.indexHrace != stav.indexForhonta
-                if (vyneslPartak && prvniTah.karta.hodnota == HodnotaKarty.ESO && prvniTah.karta.barva != trumf) {
-                    // Parťák vynesl vedlejší eso: pokud přiznáváme barvu, namaž mu do něj desítku nebo zahlaš 20!
-                    val vBarveVynosu = kandidati.filter { it.barva == prvniTah.karta.barva }
-                    if (vBarveVynosu.isNotEmpty()) {
-                        val namazNaEso = vBarveVynosu.maxByOrNull { k ->
-                            bodyHlaskyKartyVRuce(k, ruka, trumf, false) * 3 +
-                                bodyKarty(k.hodnota) * 10 -
-                                silaKarty(k.hodnota, false)
-                        } ?: vBarveVynosu.first()
-                        return zahrajKartu(stav, botIdx, namazNaEso)
-                    }
-                }
-
-                val vitezneDruhy = kandidati.filter { k ->
-                    val zkusebni = stav.aktualniStych + TahStychuMariase(botIdx, "", k)
-                    urciVitezeStychu(zkusebni, trumf, false).indexHrace == botIdx
-                }
-                val vybranaDruhy = if (vitezneDruhy.isNotEmpty()) {
-                    vitezneDruhy.maxByOrNull { k ->
-                        val hlaska = bodyHlaskyKartyVRuce(k, ruka, trumf, false)
-                        val maEsoStejneBarvy = ruka.any { it.barva == k.barva && it.hodnota == HodnotaKarty.ESO }
-                        when {
-                            k.hodnota == HodnotaKarty.ESO -> 80 + hlaska * 2
-                            // Nestav nechráněnou desítku na 2. místě, pokud můžeš přebít levněji (třetí hráč může mít eso!)
-                            k.hodnota == HodnotaKarty.R10 && !maEsoStejneBarvy -> 15
-                            else -> 50 + hlaska * 2 - silaKarty(k.hodnota, false)
-                        }
-                    } ?: vitezneDruhy.first()
-                } else {
-                    kandidati.minByOrNull { k ->
-                        val hlaska = bodyHlaskyKartyVRuce(k, ruka, trumf, false)
-                        bodyKarty(k.hodnota) * 20 - hlaska * 2 + silaKarty(k.hodnota, false)
-                    } ?: kandidati.first()
-                }
-                zahrajKartu(stav, botIdx, vybranaDruhy)
-            }
-
-            FazeMariase.KONEC -> stav
-        }
     }
 }

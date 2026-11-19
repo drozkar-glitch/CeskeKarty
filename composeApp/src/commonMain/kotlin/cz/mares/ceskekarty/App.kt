@@ -215,7 +215,8 @@ fun App() {
                                 pocetHracu = typ.povolenePoctyHracu.first(),
                                 variantaPravidel = varianta,
                                 jeOfflinePohar = true,
-                                celkemRozdani = 3
+                                celkemRozdani = 3,
+                                rezimMariase = RezimMariase.VOLENY
                             )
                             aktivniOnlineStul = null
                             aktualniObrazovka = ObrazovkaHerny.HERNI_STUL
@@ -1003,45 +1004,118 @@ private fun VyberTreninkuObrazovka(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val moznostiPoctu = typ.povolenePoctyHracu
-                    for (pocet in moznostiPoctu) {
-                        val popisek = when {
-                            typ == TypHry.SEDMA && pocet == 2 -> "1 na 1 (2 hráči)"
-                            typ == TypHry.SEDMA && pocet == 4 -> "Čtyřhra 2 na 2"
-                            moznostiPoctu.size >= 3 -> "$pocet hráči"
-                            else -> "Hrát ($pocet hráči)"
+                if (typ == TypHry.MARIAS) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            for (rezim in listOf(RezimMariase.VOLENY, RezimMariase.LICITOVANY)) {
+                                Button(
+                                    onClick = {
+                                        jemnaHaptika()
+                                        onSpustitOffline(
+                                            KonfiguraceOfflineHry(
+                                                typHry = TypHry.MARIAS,
+                                                pocetHracu = rezim.pocetHracu,
+                                                variantaPravidel = vybranaVarianta,
+                                                rezimMariase = rezim
+                                            )
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(42.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
+                                ) {
+                                    Text(
+                                        text = rezim.tlacitkoNazev,
+                                        color = Color(0xFF072312),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
                         }
                         Button(
                             onClick = {
                                 jemnaHaptika()
                                 onSpustitOffline(
                                     KonfiguraceOfflineHry(
-                                        typHry = typ,
-                                        pocetHracu = pocet,
-                                        variantaPravidel = vybranaVarianta
+                                        typHry = TypHry.MARIAS,
+                                        pocetHracu = RezimMariase.LIZACI.pocetHracu,
+                                        variantaPravidel = vybranaVarianta,
+                                        rezimMariase = RezimMariase.LIZACI
                                     )
                                 )
                             },
                             modifier = Modifier
-                                .weight(1f)
+                                .fillMaxWidth()
                                 .height(42.dp),
                             shape = RoundedCornerShape(10.dp),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
                         ) {
                             Text(
-                                text = popisek,
+                                text = RezimMariase.LIZACI.tlacitkoNazev,
                                 color = Color(0xFF072312),
-                                fontSize = 13.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 maxLines = 1,
                                 softWrap = false,
                                 overflow = TextOverflow.Ellipsis
                             )
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val moznostiPoctu = typ.povolenePoctyHracu
+                        for (pocet in moznostiPoctu) {
+                            val popisek = when {
+                                typ == TypHry.SEDMA && pocet == 2 -> "1 na 1 (2 hráči)"
+                                typ == TypHry.SEDMA && pocet == 4 -> "Čtyřhra 2 na 2"
+                                moznostiPoctu.size >= 3 -> "$pocet hráči"
+                                else -> "Hrát ($pocet hráči)"
+                            }
+                            Button(
+                                onClick = {
+                                    jemnaHaptika()
+                                    onSpustitOffline(
+                                        KonfiguraceOfflineHry(
+                                            typHry = typ,
+                                            pocetHracu = pocet,
+                                            variantaPravidel = vybranaVarianta
+                                        )
+                                    )
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(42.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
+                            ) {
+                                Text(
+                                    text = popisek,
+                                    color = Color(0xFF072312),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
@@ -1064,6 +1138,7 @@ private fun OnlineLobbyObrazovka(
     var zpravaChyby by remember { mutableStateOf("") }
 
     var vybranaHraZalozeni by remember { mutableStateOf(TypHry.MARIAS) }
+    var vybranyRezimMariaseZalozeni by remember { mutableStateOf(RezimMariase.VOLENY) }
     var vybranyPocetZalozeni by remember { mutableStateOf(3) }
     var soukromyPin by remember { mutableStateOf("") }
 
@@ -1108,7 +1183,11 @@ private fun OnlineLobbyObrazovka(
                             .clickable {
                                 jemnaHaptika()
                                 vybranaHraZalozeni = typ
-                                vybranyPocetZalozeni = typ.povolenePoctyHracu.first()
+                                vybranyPocetZalozeni = if (typ == TypHry.MARIAS) {
+                                    vybranyRezimMariaseZalozeni.pocetHracu
+                                } else {
+                                    typ.povolenePoctyHracu.first()
+                                }
                             }
                             .padding(horizontal = 6.dp, vertical = 8.dp),
                         contentAlignment = Alignment.Center
@@ -1126,7 +1205,37 @@ private fun OnlineLobbyObrazovka(
                 }
             }
 
-            if (vybranaHraZalozeni.povolenePoctyHracu.size > 1) {
+            if (vybranaHraZalozeni == TypHry.MARIAS) {
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    for (rezim in RezimMariase.entries) {
+                        val akt = vybranyRezimMariaseZalozeni == rezim
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (akt) Color(0xFF69F0AE) else Color(0xFF18492D))
+                                .clickable {
+                                    jemnaHaptika()
+                                    vybranyRezimMariaseZalozeni = rezim
+                                    vybranyPocetZalozeni = rezim.pocetHracu
+                                }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = rezim.tlacitkoNazev,
+                                color = if (akt) Color(0xFF062111) else Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
+            } else if (vybranaHraZalozeni.povolenePoctyHracu.size > 1) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (p in vybranaHraZalozeni.povolenePoctyHracu) {
@@ -1210,12 +1319,22 @@ private fun OnlineLobbyObrazovka(
                         jemnaHaptika()
                         zpravaChyby = ""
                         scope.launch {
+                            val nazevZakladaneho = if (vybranaHraZalozeni == TypHry.MARIAS) {
+                                "${vybranyRezimMariaseZalozeni.plnyNazev} (${nactiUlozenouPrezdivku()})"
+                            } else {
+                                "${vybranaHraZalozeni.nazev} (${nactiUlozenouPrezdivku()})"
+                            }
                             val vytvoreny = OnlineManager.vytvorStul(
-                                nazevStolu = "${vybranaHraZalozeni.nazev} (${nactiUlozenouPrezdivku()})",
+                                nazevStolu = nazevZakladaneho,
                                 typHry = vybranaHraZalozeni,
-                                pocetHracu = vybranyPocetZalozeni,
+                                pocetHracu = if (vybranaHraZalozeni == TypHry.MARIAS) {
+                                    vybranyRezimMariaseZalozeni.pocetHracu
+                                } else {
+                                    vybranyPocetZalozeni
+                                },
                                 pinKod = soukromyPin,
-                                variantaPravidel = vybranaVarianta
+                                variantaPravidel = vybranaVarianta,
+                                rezimMariase = vybranyRezimMariaseZalozeni
                             )
                             if (vytvoreny != null) {
                                 onVstoupitDoStolu(vytvoreny)
@@ -1297,8 +1416,9 @@ private fun OnlineLobbyObrazovka(
                                     StitekPravidelBadge(stul.variantaPravidel)
                                 }
                                 Spacer(modifier = Modifier.height(2.dp))
+                                val rezimPrefix = if (stul.typHry == TypHry.MARIAS) "${stul.rezimMariase.kratkyStitek} • " else ""
                                 Text(
-                                    text = "Hráči (${stul.hraci.size}/${stul.maxHracu}): " +
+                                    text = "${rezimPrefix}Hráči (${stul.hraci.size}/${stul.maxHracu}): " +
                                         stul.hraci.joinToString(", ") { it.prezdivka },
                                     color = Color(0xFFA5D6A7),
                                     fontSize = 12.sp
@@ -1570,8 +1690,8 @@ private fun PravidlaObrazovka(
             text = "Štych bere karta stejné hodnoty jako první vynesená nebo libovolná sedmička; počítají se desítky, esa a poslední štych po 10 bodech.\n• Svazová (klasická) pravidla: V duelu 1 na 1 končí štych po nepřebité dvojici (třetí kartou lze pokračovat jen tehdy, když soupeř štych přebil). Spálená (4×) platí pouze za 4 stejné karty odehrané v jednom štychu na stole.\n• Hospodská pravidla: Spálená (4×) platí jak ve štychu na stole, tak i při 4 stejných kartách na ruce (tlačítko Hlásit spálenou z ruky v 1 na 1 i ve čtyřhře). V duelu 1 na 1 navíc může vynášející natahovat štych dalšími kartami stejné hodnoty nebo sedmičkou i tehdy, když soupeř nepřebil, případně štych kdykoliv sebrat tlačítkem Vzít štych."
         )
         BlokPravidel(
-            nadpis = "Volený Mariáš — Hospodská vs. Svazová pravidla",
-            text = "Forhont volí trumf ze 7 karet (nebo naslepo z talonu) a po dobrání odkládá 2 karty mimo es a desítek. Kromě Hry, Betlu a Durchu lze hlásit Stovku (100), Sedmu i Dvě sedmy (9. štych vedlejší sedmičkou a 10. štych trumfovou sedmičkou). Nehlášená trumfová sedma v 10. štychu platí jako tichá sedma (při přebití jako zabitá tichá sedma). Červené trumfy platí dvojnásobně, hlášky 20/40 platí straně s alespoň jedním štychem a flekovat lze v řadě Flek (2×), Re (4×), Tutti (8×), Boty (16×) až Kalhoty (32×).\n• Svazová pravidla: Sedmu i Dvě sedmy smí forhont hlásit pouze tehdy, když příslušné sedmičky po odložení talonu skutečně drží v ruce (zákaz blafování).\n• Hospodská pravidla: Forhont smí ohlásit i tzv. falešnou sedmu nebo falešné dvě sedmy jako blaf, i když trumfovou sedmu v ruce nemá."
+            nadpis = "Mariáš (Volený, Licitovaný a Lízací) — Hospodská vs. Svazová pravidla",
+            text = "• Volený mariáš (3 hráči): Forhont volí trumf ze 7 karet (nebo naslepo z talonu) a po dobrání odkládá 2 karty mimo es a desítek. Kromě Hry, Betlu a Durchu lze hlásit Stovku (100), Sedmu i Dvě sedmy. Nehlášená trumfová sedma v 10. štychu platí jako tichá sedma, červené trumfy platí dvojnásobně a flekovat lze v řadě Flek (2×), Re (4×), Tutti (8×), Boty (16×) až Kalhoty (32×).\n• Licitovaný mariáš (3 hráči): Všichni 3 hráči dostanou 10 karet a o 2 karty v talonu se draží (Hra, Hra a sedma, Stovka, Betl, Sto a sedma, Durch, Hra a dvě sedmy, Sto a dvě sedmy). Vítěz dražby bere talon, zvolí trumf z 12 karet a odloží 2 karty; trumfovou hru vynáší původní forhont, Betl a Durch vynáší vydražitel.\n• Lízací mariáš (2 hráči): Oba hráči dostanou 5 karet a pod talonem leží otočený trumf (hráč na výnosu jej může vyměnit za trumfovou sedmu — ve svazových pravidlech dokud v talonu zbývají aspoň 4 karty, v hospodských až do posledního lízání). Dokud není talon dobraný, nemusí se přiznávat barva ani trumfovat; v posledních 5 štyších po dobrání talonu platí přísná povinnost přiznat barvu, přebít či trumfovat.\n• Svazová vs. Hospodská pravidla: Ve svazových pravidlech smí forhont dražit a hlásit Sedmu či Dvě sedmy jen se skutečnými sedmičkami v ruce (zákaz blafování); v hospodských pravidlech lze ohlásit i falešnou sedmu jako blaf."
         )
         BlokPravidel(
             nadpis = "Prší — Hospodská vs. Svazová pravidla",

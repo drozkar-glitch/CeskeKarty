@@ -153,7 +153,6 @@ object HospodaZvuk {
         val rukaMluvcihoPoTahu = novy.ruceHracu.getOrNull(mluvciIdx)?.size ?: 99
         val hlasiPrsi = odhozenaKarta && rukaMluvcihoPoTahu == 1
 
-        // Svršek a změna barvy (funguje i tehdy, když hráč či bot poručí stejnou barvu, jaká platila předtím)
         if (novy.zvolenaBarvaSvrskem != null &&
             (dokoncenaVolbaSvrska || (polozenaNovaKarta && novy.vrchniKarta.hodnota == HodnotaKarty.SVRSEK))
         ) {
@@ -166,7 +165,6 @@ object HospodaZvuk {
             return
         }
 
-        // Vynesení nebo přebití sedmičky (včetně hospodské Červené sedmy na eso)
         if (novy.aktivniSedmyPocet > predchozi.aktivniSedmyPocet) {
             val karet = novy.aktivniSedmyPocet * 2
             if (karet >= 4 || predchozi.aktivniEsoStoji) silnaHaptika()
@@ -185,7 +183,6 @@ object HospodaZvuk {
             return
         }
 
-        // Líznutí trestu za sedmu
         if (predchozi.aktivniSedmyPocet > 0 && novy.aktivniSedmyPocet == 0) {
             val bral = predchozi.aktivniSedmyPocet * 2
             if (bral >= 4 || rukaMluvcihoPoTahu >= 6) {
@@ -196,7 +193,6 @@ object HospodaZvuk {
             return
         }
 
-        // Eso — další stojí
         if (novy.aktivniEsoStoji && odhozenaKarta && novy.vrchniKarta.hodnota == HodnotaKarty.ESO) {
             if (hlasiPrsi) {
                 silnaHaptika()
@@ -207,7 +203,6 @@ object HospodaZvuk {
             return
         }
 
-        // Poslední karta v ruce — Prší!
         if (hlasiPrsi) {
             silnaHaptika()
             prehrajKlipNeboTts("p_prsi", "Pozor pánové, prší!", mluvciJmeno, mluvciIdx)
@@ -233,7 +228,6 @@ object HospodaZvuk {
             pleskniKartou()
         }
 
-        // Spálená (ve štychu i z ruky v hospodských pravidlech)
         if (predchozi.spalenaTym < 0 && novy.spalenaTym >= 0) {
             silnaHaptika()
             cinkniVyuctovani()
@@ -257,7 +251,6 @@ object HospodaZvuk {
             return
         }
 
-        // Konec rozdání Sedmy
         if (!predchozi.jeKonec && novy.jeKonec) {
             silnaHaptika()
             cinkniVyuctovani()
@@ -282,7 +275,6 @@ object HospodaZvuk {
             return
         }
 
-        // Právě zahraná karta (včetně karty, která štych rovnou uzavřela)
         val hranyStych = when {
             novy.aktualniStych.size > predchozi.aktualniStych.size -> novy.aktualniStych
             novy.aktualniStych.isEmpty() && novy.posledniUzavrenyStych.size == predchozi.aktualniStych.size + 1 ->
@@ -324,13 +316,45 @@ object HospodaZvuk {
     }
 
     // -------------------------------------------------------------------------
-    // VOLENÝ MARIÁŠ — vyhodnocení tahu a výběr hospodské hlášky
+    // MARIÁŠ (Volený, Licitovaný i Lízací) — vyhodnocení tahu a výběr hlášky
     // -------------------------------------------------------------------------
     fun zpracujZmenuMariase(predchozi: StavMarias?, novy: StavMarias) {
         if (predchozi == null || novy.cisloTahu == predchozi.cisloTahu) return
 
         val mluvciIdx = predchozi.naTahu
         val mluvciJmeno = novy.jmenaHracu.getOrElse(mluvciIdx) { "" }
+
+        // 0) Dražba v Licitovaném mariáši
+        if (predchozi.faze == FazeMariase.DRAZBA) {
+            if (novy.slozenoBezHry && novy.faze == FazeMariase.KONEC) {
+                cinkniVyuctovani()
+                rekniHlasku("Všichni dál, skládáme karty!", mluvciJmeno, mluvciIdx, jeDulezita = true)
+                return
+            }
+            val novaNabidka = novy.nejvyssiNabidka
+            if (novaNabidka != null && novaNabidka != predchozi.nejvyssiNabidka) {
+                pleskniKartou()
+                when (novaNabidka) {
+                    ZavazekMariase.HRA ->
+                        rekniHlasku("Hra!", mluvciJmeno, mluvciIdx, jeDulezita = false)
+                    ZavazekMariase.HRA_A_SEDMA ->
+                        prehrajKlipNeboTts("m_sedma_hl", "Hlásím sedmu!", mluvciJmeno, mluvciIdx)
+                    ZavazekMariase.HRA_A_DVE_SEDMY, ZavazekMariase.STO_A_DVE_SEDMY ->
+                        prehrajKlipNeboTts("m_dve_sedmy", "Dvě sedmy na stůl!", mluvciJmeno, mluvciIdx)
+                    ZavazekMariase.STO ->
+                        prehrajKlipNeboTts("m_stovka", "Hlásím stovku, pánové!", mluvciJmeno, mluvciIdx)
+                    ZavazekMariase.STO_A_SEDMA ->
+                        prehrajKlipNeboTts("m_sto_sedma", "Sto a sedma, pánové!", mluvciJmeno, mluvciIdx)
+                    ZavazekMariase.BETL ->
+                        prehrajKlipNeboTts("m_betl", "Hraju betla, ani štych nevezmu!", mluvciJmeno, mluvciIdx)
+                    ZavazekMariase.DURCH ->
+                        prehrajKlipNeboTts("m_durch", "Durch, beru všechno!", mluvciJmeno, mluvciIdx)
+                }
+            } else {
+                rekniHlasku("Dál.", mluvciJmeno, mluvciIdx, jeDulezita = false)
+            }
+            return
+        }
 
         // 1) Volba trumfu
         if (predchozi.faze == FazeMariase.VOLBA_TRUMFU && novy.faze == FazeMariase.ODKLADANI_TALONU) {
@@ -406,7 +430,6 @@ object HospodaZvuk {
                         prehrajKlipNeboTts("m_flek", "Flek jak Brno!", mluvciJmeno, mluvciIdx)
                 }
             } else {
-                // "Dobrý" má nižší prioritu — pokud ještě doznívá hláška závazku forhonta, neskočí mu do řeči
                 prehrajVybranouHlasku(
                     listOf(
                         KandidatHlasky("m_dobry_1", "Dobrý, nes!"),
@@ -423,6 +446,19 @@ object HospodaZvuk {
         // 4) Sehrávka a konec rozdání
         if (predchozi.faze == FazeMariase.SEHRAVKA) {
             pleskniKartou()
+
+            // Výměna trumfové sedmy za otočený trumf v Lízacím mariáši
+            if (novy.rezimMariase == RezimMariase.LIZACI &&
+                predchozi.otocenyTrumf != novy.otocenyTrumf &&
+                novy.otocenyTrumf?.hodnota == HodnotaKarty.R7 &&
+                novy.aktualniStych.isEmpty() &&
+                novy.faze == FazeMariase.SEHRAVKA
+            ) {
+                silnaHaptika()
+                rekniHlasku("Měním trumfovou sedmu!", mluvciJmeno, mluvciIdx, jeDulezita = true)
+                return
+            }
+
             val prirustekHlasek = (novy.hlaskyForhont - predchozi.hlaskyForhont) +
                 (novy.hlaskyObrana - predchozi.hlaskyObrana)
 
@@ -430,10 +466,6 @@ object HospodaZvuk {
                 silnaHaptika()
                 cinkniVyuctovani()
                 val vyuctovani = MariasEngine.vyhodnotMariase(novy)
-                val ziskForhonta = vyuctovani.hraci.firstOrNull { it.indexHrace == novy.indexForhonta }?.zmenaTerezianu ?: 0
-                val forhontJm = novy.jmenaHracu.getOrElse(novy.indexForhonta) { "" }
-                val obranceIdx = (novy.indexForhonta + 1) % 3
-                val obranceJm = novy.jmenaHracu.getOrElse(obranceIdx) { "" }
 
                 val maZabitouSedmu = vyuctovani.polozky.any { pol ->
                     pol.popis.contains("Zabitá", ignoreCase = true) ||
@@ -443,6 +475,26 @@ object HospodaZvuk {
                     (pol.popis.contains("sedma", ignoreCase = true) && pol.popis.contains("tich", ignoreCase = true)) ||
                         pol.popis.contains("Tiché dvě sedmy", ignoreCase = true)
                 }
+
+                if (novy.rezimMariase == RezimMariase.LIZACI) {
+                    val vitezHrac = vyuctovani.hraci.firstOrNull { it.jeVitez }
+                    val vitIdx = vitezHrac?.indexHrace ?: novy.indexForhonta
+                    val vitJm = vitezHrac?.jmenoHrace ?: novy.jmenaHracu.getOrElse(vitIdx) { "" }
+                    when {
+                        maZabitouSedmu ->
+                            prehrajKlipNeboTts("m_zabita7", "Zabitá sedma, to bolelo!", vitJm, vitIdx)
+                        maTichouSedmu ->
+                            prehrajKlipNeboTts("m_ticha7", "Tichá sedma doma!", vitJm, vitIdx)
+                        else ->
+                            prehrajKlipNeboTts("m_vyhra_f", "Je to doma, vysázejte tereziány!", vitJm, vitIdx)
+                    }
+                    return
+                }
+
+                val ziskForhonta = vyuctovani.hraci.firstOrNull { it.indexHrace == novy.indexForhonta }?.zmenaTerezianu ?: 0
+                val forhontJm = novy.jmenaHracu.getOrElse(novy.indexForhonta) { "" }
+                val obranceIdx = (novy.indexForhonta + 1) % 3
+                val obranceJm = novy.jmenaHracu.getOrElse(obranceIdx) { "" }
 
                 when {
                     maZabitouSedmu ->
@@ -459,7 +511,6 @@ object HospodaZvuk {
                 return
             }
 
-            // Hláška 20 nebo 40 v průběhu štychu
             if (prirustekHlasek >= 40) {
                 silnaHaptika()
                 prehrajKlipNeboTts("m_hl40", "Čtyřicet, trumfová hláška!", mluvciJmeno, mluvciIdx)

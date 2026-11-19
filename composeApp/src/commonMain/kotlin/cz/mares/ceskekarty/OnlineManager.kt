@@ -60,7 +60,8 @@ data class OnlineStul(
     val celkemRozdani: Int,
     val soucetBoduHracu: List<Int>,
     val tepyHracu: List<TepHrace>,
-    val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
+    val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA,
+    val rezimMariase: RezimMariase = RezimMariase.VOLENY
 ) {
     val jeSoukromy: Boolean
         get() = pinKod.isNotEmpty()
@@ -529,7 +530,6 @@ object OnlineManager {
             }
         }
 
-        // Nejprve uklidit vlastní čekající stůl a případné registrace v dosud neodstartovaných turnajích
         smazStul("stul_$mojeId")
         try {
             val turnaje = TournamentManager.synchronizujANactiRozvrhTurnaju()
@@ -755,7 +755,8 @@ object OnlineManager {
                 "cr" to stul.cisloRozdani.toString(),
                 "celr" to stul.celkemRozdani.toString(),
                 "sb" to stul.soucetBoduHracu.joinToString(","),
-                "vp" to stul.variantaPravidel.kod
+                "vp" to stul.variantaPravidel.kod,
+                "rm" to stul.rezimMariase.kod
             )
         )
     }
@@ -767,6 +768,14 @@ object OnlineManager {
 
         val roomId = r.text("id", fallbackId)
         val typHry = TypHry.dleId(r.text("typ", "PRSI"))
+        val rezimMariase = if (typHry == TypHry.MARIAS) {
+            val vychoziKod = if (r.cislo("max", 3) == 2) RezimMariase.LIZACI.kod else RezimMariase.VOLENY.kod
+            RezimMariase.dleKodu(r.text("rm", vychoziKod))
+        } else {
+            RezimMariase.VOLENY
+        }
+        val vychoziMax = if (typHry == TypHry.MARIAS) rezimMariase.pocetHracu else typHry.povolenePoctyHracu.first()
+
         val stavText = obj.retezec("statusOverride", r.text("stav", "CEKANI"))
         val stavMistnosti = when (stavText) {
             "ABORTED_TIMEOUT", "UKONCENO_VYPADKEM" -> StavMistnosti.UKONCENO_VYPADKEM
@@ -788,7 +797,7 @@ object OnlineManager {
 
         val souctyText = r.text("sb", "")
         val soucty = if (souctyText.isBlank()) {
-            List(hraci.size.coerceAtLeast(r.cislo("max", 2))) { 0 }
+            List(hraci.size.coerceAtLeast(r.cislo("max", vychoziMax))) { 0 }
         } else {
             souctyText.split(",").map { it.toIntOrNull() ?: 0 }
         }
@@ -798,7 +807,7 @@ object OnlineManager {
             roomId = roomId,
             nazevStolu = r.text("naz", "Stůl"),
             typHry = typHry,
-            maxHracu = r.cislo("max", typHry.povolenePoctyHracu.first()),
+            maxHracu = r.cislo("max", vychoziMax),
             pinKod = r.text("pin", ""),
             hostDeviceId = r.text("host", hraci.first().deviceId),
             stavMistnosti = stavMistnosti,
@@ -814,7 +823,8 @@ object OnlineManager {
             celkemRozdani = r.cislo("celr", 1),
             soucetBoduHracu = soucty,
             tepyHracu = tepy,
-            variantaPravidel = VariantaPravidel.dleKodu(r.text("vp", VariantaPravidel.HOSPODSKA.kod))
+            variantaPravidel = VariantaPravidel.dleKodu(r.text("vp", VariantaPravidel.HOSPODSKA.kod)),
+            rezimMariase = rezimMariase
         )
     }
 
@@ -868,7 +878,8 @@ object OnlineManager {
         slotZapasu: Int = -1,
         celkemRozdani: Int = 1,
         predvyplneniHraci: List<HracUStolu>? = null,
-        variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
+        variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA,
+        rezimMariase: RezimMariase = RezimMariase.VOLENY
     ): OnlineStul? {
         val mojeId = ziskejUnikatniIdZarizeni()
         val mujNick = nactiUlozenouPrezdivku().ifBlank { "Hráč" }
@@ -886,6 +897,22 @@ object OnlineManager {
             }
         }
 
+        val efektivniRezimMariase = if (typHry == TypHry.MARIAS) {
+            if (turnajId.isNotEmpty()) RezimMariase.VOLENY else rezimMariase
+        } else {
+            RezimMariase.VOLENY
+        }
+        val efektivniPocetHracu = if (typHry == TypHry.MARIAS) {
+            efektivniRezimMariase.pocetHracu
+        } else {
+            pocetHracu
+        }
+        val vychoziNazev = if (typHry == TypHry.MARIAS) {
+            "${efektivniRezimMariase.plnyNazev} — $mujNick"
+        } else {
+            "${typHry.nazev} — $mujNick"
+        }
+
         val nyni = ziskejAktualniCasMs()
         val seznamHracu = predvyplneniHraci ?: listOf(HracUStolu(mojeId, mujNick, mojeTereziany))
         val prvniZivyHost = seznamHracu.firstOrNull { !jeBotDeviceId(it.deviceId) }?.deviceId
@@ -893,9 +920,9 @@ object OnlineManager {
 
         val stul = OnlineStul(
             roomId = roomId,
-            nazevStolu = nazevStolu.ifBlank { "${typHry.nazev} — $mujNick" },
+            nazevStolu = nazevStolu.ifBlank { vychoziNazev },
             typHry = typHry,
-            maxHracu = pocetHracu,
+            maxHracu = efektivniPocetHracu,
             pinKod = pinKod.trim(),
             hostDeviceId = prvniZivyHost,
             stavMistnosti = StavMistnosti.CEKANI,
@@ -909,9 +936,10 @@ object OnlineManager {
             slotZapasu = slotZapasu,
             cisloRozdani = 1,
             celkemRozdani = celkemRozdani,
-            soucetBoduHracu = List(pocetHracu) { 0 },
+            soucetBoduHracu = List(efektivniPocetHracu) { 0 },
             tepyHracu = seznamHracu.filterNot { jeBotDeviceId(it.deviceId) }.map { TepHrace(it.deviceId, nyni) },
-            variantaPravidel = variantaPravidel
+            variantaPravidel = variantaPravidel,
+            rezimMariase = efektivniRezimMariase
         )
 
         val meta = serializujMetaStolu(stul)
@@ -923,7 +951,7 @@ object OnlineManager {
         val odpoved = dotazSOpakovanim("PUT", "$FIREBASE_DB_ZAKLAD/card_rooms/$roomId.json", telo)
         if (!odpoved.uspesne) return null
 
-        return if (seznamHracu.size == pocetHracu) {
+        return if (seznamHracu.size == efektivniPocetHracu) {
             rozdejASpustStul(stul, zacinajiciIndex = 0) ?: stul
         } else {
             stul
@@ -1004,7 +1032,12 @@ object OnlineManager {
         hraci: List<HracUStolu>
     ): List<Karta> {
         val idsJson = hraci.joinToString(",") { jsonEscape(it.deviceId) }
-        val req = """{"roomId":${jsonEscape(roomId)},"gameType":${jsonEscape(typHry.idHry)},"playerIds":[$idsJson]}"""
+        val workerTypHry = if (typHry == TypHry.MARIAS && hraci.size == 2) {
+            TypHry.SEDMA.idHry
+        } else {
+            typHry.idHry
+        }
+        val req = """{"roomId":${jsonEscape(roomId)},"gameType":${jsonEscape(workerTypHry)},"playerIds":[$idsJson]}"""
         val workerRes = provedSitovyDotaz("POST", "$CLOUDFLARE_WORKER_URL/deal", req)
         if (workerRes.uspesne) {
             val dealRes = provedSitovyDotaz("GET", "$FIREBASE_DB_ZAKLAD/card_rooms/$roomId/deal.json")
@@ -1047,7 +1080,13 @@ object OnlineManager {
         val stavRetezec = when (stul.typHry) {
             TypHry.PRSI -> PrsiEngine.novaHra(jmena, balicek, zacinajiciIndex, vp).doKompaktnihoRetezce()
             TypHry.SEDMA -> SedmaEngine.novaHra(jmena, balicek, zacinajiciIndex, vp).doKompaktnihoRetezce()
-            TypHry.MARIAS -> MariasEngine.novaHra(jmena, zacinajiciIndex, balicek, vp).doKompaktnihoRetezce()
+            TypHry.MARIAS -> MariasEngine.novaHra(
+                jmenaHracu = jmena,
+                indexForhonta = zacinajiciIndex,
+                predmichanyBalicek = balicek,
+                variantaPravidel = vp,
+                rezimMariase = stul.rezimMariase
+            ).doKompaktnihoRetezce()
         }
         val nyni = ziskejAktualniCasMs()
         val novyStul = stul.copy(

@@ -58,7 +58,8 @@ data class KonfiguraceOfflineHry(
     val pocetHracu: Int,
     val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA,
     val jeOfflinePohar: Boolean = false,
-    val celkemRozdani: Int = 3
+    val celkemRozdani: Int = 3,
+    val rezimMariase: RezimMariase = RezimMariase.VOLENY
 )
 
 internal data class UiPolozkaVyuctovani(
@@ -196,12 +197,19 @@ fun GameTableScreen(
     var zvukZapnut by remember { mutableStateOf(jeZvukAHlaskyZapnuty()) }
 
     val aktivniTypHry = onlineStul?.typHry ?: offlineKonfig?.typHry ?: TypHry.PRSI
-    val pocetHracu = onlineStul?.maxHracu ?: offlineKonfig?.pocetHracu ?: 3
+    val pocatecniRezimMariase = onlineStul?.rezimMariase
+        ?: offlineKonfig?.rezimMariase
+        ?: RezimMariase.VOLENY
+    val pocetHracu = if (aktivniTypHry == TypHry.MARIAS) {
+        onlineStul?.maxHracu ?: pocatecniRezimMariase.pocetHracu
+    } else {
+        onlineStul?.maxHracu ?: offlineKonfig?.pocetHracu ?: 3
+    }
     val pocatecniPravidla = onlineStul?.variantaPravidel
         ?: offlineKonfig?.variantaPravidel
         ?: nactiVychoziVariantuPravidel()
 
-    val vychoziJmenaOffline = remember(aktivniTypHry, pocetHracu, mojePrezdivka) {
+    val vychoziJmenaOffline = remember(aktivniTypHry, pocetHracu, pocatecniRezimMariase, mojePrezdivka) {
         val pocetBotu = (pocetHracu - 1).coerceAtLeast(1)
         listOf(mojePrezdivka) + vylosujJmenaOfflineBotu(pocetBotu)
     }
@@ -238,7 +246,8 @@ fun GameTableScreen(
                     ?: MariasEngine.novaHra(
                         jmenaHracu = vychoziJmenaOffline,
                         indexForhonta = 0,
-                        variantaPravidel = pocatecniPravidla
+                        variantaPravidel = pocatecniPravidla,
+                        rezimMariase = pocatecniRezimMariase
                     )
             } else null
         )
@@ -250,6 +259,10 @@ fun GameTableScreen(
         TypHry.MARIAS -> stavMarias?.variantaPravidel
     } ?: onlineStul?.variantaPravidel ?: pocatecniPravidla
 
+    val aktivniRezimMariase: RezimMariase = stavMarias?.rezimMariase
+        ?: onlineStul?.rezimMariase
+        ?: pocatecniRezimMariase
+
     var vybraneKartyDoTalonu by remember { mutableStateOf(emptyList<Karta>()) }
     var planovanyZavazekMariase by remember { mutableStateOf(ZavazekMariase.HRA) }
     var zapoctenaVerzeVysledku by remember { mutableStateOf(-1) }
@@ -260,10 +273,12 @@ fun GameTableScreen(
             TypHry.PRSI -> StavPrsi.zKompaktnihoRetezce(stul.serializovanyStavHry)?.let { stavPrsi = it }
             TypHry.SEDMA -> StavSedma.zKompaktnihoRetezce(stul.serializovanyStavHry)?.let { stavSedma = it }
             TypHry.MARIAS -> StavMarias.zKompaktnihoRetezce(stul.serializovanyStavHry)?.let {
+                val predchoziFaze = stavMarias?.faze
                 stavMarias = it
                 if (it.faze != FazeMariase.ODKLADANI_TALONU) {
                     vybraneKartyDoTalonu = emptyList()
-                } else {
+                } else if (predchoziFaze != FazeMariase.ODKLADANI_TALONU) {
+                    vybraneKartyDoTalonu = emptyList()
                     planovanyZavazekMariase = it.zavazek
                 }
             }
@@ -557,6 +572,10 @@ fun GameTableScreen(
                         s.posledniUzavrenyStych.isNotEmpty()
                     pockejNaStulAHlasku(praveUzavrenStych = uzavrenStych)
                     val novy = MariasEngine.provedTahBota(s)
+                    if (novy.faze == FazeMariase.ODKLADANI_TALONU && s.faze != FazeMariase.ODKLADANI_TALONU) {
+                        planovanyZavazekMariase = novy.zavazek
+                        vybraneKartyDoTalonu = emptyList()
+                    }
                     stavMarias = novy
                     if (jeOnlineRezim) {
                         onlineStul?.let { st ->
@@ -707,6 +726,7 @@ fun GameTableScreen(
                     HorniListaStolu(
                         typHry = aktivniTypHry,
                         variantaPravidel = aktivniPravidla,
+                        rezimMariase = aktivniRezimMariase,
                         jeOnline = jeOnlineRezim,
                         onlineStul = onlineStul,
                         offlineKonfig = offlineKonfig,
@@ -824,10 +844,19 @@ fun GameTableScreen(
                                     val povolene = MariasEngine.zjistiKartyPovoleneDoTalonu(s, novyZav)
                                     vybraneKartyDoTalonu = vybraneKartyDoTalonu.filter { it in povolene }
                                 },
+                                onNabidkaDrazby = { nabidka ->
+                                    val novy = MariasEngine.provedNabidkuDrazby(s, lokalniIndex, nabidka)
+                                    if (novy.faze == FazeMariase.ODKLADANI_TALONU) {
+                                        planovanyZavazekMariase = novy.zavazek
+                                        vybraneKartyDoTalonu = emptyList()
+                                    }
+                                    stavMarias = novy
+                                    if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                                },
                                 onVolbaTrumfu = { trumf, zTalonu, zavazek ->
-                                    planovanyZavazekMariase = zavazek
                                     vybraneKartyDoTalonu = emptyList()
                                     val novy = MariasEngine.zvolTrumfNeboHruBezTrumfu(s, trumf, zTalonu, zavazek)
+                                    planovanyZavazekMariase = novy.zavazek
                                     stavMarias = novy
                                     if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
                                 },
@@ -843,6 +872,11 @@ fun GameTableScreen(
                                 },
                                 onOdpovedFleku = { flekHra, flekSedma ->
                                     val novy = MariasEngine.odpovezNaFlekovani(s, lokalniIndex, flekHra, flekSedma)
+                                    stavMarias = novy
+                                    if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
+                                },
+                                onVymenitTrumfovouSedmu = {
+                                    val novy = MariasEngine.vymenTrumfovouSedmu(s, lokalniIndex)
                                     stavMarias = novy
                                     if (jeOnlineRezim) publikujZmenuOnline(novy.doKompaktnihoRetezce())
                                 }
@@ -932,7 +966,8 @@ fun GameTableScreen(
                                 TypHry.MARIAS -> stavMarias = MariasEngine.novaHra(
                                     jmenaHracu = vychoziJmenaOffline,
                                     indexForhonta = zacinajici,
-                                    variantaPravidel = aktivniPravidla
+                                    variantaPravidel = aktivniPravidla,
+                                    rezimMariase = aktivniRezimMariase
                                 )
                             }
                         } else {
@@ -1135,6 +1170,7 @@ fun GameTableScreen(
 private fun HorniListaStolu(
     typHry: TypHry,
     variantaPravidel: VariantaPravidel,
+    rezimMariase: RezimMariase,
     jeOnline: Boolean,
     onlineStul: OnlineStul?,
     offlineKonfig: KonfiguraceOfflineHry?,
@@ -1216,8 +1252,9 @@ private fun HorniListaStolu(
                 else -> variantaPravidel.stitekUStolu
             }
 
+            val nadpisStolu = if (typHry == TypHry.MARIAS) rezimMariase.plnyNazev else typHry.nazev
             Text(
-                text = typHry.nazev,
+                text = nadpisStolu,
                 color = Color.White,
                 fontSize = 12.sp,
                 lineHeight = 15.sp,
@@ -1302,7 +1339,20 @@ private fun HorniListaStolu(
                         }
 
                         TypHry.MARIAS -> if (stavMarias != null) {
-                            if (stavMarias.trumf != null && !stavMarias.jeBetlNeboDurch) {
+                            if (stavMarias.rezimMariase == RezimMariase.LIZACI && stavMarias.trumf != null) {
+                                IkonaBarvyKarty(stavMarias.trumf, velikost = 12.dp)
+                                Spacer(modifier = Modifier.width(3.dp))
+                                val lizaciSazba = if (stavMarias.trumf == BarvaKarty.CERVENE) " (2×)" else ""
+                                Text(
+                                    text = "${stavMarias.trumf.ceskyNazev}$lizaciSazba",
+                                    color = Color(0xFFFFF59D),
+                                    fontSize = 10.sp,
+                                    lineHeight = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            } else if (stavMarias.trumf != null && !stavMarias.jeBetlNeboDurch) {
                                 IkonaBarvyKarty(stavMarias.trumf, velikost = 12.dp)
                                 Spacer(modifier = Modifier.width(3.dp))
                                 val nasobkyText = if (stavMarias.zavazek.hlasiSedmu && stavMarias.nasobekFlekSedma > 1) {
@@ -1321,9 +1371,11 @@ private fun HorniListaStolu(
                                 )
                             } else {
                                 Text(
-                                    text = when (stavMarias.zavazek) {
-                                        ZavazekMariase.BETL -> "Betl (${stavMarias.nasobekFlekHra}×)"
-                                        ZavazekMariase.DURCH -> "Durch (${stavMarias.nasobekFlekHra}×)"
+                                    text = when {
+                                        stavMarias.slozenoBezHry -> "Složeno"
+                                        stavMarias.faze == FazeMariase.DRAZBA -> stavMarias.nejvyssiNabidka?.nazev ?: "Dražba"
+                                        stavMarias.zavazek == ZavazekMariase.BETL -> "Betl (${stavMarias.nasobekFlekHra}×)"
+                                        stavMarias.zavazek == ZavazekMariase.DURCH -> "Durch (${stavMarias.nasobekFlekHra}×)"
                                         else -> "Volba"
                                     },
                                     color = Color(0xFFFFF59D),
@@ -1380,7 +1432,7 @@ private fun PruhySouperu(
     val pocet = when (typHry) {
         TypHry.PRSI -> stavPrsi?.pocetHracu ?: 2
         TypHry.SEDMA -> stavSedma?.pocetHracu ?: 2
-        TypHry.MARIAS -> 3
+        TypHry.MARIAS -> stavMarias?.pocetHracu ?: onlineStul?.maxHracu ?: 3
     }
     val naTahu = when (typHry) {
         TypHry.PRSI -> stavPrsi?.naTahu ?: 0
@@ -1405,7 +1457,17 @@ private fun PruhySouperu(
                 TypHry.MARIAS -> stavMarias?.ruceHracu?.getOrNull(idx)?.size ?: 0
             }
             val rolePopisek = when (typHry) {
-                TypHry.MARIAS -> if (stavMarias?.indexForhonta == idx) "Forhont" else "Obrana"
+                TypHry.MARIAS -> when {
+                    stavMarias?.rezimMariase == RezimMariase.LIZACI -> "Soupeř"
+                    stavMarias?.faze == FazeMariase.DRAZBA -> when {
+                        stavMarias.pasovaliHraci.getOrElse(idx) { false } -> "Dál (pas)"
+                        stavMarias.prozatimniVitezDrazby == idx && stavMarias.nejvyssiNabidka != null ->
+                            stavMarias.nejvyssiNabidka.nazev
+                        else -> "Dražba"
+                    }
+                    stavMarias?.indexForhonta == idx -> "Forhont"
+                    else -> "Obrana"
+                }
                 TypHry.SEDMA -> if (pocet == 4 && idx % 2 == lokalniIndex % 2) "Parťák" else "Soupeř"
                 TypHry.PRSI -> ""
             }

@@ -82,6 +82,89 @@ private fun VykresliStychMariase(
 }
 
 @Composable
+private fun TalonLizacihoMariaseBox(
+    stav: StavMarias,
+    lokalniIndex: Int,
+    sirkaTalonu: Dp,
+    onVymenitTrumfovouSedmu: () -> Unit
+) {
+    val lzeVymenit7 = remember(stav, lokalniIndex) {
+        MariasEngine.muzeVymenitTrumfovouSedmu(stav, lokalniIndex)
+    }
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        if (stav.lizaciBalicek.isNotEmpty()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
+            ) {
+                KartaRubComposable(
+                    sirka = sirkaTalonu,
+                    pocetVBalicku = stav.lizaciBalicek.size,
+                    popisek = "TALON"
+                )
+                stav.otocenyTrumf?.let { otocena ->
+                    KartaLiceComposable(
+                        karta = otocena,
+                        sirka = sirkaTalonu,
+                        stitekNavic = "TRUMF"
+                    )
+                }
+            }
+            if (lzeVymenit7 && stav.otocenyTrumf != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFFD4AF37))
+                        .border(1.2.dp, Color(0xFFFFF59D), RoundedCornerShape(10.dp))
+                        .clickable {
+                            silnaHaptika()
+                            onVymenitTrumfovouSedmu()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "🔄 Vyměnit trumfovou 7 za ${stav.otocenyTrumf.celyNazev()}",
+                        color = Color(0xFF072312),
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(Color(0xCC123E24))
+                    .border(1.dp, Color(0x88FFD54F), RoundedCornerShape(9.dp))
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+            ) {
+                stav.trumf?.let { tr ->
+                    IkonaBarvyKarty(tr, velikost = 14.dp)
+                    Spacer(modifier = Modifier.width(5.dp))
+                }
+                Text(
+                    text = "Talon dobrán — přiznává se barva a trumfuje!",
+                    color = Color(0xFFFFE082),
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun MaleAkcniTlacitko(
     text: String,
     barva: Color,
@@ -113,6 +196,17 @@ private fun MaleAkcniTlacitko(
     }
 }
 
+private fun kratkyPopisekZavazkuDrazby(zavazek: ZavazekMariase): String = when (zavazek) {
+    ZavazekMariase.HRA -> "Hra"
+    ZavazekMariase.HRA_A_SEDMA -> "Hra + 7"
+    ZavazekMariase.STO -> "Stovka"
+    ZavazekMariase.BETL -> "Betl"
+    ZavazekMariase.STO_A_SEDMA -> "100 + 7"
+    ZavazekMariase.DURCH -> "Durch"
+    ZavazekMariase.HRA_A_DVE_SEDMY -> "Hra + 2×7"
+    ZavazekMariase.STO_A_DVE_SEDMY -> "100 + 2×7"
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun StredStoluMarias(
@@ -124,9 +218,11 @@ internal fun StredStoluMarias(
     vybraneDoTalonu: List<Karta>,
     planovanyZavazek: ZavazekMariase,
     onZmenaPlanovanehoZavazku: (ZavazekMariase) -> Unit,
+    onNabidkaDrazby: (ZavazekMariase?) -> Unit = {},
     onVolbaTrumfu: (BarvaKarty?, Boolean, ZavazekMariase) -> Unit,
     onPotvrditTalon: () -> Unit,
-    onOdpovedFleku: (Boolean, Boolean) -> Unit
+    onOdpovedFleku: (Boolean, Boolean) -> Unit,
+    onVymenitTrumfovouSedmu: () -> Unit = {}
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -152,8 +248,19 @@ internal fun StredStoluMarias(
         Spacer(modifier = Modifier.height(6.dp))
 
         when (stav.faze) {
-            FazeMariase.VOLBA_TRUMFU -> {
+            FazeMariase.DRAZBA -> {
+                val prehledNabidky = if (stav.nejvyssiNabidka != null && stav.prozatimniVitezDrazby in stav.jmenaHracu.indices) {
+                    "Nejvyšší nabídka: ${stav.nejvyssiNabidka.nazev} (${stav.jmenaHracu[stav.prozatimniVitezDrazby]})"
+                } else {
+                    "Zatím bez nabídky — draží se o 2 karty v talonu"
+                }
+
                 if (stav.naTahu == lokalniIndex) {
+                    val povoleneNabidky = remember(stav, lokalniIndex) {
+                        MariasEngine.zjistiPovoleneNabidkyDrazby(stav, lokalniIndex)
+                    }
+                    val nejnizsiDalsi = povoleneNabidky.firstOrNull()
+
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
@@ -165,7 +272,105 @@ internal fun StredStoluMarias(
                             .padding(10.dp)
                     ) {
                         Text(
-                            text = "Jsi na forhontu — zvol trumf ze 7 karet:",
+                            text = "Dražba o talon — zvol nabídku nebo Dál:",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = prehledNabidky,
+                            color = Color(0xFFA5D6A7),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            MaleAkcniTlacitko(
+                                text = "Dál (pas)",
+                                barva = Color(0xFF37474F),
+                                barvaTextu = Color(0xFFFFF8E1)
+                            ) {
+                                onNabidkaDrazby(null)
+                            }
+                            for (nabidka in povoleneNabidky) {
+                                val jeDoporucenyKrok = nabidka == nejnizsiDalsi
+                                val barvaPolozky = when {
+                                    jeDoporucenyKrok -> Color(0xFFD4AF37)
+                                    nabidka == ZavazekMariase.BETL -> Color(0xFF5D4037)
+                                    nabidka == ZavazekMariase.DURCH -> Color(0xFF6A1B9A)
+                                    else -> Color(0xFF1F5A38)
+                                }
+                                MaleAkcniTlacitko(
+                                    text = kratkyPopisekZavazkuDrazby(nabidka),
+                                    barva = barvaPolozky,
+                                    barvaTextu = if (jeDoporucenyKrok) Color(0xFF072312) else Color.White
+                                ) {
+                                    onNabidkaDrazby(nabidka)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        KartaRubComposable(
+                            sirka = (sirkaKarty.value * 0.88f).dp,
+                            pocetVBalicku = 2,
+                            popisek = "TALON"
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = prehledNabidky,
+                            color = Color(0xFFFFE082),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "Draží ${stav.jmenaHracu.getOrElse(stav.naTahu) { "Hráč" }}…",
+                            color = Color(0xFFB9F6CA),
+                            fontSize = 13.sp,
+                            lineHeight = 17.sp
+                        )
+                    }
+                }
+            }
+
+            FazeMariase.VOLBA_TRUMFU -> {
+                if (stav.naTahu == lokalniIndex) {
+                    val jeLicitovany = stav.rezimMariase == RezimMariase.LICITOVANY
+                    val povoleneTrumfy = remember(stav) {
+                        MariasVariantyEngine.zjistiPovoleneTrumfyPoDrazbe(stav)
+                    }
+                    val lzeBetl = remember(stav) { MariasVariantyEngine.muzeVolitRovnouBetl(stav) }
+                    val lzeDurch = remember(stav) { MariasVariantyEngine.muzeVolitRovnouDurch(stav) }
+                    val planProTrumf = stav.nejvyssiNabidka ?: ZavazekMariase.HRA
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .widthIn(max = 360.dp)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xEB082815))
+                            .border(1.5.dp, Color(0xFFD4AF37), RoundedCornerShape(14.dp))
+                            .padding(10.dp)
+                    ) {
+                        Text(
+                            text = if (jeLicitovany) {
+                                "Vyhrál jsi dražbu (${planProTrumf.nazev}) — zvol trumf z 12 karet:"
+                            } else {
+                                "Jsi na forhontu — zvol trumf ze 7 karet:"
+                            },
                             color = Color(0xFFFFD54F),
                             fontSize = 12.sp,
                             lineHeight = 16.sp,
@@ -178,16 +383,22 @@ internal fun StredStoluMarias(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             for (barva in BarvaKarty.entries) {
+                                val jePovolena = barva in povoleneTrumfy
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     modifier = Modifier
                                         .weight(1f)
+                                        .graphicsLayer { alpha = if (jePovolena) 1f else 0.38f }
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF1D5836))
+                                        .background(if (jePovolena) Color(0xFF1D5836) else Color(0xFF153322))
                                         .border(0.8.dp, Color(0x44FFD54F), RoundedCornerShape(8.dp))
-                                        .clickable {
-                                            jemnaHaptika()
-                                            onVolbaTrumfu(barva, false, ZavazekMariase.HRA)
+                                        .let { mod ->
+                                            if (jePovolena) {
+                                                mod.clickable {
+                                                    jemnaHaptika()
+                                                    onVolbaTrumfu(barva, false, planProTrumf)
+                                                }
+                                            } else mod
                                         }
                                         .padding(horizontal = 4.dp, vertical = 7.dp)
                                 ) {
@@ -205,36 +416,46 @@ internal fun StredStoluMarias(
                                 }
                             }
                         }
-                        Spacer(modifier = Modifier.height(7.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            MaleAkcniTlacitko(
-                                text = "Z talonu",
-                                barva = Color(0xFF286040),
-                                modifier = Modifier.weight(1f)
+
+                        if (!jeLicitovany || lzeBetl || lzeDurch) {
+                            Spacer(modifier = Modifier.height(7.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                onVolbaTrumfu(null, true, ZavazekMariase.HRA)
-                            }
-                            MaleAkcniTlacitko(
-                                text = "Rovnou Betl",
-                                barva = Color(0xFF5D4037),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                onVolbaTrumfu(null, false, ZavazekMariase.BETL)
-                            }
-                            MaleAkcniTlacitko(
-                                text = "Rovnou Durch",
-                                barva = Color(0xFF6A1B9A),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                onVolbaTrumfu(null, false, ZavazekMariase.DURCH)
+                                if (!jeLicitovany) {
+                                    MaleAkcniTlacitko(
+                                        text = "Z talonu",
+                                        barva = Color(0xFF286040),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        onVolbaTrumfu(null, true, ZavazekMariase.HRA)
+                                    }
+                                }
+                                if (lzeBetl) {
+                                    MaleAkcniTlacitko(
+                                        text = "Rovnou Betl",
+                                        barva = Color(0xFF5D4037),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        onVolbaTrumfu(null, false, ZavazekMariase.BETL)
+                                    }
+                                }
+                                if (lzeDurch) {
+                                    MaleAkcniTlacitko(
+                                        text = "Rovnou Durch",
+                                        barva = Color(0xFF6A1B9A),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        onVolbaTrumfu(null, false, ZavazekMariase.DURCH)
+                                    }
+                                }
                             }
                         }
                     }
                 } else {
-                    val karetTalonu = stav.zbytekProForhonta.size.takeIf { it > 0 } ?: 5
+                    val karetTalonu = stav.zbytekProForhonta.size.takeIf { it > 0 }
+                        ?: if (stav.rezimMariase == RezimMariase.LICITOVANY) 2 else 5
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         KartaRubComposable(
                             sirka = sirkaKarty,
@@ -465,30 +686,43 @@ internal fun StredStoluMarias(
             }
 
             FazeMariase.SEHRAVKA, FazeMariase.KONEC -> {
-                val stychKarty = when {
-                    stav.aktualniStych.isNotEmpty() -> stav.aktualniStych
-                    zobrazitUzavrenyStych && stav.posledniUzavrenyStych.isNotEmpty() -> stav.posledniUzavrenyStych
-                    else -> emptyList()
-                }
-                val nahledSebraneho = stav.aktualniStych.isEmpty() && stychKarty.isNotEmpty()
-                val sirkaTalonu = (sirkaKarty.value * 0.84f).dp
-                val karetVTalonu = stav.talon.size.takeIf { it > 0 } ?: 2
-                val vynasejiciJmeno = stav.jmenaHracu.getOrElse(stav.naTahu) { "Hráč" }
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (stav.slozenoBezHry) {
                     Text(
-                        text = "${stav.cisloStychu}. štych • Forhont ${stav.bodyKaretForhont + stav.hlaskyForhont} : Obrana ${stav.bodyKaretObrana + stav.hlaskyObrana}",
-                        color = Color(0xFFFFF59D),
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp,
-                        fontWeight = FontWeight.SemiBold
+                        text = "Všichni 3 hráči pasovali (Dál) — rozdání se skládá bez hry.",
+                        color = Color(0xFFFFE082),
+                        fontSize = 13.sp,
+                        lineHeight = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center
                     )
-                    Spacer(modifier = Modifier.height(5.dp))
-                    if (talonNadStychem) {
-                        KartaRubComposable(
-                            sirka = sirkaTalonu,
-                            pocetVBalicku = karetVTalonu,
-                            popisek = "TALON"
+                } else if (stav.rezimMariase == RezimMariase.LIZACI) {
+                    val stychKarty = when {
+                        stav.aktualniStych.isNotEmpty() -> stav.aktualniStych
+                        zobrazitUzavrenyStych && stav.posledniUzavrenyStych.isNotEmpty() -> stav.posledniUzavrenyStych
+                        else -> emptyList()
+                    }
+                    val nahledSebraneho = stav.aktualniStych.isEmpty() && stychKarty.isNotEmpty()
+                    val sirkaTalonu = (sirkaKarty.value * 0.80f).dp
+                    val vynasejiciJmeno = stav.jmenaHracu.getOrElse(stav.naTahu) { "Hráč" }
+                    val jmenoA = stav.jmenaHracu.getOrElse(stav.indexForhonta) { "Hráč 1" }
+                    val jmenoB = stav.jmenaHracu.getOrElse(1 - stav.indexForhonta) { "Hráč 2" }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "${stav.cisloStychu}. štych z 16 • $jmenoA ${stav.bodyKaretForhont + stav.hlaskyForhont} : ${stav.bodyKaretObrana + stav.hlaskyObrana} $jmenoB",
+                            color = Color(0xFFFFF59D),
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(5.dp))
+                        TalonLizacihoMariaseBox(
+                            stav = stav,
+                            lokalniIndex = lokalniIndex,
+                            sirkaTalonu = sirkaTalonu,
+                            onVymenitTrumfovouSedmu = onVymenitTrumfovouSedmu
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         VykresliStychMariase(
@@ -498,16 +732,34 @@ internal fun StredStoluMarias(
                             hracNaVynosu = vynasejiciJmeno,
                             sirkaKarty = sirkaKarty
                         )
-                    } else {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
+                    }
+                } else {
+                    val stychKarty = when {
+                        stav.aktualniStych.isNotEmpty() -> stav.aktualniStych
+                        zobrazitUzavrenyStych && stav.posledniUzavrenyStych.isNotEmpty() -> stav.posledniUzavrenyStych
+                        else -> emptyList()
+                    }
+                    val nahledSebraneho = stav.aktualniStych.isEmpty() && stychKarty.isNotEmpty()
+                    val sirkaTalonu = (sirkaKarty.value * 0.84f).dp
+                    val karetVTalonu = stav.talon.size.takeIf { it > 0 } ?: 2
+                    val vynasejiciJmeno = stav.jmenaHracu.getOrElse(stav.naTahu) { "Hráč" }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "${stav.cisloStychu}. štych • Forhont ${stav.bodyKaretForhont + stav.hlaskyForhont} : Obrana ${stav.bodyKaretObrana + stav.hlaskyObrana}",
+                            color = Color(0xFFFFF59D),
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(5.dp))
+                        if (talonNadStychem) {
                             KartaRubComposable(
                                 sirka = sirkaTalonu,
                                 pocetVBalicku = karetVTalonu,
                                 popisek = "TALON"
                             )
+                            Spacer(modifier = Modifier.height(6.dp))
                             VykresliStychMariase(
                                 kartyNaPlose = stychKarty,
                                 jeNahledSebraneho = nahledSebraneho,
@@ -515,6 +767,24 @@ internal fun StredStoluMarias(
                                 hracNaVynosu = vynasejiciJmeno,
                                 sirkaKarty = sirkaKarty
                             )
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                KartaRubComposable(
+                                    sirka = sirkaTalonu,
+                                    pocetVBalicku = karetVTalonu,
+                                    popisek = "TALON"
+                                )
+                                VykresliStychMariase(
+                                    kartyNaPlose = stychKarty,
+                                    jeNahledSebraneho = nahledSebraneho,
+                                    vitezUzavreneho = stav.posledniUzavrenyVitez,
+                                    hracNaVynosu = vynasejiciJmeno,
+                                    sirkaKarty = sirkaKarty
+                                )
+                            }
                         }
                     }
                 }
@@ -588,6 +858,7 @@ internal fun SpodniRukaHrace(
         TypHry.MARIAS -> {
             val s = stavMarias
             kartyVRuce = s?.ruceHracu?.getOrNull(lokalniIndex) ?: emptyList()
+            val fazeDrazby = s != null && s.faze == FazeMariase.DRAZBA && s.naTahu == lokalniIndex
             val fazeTrumfu = s != null && s.faze == FazeMariase.VOLBA_TRUMFU && s.naTahu == lokalniIndex
             val fazeTalonu = s != null && s.faze == FazeMariase.ODKLADANI_TALONU && s.naTahu == lokalniIndex
             val fazeFleku = s != null && s.faze == FazeMariase.FLEKOVANI && s.naTahu == lokalniIndex
@@ -598,13 +869,24 @@ internal fun SpodniRukaHrace(
                 else -> emptySet()
             }
             aktivniVyberKarty = fazeTalonu || fazeSehravky
-            svitiRamecekRuky = fazeTrumfu || fazeTalonu || fazeFleku || fazeSehravky
+            svitiRamecekRuky = fazeDrazby || fazeTrumfu || fazeTalonu || fazeFleku || fazeSehravky
             stavovaNapoveda = when {
-                fazeTrumfu -> "Prohlédni si 7 karet a nahoře zvol trumf"
+                fazeDrazby -> "Prohlédni si 10 karet a nahoře zvol nabídku nebo Dál"
+                fazeTrumfu -> if (s?.rezimMariase == RezimMariase.LICITOVANY) {
+                    "Prohlédni si 12 karet (včetně talonu) a zvol trumf"
+                } else {
+                    "Prohlédni si 7 karet a nahoře zvol trumf"
+                }
                 fazeTalonu -> "Vyber 2 povolené karty do talonu"
                 fazeFleku -> "Zvol nahoře Dobrý nebo Flek"
                 !fazeSehravky -> "Sleduj stůl"
-                s?.aktualniStych?.isEmpty() == true -> "Vynášíš do štychu"
+                s?.aktualniStych?.isEmpty() == true -> if (s.rezimMariase == RezimMariase.LIZACI && s.lizaciBalicek.isNotEmpty()) {
+                    "Vynášíš do štychu • dokud je talon, hraje se volně"
+                } else {
+                    "Vynášíš do štychu"
+                }
+                s?.rezimMariase == RezimMariase.LIZACI && s.lizaciBalicek.isNotEmpty() ->
+                    "Volné přikládání — dokud leží talon, nemusíš přiznávat barvu"
                 else -> {
                     val barvaVynosu = s?.aktualniStych?.firstOrNull()?.karta?.barva
                     val drziBarvu = barvaVynosu != null && kartyVRuce.any { it.barva == barvaVynosu }

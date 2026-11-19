@@ -28,6 +28,42 @@ enum class VariantaPravidel(
     }
 }
 
+enum class RezimMariase(
+    val kod: String,
+    val tlacitkoNazev: String,
+    val kratkyStitek: String,
+    val plnyNazev: String,
+    val pocetHracu: Int
+) {
+    VOLENY(
+        kod = "VOLENY",
+        tlacitkoNazev = "Volený (3 hráči)",
+        kratkyStitek = "Volený",
+        plnyNazev = "Volený mariáš",
+        pocetHracu = 3
+    ),
+    LICITOVANY(
+        kod = "LICITOVANY",
+        tlacitkoNazev = "Licitovaný (3 hráči)",
+        kratkyStitek = "Licitovaný",
+        plnyNazev = "Licitovaný mariáš",
+        pocetHracu = 3
+    ),
+    LIZACI(
+        kod = "LIZACI",
+        tlacitkoNazev = "Lízací (2 hráči)",
+        kratkyStitek = "Lízací",
+        plnyNazev = "Lízací mariáš",
+        pocetHracu = 2
+    );
+
+    companion object {
+        fun dleKodu(kod: String): RezimMariase {
+            return entries.firstOrNull { it.kod.equals(kod.trim(), ignoreCase = true) } ?: VOLENY
+        }
+    }
+}
+
 enum class TypHry(
     val idHry: String,
     val nazev: String,
@@ -36,9 +72,9 @@ enum class TypHry(
 ) {
     MARIAS(
         idHry = "MARIAS",
-        nazev = "Volený Mariáš",
+        nazev = "Mariáš",
         povolenePoctyHracu = listOf(3),
-        kratkyPopis = "Klasika pro 3 hráče s volbou trumfů, hláškami 20/40, Sedmou, Betlem, Durchem a flekováním."
+        kratkyPopis = "Volený mariáš (3 hráči), Licitovaný s dražbou o talon (3 hráči) i Lízací mariáš 1 na 1 (2 hráči)."
     ),
     PRSI(
         idHry = "PRSI",
