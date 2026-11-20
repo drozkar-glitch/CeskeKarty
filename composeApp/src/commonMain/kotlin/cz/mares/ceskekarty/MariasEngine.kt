@@ -1263,7 +1263,7 @@ object MariasEngine {
                 )
             )
         } else {
-            val bodyTalonu = stav.talon.sumOf { it.karta.hodnota.bodyMariasSedma }
+            val bodyTalonu = stav.talon.sumOf { it.hodnota.bodyMariasSedma }
             val platneHlaskyF = if (stav.pocetStychuForhont > 0) stav.hlaskyForhont else 0
             val platneHlaskyO = if (stav.pocetStychuObrana > 0) stav.hlaskyObrana else 0
             val kartyF = stav.bodyKaretForhont
