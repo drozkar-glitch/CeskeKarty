@@ -331,9 +331,9 @@ object MariasVariantyEngine {
                 Karta(barva, HodnotaKarty.SVRSEK) in ruka &&
                 Karta(barva, HodnotaKarty.KRAL) in ruka
             ) 40 else 0
-            val hl20 = BarvaKarty.entries.filter { it != barva }.sumOf { vb ->
-                if (Karta(vb, HodnotaKarty.SVRSEK) in ruka && Karta(vb, HodnotaKarty.KRAL) in ruka) 20 else 0
-            }
+            val hl20 = BarvaKarty.entries.count { vb ->
+                vb != barva && Karta(vb, HodnotaKarty.SVRSEK) in ruka && Karta(vb, HodnotaKarty.KRAL) in ruka
+            } * 20
             val maTrumf7 = Karta(barva, HodnotaKarty.R7) in ruka
 
             val odhadSily = trumfy.size * 9 +
@@ -382,7 +382,6 @@ object MariasVariantyEngine {
             return provedNabidkuDrazby(stav, idx, null)
         }
 
-        // Bot přihazuje postupně po nejnižším platném stupni (u čistého Betlu/Durchu bez 7 skočí rovnou, je-li třeba)
         val nabidka = if (strop.jeBezTrumfu && strop in dosazitelne && stav.nejvyssiNabidka != null) {
             dosazitelne.first()
         } else {

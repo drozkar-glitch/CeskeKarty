@@ -1027,10 +1027,12 @@ object MariasEngine {
         val trumfVysoke = trumfy.count {
             it.hodnota == HodnotaKarty.ESO || it.hodnota == HodnotaKarty.R10 || it.hodnota == HodnotaKarty.KRAL
         }
-        val hlaskyVlastni = BarvaKarty.entries.sumOf { b ->
+        val hlaskyVlastni: Int = BarvaKarty.entries.fold(0) { soucet, b ->
             if (Karta(b, HodnotaKarty.SVRSEK) in ruka10 && Karta(b, HodnotaKarty.KRAL) in ruka10) {
-                if (b == trumf) 40 else 20
-            } else 0
+                soucet + if (b == trumf) 40 else 20
+            } else {
+                soucet
+            }
         }
         val odhadBodu = trumfy.size * 8 + trumfVysoke * 9 + vedlejsiEsa * 12 + hlaskyVlastni + 10
 
