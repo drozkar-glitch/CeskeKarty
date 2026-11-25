@@ -12,12 +12,12 @@ env:
   APP_VERSION: "1.2"
   PUBLISH_TO_STORES: "true"
   PUBLISH_GOOGLE: "true"
-  PUBLISH_IOS: "true"
+  PUBLISH_IOS: "false"
   PUBLISH_HUAWEI: "false"
-  PUBLISH_INTERNAL_ONLY: "false"
+  PUBLISH_INTERNAL_ONLY: "true"
   UPLOAD_GP_GRAPHICS: "false"
   FORCE_REFRESH_SCREENSHOTS: "false"
-  BUILD_IOS: "true"
+  BUILD_IOS: "false"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   GRADLE_OPTS: "-Djava.net.preferIPv4Stack=true -Dorg.gradle.internal.http.connectionTimeout=120000 -Dorg.gradle.internal.http.socketTimeout=120000 -Dorg.gradle.internal.repository.max.tentatives=6 -Dorg.gradle.internal.repository.initial.backoff=3000"
 jobs:
@@ -248,7 +248,7 @@ jobs:
   build-ios:
     name: iOS Release (.ipa & TestFlight)
     runs-on: macos-latest
-    if: true
+    if: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

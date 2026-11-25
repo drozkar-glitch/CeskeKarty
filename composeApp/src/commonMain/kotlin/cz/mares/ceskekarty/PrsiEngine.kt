@@ -17,7 +17,8 @@ data class StavPrsi(
     val cisloTahu: Int,
     val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA,
     val poradiDohrani: List<Int> = emptyList(),
-    val ziviHraci: List<Boolean> = List(pocetHracu) { it == 0 }
+    val ziviHraci: List<Boolean> = List(pocetHracu) { it == 0 },
+    val chybejiciBarvyMaska: List<Int> = List(pocetHracu) { 0 }
 ) {
     val vrchniKarta: Karta
         get() = odhazovaciBalicek.last()
@@ -46,6 +47,7 @@ data class StavPrsi(
         pole.add("vp" to variantaPravidel.kod)
         pole.add("pd" to poradiDohrani.joinToString(","))
         pole.add("zh" to ziviHraci.take(pocetHracu).joinToString(",") { if (it) "1" else "0" })
+        pole.add("cbm" to chybejiciBarvyMaska.take(pocetHracu).joinToString(","))
         return serializujMapuPoli(pole)
     }
 
@@ -76,6 +78,13 @@ data class StavPrsi(
                 val casti = zhText.split(",")
                 List(pocet) { idx -> casti.getOrNull(idx) == "1" }
             }
+            val cbmText = r.text("cbm")
+            val nacteneChybejici = if (cbmText.isBlank()) {
+                List(pocet) { 0 }
+            } else {
+                val casti = cbmText.split(",")
+                List(pocet) { idx -> casti.getOrNull(idx)?.toIntOrNull() ?: 0 }
+            }
             return StavPrsi(
                 pocetHracu = pocet,
                 jmenaHracu = jmena,
@@ -93,7 +102,8 @@ data class StavPrsi(
                 cisloTahu = r.cislo("ct", 1),
                 variantaPravidel = VariantaPravidel.dleKodu(r.text("vp", VariantaPravidel.HOSPODSKA.kod)),
                 poradiDohrani = nactenePoradi,
-                ziviHraci = nacteniZivi
+                ziviHraci = nacteniZivi,
+                chybejiciBarvyMaska = nacteneChybejici
             )
         }
     }
@@ -121,6 +131,16 @@ object PrsiEngine {
             pocet == 1 -> "1 kartu"
             pocet in 2..4 -> "$pocet karty"
             else -> "$pocet karet"
+        }
+    }
+
+    private fun trestnaHodnotaKartyPrsi(hodnota: HodnotaKarty): Int {
+        return when (hodnota) {
+            HodnotaKarty.SVRSEK -> 20
+            HodnotaKarty.R7 -> 15
+            HodnotaKarty.ESO -> 11
+            HodnotaKarty.R10, HodnotaKarty.KRAL -> 10
+            else -> 5
         }
     }
 
@@ -211,7 +231,8 @@ object PrsiEngine {
             cisloTahu = 1,
             variantaPravidel = variantaPravidel,
             poradiDohrani = emptyList(),
-            ziviHraci = seznamZivych
+            ziviHraci = seznamZivych,
+            chybejiciBarvyMaska = List(pocet) { 0 }
         )
     }
 
@@ -257,6 +278,15 @@ object PrsiEngine {
         val noveRuce = stav.ruceHracu.mapIndexed { idx, r -> if (idx == indexHrace) novaRuka else r }
         val novyOdhazovaci = stav.odhazovaciBalicek + karta
 
+        val hranaBarvaProMasku = if (karta.hodnota == HodnotaKarty.SVRSEK) zvolenaBarva else karta.barva
+        val upraveneMasky = stav.chybejiciBarvyMaska.mapIndexed { idx, maska ->
+            if (idx == indexHrace && hranaBarvaProMasku != null) {
+                maska and (1 shl hranaBarvaProMasku.ordinal).inv()
+            } else {
+                maska
+            }
+        }
+
         if (novaRuka.isEmpty()) {
             val novePoradi = if (indexHrace in stav.poradiDohrani) {
                 stav.poradiDohrani
@@ -295,7 +325,8 @@ object PrsiEngine {
                     jeKonec = true,
                     indexViteze = prvniVitez,
                     cisloTahu = stav.cisloTahu + 1,
-                    poradiDohrani = novePoradi
+                    poradiDohrani = novePoradi,
+                    chybejiciBarvyMaska = upraveneMasky
                 )
             }
 
@@ -308,6 +339,7 @@ object PrsiEngine {
                     cekaNaVolbuBarvy = true,
                     indexViteze = prvniVitez,
                     poradiDohrani = novePoradi,
+                    chybejiciBarvyMaska = upraveneMasky,
                     posledniHlaska = "$jmeno bere $umisteni. místo svrškem a volí barvu pro dohrávku…"
                 )
             }
@@ -336,7 +368,8 @@ object PrsiEngine {
                 jeKonec = false,
                 indexViteze = prvniVitez,
                 cisloTahu = stav.cisloTahu + 1,
-                poradiDohrani = novePoradi
+                poradiDohrani = novePoradi,
+                chybejiciBarvyMaska = upraveneMasky
             )
         }
 
@@ -345,6 +378,7 @@ object PrsiEngine {
                 ruceHracu = noveRuce,
                 odhazovaciBalicek = novyOdhazovaci,
                 cekaNaVolbuBarvy = true,
+                chybejiciBarvyMaska = upraveneMasky,
                 posledniHlaska = "$jmeno vynesl svrška a volí novou barvu…"
             )
         }
@@ -377,20 +411,26 @@ object PrsiEngine {
             aktivniEsoStoji = noveEso,
             cekaNaVolbuBarvy = false,
             posledniHlaska = hlaska,
-            cisloTahu = stav.cisloTahu + 1
+            cisloTahu = stav.cisloTahu + 1,
+            chybejiciBarvyMaska = upraveneMasky
         )
     }
 
     fun potvrdVolbuBarvySvrskem(stav: StavPrsi, barva: BarvaKarty): StavPrsi {
         if (!stav.cekaNaVolbuBarvy || stav.jeKonec) return stav
-        val jmeno = stav.jmenaHracu[stav.naTahu]
-        val dalsiHrac = najdiDalsihoAktivnihoHrace(stav.naTahu, stav.pocetHracu, stav.ruceHracu, stav.poradiDohrani)
+        val hracIdx = stav.naTahu
+        val jmeno = stav.jmenaHracu[hracIdx]
+        val dalsiHrac = najdiDalsihoAktivnihoHrace(hracIdx, stav.pocetHracu, stav.ruceHracu, stav.poradiDohrani)
+        val upraveneMasky = stav.chybejiciBarvyMaska.mapIndexed { idx, m ->
+            if (idx == hracIdx) m and (1 shl barva.ordinal).inv() else m
+        }
         return stav.copy(
             naTahu = dalsiHrac,
             zvolenaBarvaSvrskem = barva,
             cekaNaVolbuBarvy = false,
             posledniHlaska = "$jmeno mění barvu na ${barva.ceskyNazev}!",
-            cisloTahu = stav.cisloTahu + 1
+            cisloTahu = stav.cisloTahu + 1,
+            chybejiciBarvyMaska = upraveneMasky
         )
     }
 
@@ -410,7 +450,9 @@ object PrsiEngine {
             )
         }
 
-        val kolikLiznout = if (stav.aktivniSedmyPocet > 0) stav.aktivniSedmyPocet * 2 else 1
+        val platnaBarvaPredLiznutim = stav.aktualniPlatnaBarva
+        val bylUtokSedmou = stav.aktivniSedmyPocet > 0
+        val kolikLiznout = if (bylUtokSedmou) stav.aktivniSedmyPocet * 2 else 1
         val lizaci = stav.lizaciBalicek.toMutableList()
         var odhazovaci = stav.odhazovaciBalicek.toMutableList()
         val dobrane = ArrayList<Karta>(kolikLiznout)
@@ -427,9 +469,21 @@ object PrsiEngine {
             }
         }
 
+        // Veřejná informace ze stolu: musel-li si hráč běžně líznout 1 kartu, neměl platnou barvu (ani svrška);
+        // naopak pokud si nabral více karet za sedmičky, získal čerstvé neznámé barvy.
+        val upraveneMasky = stav.chybejiciBarvyMaska.mapIndexed { idx, maska ->
+            if (idx != indexHrace) {
+                maska
+            } else if (bylUtokSedmou && dobrane.size >= 2) {
+                0
+            } else {
+                maska or (1 shl platnaBarvaPredLiznutim.ordinal)
+            }
+        }
+
         val novaRuka = Karta.seradRuku(stav.ruceHracu[indexHrace] + dobrane)
         val noveRuce = stav.ruceHracu.mapIndexed { idx, r -> if (idx == indexHrace) novaRuka else r }
-        val hlaska = if (stav.aktivniSedmyPocet > 0) {
+        val hlaska = if (bylUtokSedmou) {
             "$jmeno líže ${sklonujKartyAkuzativ(dobrane.size)} za sedmičku."
         } else {
             "$jmeno si lízl kartu z balíčku."
@@ -442,17 +496,56 @@ object PrsiEngine {
             naTahu = dalsiHrac,
             aktivniSedmyPocet = 0,
             posledniHlaska = hlaska,
-            cisloTahu = stav.cisloTahu + 1
+            cisloTahu = stav.cisloTahu + 1,
+            chybejiciBarvyMaska = upraveneMasky
         )
     }
 
-    private fun vyberNejlepsiBarvuProSvrska(kartyVRuce: List<Karta>): BarvaKarty {
-        return BarvaKarty.entries.maxWithOrNull(
-            compareBy<BarvaKarty>(
-                { b -> kartyVRuce.count { it.barva == b && it.hodnota != HodnotaKarty.SVRSEK } },
-                { b -> kartyVRuce.count { it.barva == b } }
-            )
-        ) ?: BarvaKarty.CERVENE
+    private fun vyberNejlepsiBarvuProSvrska(
+        stav: StavPrsi,
+        idxBota: Int,
+        kartyVRuce: List<Karta>
+    ): BarvaKarty {
+        val dalsiIdx = najdiDalsihoAktivnihoHrace(idxBota, stav.pocetHracu, stav.ruceHracu, stav.poradiDohrani)
+        val kartyDalsiho = stav.ruceHracu.getOrNull(dalsiIdx)?.size ?: 4
+        val maskaDalsiho = stav.chybejiciBarvyMaska.getOrElse(dalsiIdx) { 0 }
+        val souperHrozi = kartyDalsiho <= 2
+
+        return BarvaKarty.entries.maxByOrNull { barva ->
+            val vlastniBezSvrsku = kartyVRuce.filter { it.barva == barva && it.hodnota != HodnotaKarty.SVRSEK }
+            var bodyBarvy = 0
+            for (k in vlastniBezSvrsku) {
+                bodyBarvy += trestnaHodnotaKartyPrsi(k.hodnota)
+            }
+            val maUtok = vlastniBezSvrsku.any { it.hodnota == HodnotaKarty.R7 || it.hodnota == HodnotaKarty.ESO }
+            val jizOdehrano = stav.odhazovaciBalicek.count { it.barva == barva }
+            val souperiChybi = (maskaDalsiho and (1 shl barva.ordinal)) != 0
+
+            var skore = vlastniBezSvrsku.size * 16 + bodyBarvy + jizOdehrano * 2
+            if (maUtok) skore += 7
+            if (souperiChybi) {
+                skore += if (souperHrozi) 26 else 10
+            }
+            if (souperHrozi && barva == stav.aktualniPlatnaBarva) {
+                skore -= 20
+            }
+            skore
+        } ?: BarvaKarty.CERVENE
+    }
+
+    private fun navazujeDruhaKartaVRuce(
+        stav: StavPrsi,
+        prvni: Karta,
+        druha: Karta,
+        zvolenaBarvaPrvni: BarvaKarty?
+    ): Boolean {
+        if (druha.hodnota == HodnotaKarty.SVRSEK) return true
+        val novaPlatnaBarva = if (prvni.hodnota == HodnotaKarty.SVRSEK) {
+            zvolenaBarvaPrvni ?: prvni.barva
+        } else {
+            prvni.barva
+        }
+        return druha.barva == novaPlatnaBarva || druha.hodnota == prvni.hodnota
     }
 
     fun provedTahBota(stav: StavPrsi): StavPrsi {
@@ -461,28 +554,111 @@ object PrsiEngine {
         val ruka = stav.ruceHracu[idx]
 
         if (stav.cekaNaVolbuBarvy) {
-            return potvrdVolbuBarvySvrskem(stav, vyberNejlepsiBarvuProSvrska(ruka))
+            return potvrdVolbuBarvySvrskem(stav, vyberNejlepsiBarvuProSvrska(stav, idx, ruka))
         }
 
-        val povolene = zjistiPovoleneKarty(stav, idx)
+        val povolene = zjistiPovoleneKarty(stav, idx).toList()
         if (povolene.isEmpty()) {
             return lizniNeboStuj(stav, idx)
         }
-
-        val bezSvrsku = povolene.filter { it.hodnota != HodnotaKarty.SVRSEK }
-        val vybrana = if (bezSvrsku.isNotEmpty()) {
-            bezSvrsku.maxByOrNull { karta ->
-                val pocetBarvyVRuce = ruka.count { it.barva == karta.barva && it.hodnota != HodnotaKarty.SVRSEK }
-                val bonusUtoku = if (karta.hodnota == HodnotaKarty.R7 || karta.hodnota == HodnotaKarty.ESO) 3 else 0
-                pocetBarvyVRuce * 2 + bonusUtoku
-            } ?: bezSvrsku.first()
-        } else {
-            povolene.first()
+        if (povolene.size == 1) {
+            val jedina = povolene.first()
+            return if (jedina.hodnota == HodnotaKarty.SVRSEK) {
+                val zbytek = ruka.filterNot { it == jedina }
+                zahrajKartu(stav, idx, jedina, vyberNejlepsiBarvuProSvrska(stav, idx, zbytek))
+            } else {
+                zahrajKartu(stav, idx, jedina)
+            }
         }
+
+        val dalsiIdx = najdiDalsihoAktivnihoHrace(idx, stav.pocetHracu, stav.ruceHracu, stav.poradiDohrani)
+        val kartyDalsiho = stav.ruceHracu.getOrNull(dalsiIdx)?.size ?: 4
+        val maskaDalsiho = stav.chybejiciBarvyMaska.getOrElse(dalsiIdx) { 0 }
+        val aktivniSouperi = (0 until stav.pocetHracu).filter {
+            it != idx && it !in stav.poradiDohrani && stav.ruceHracu[it].isNotEmpty()
+        }
+        val minKaretSoupere = aktivniSouperi.minOfOrNull { stav.ruceHracu[it].size } ?: 4
+        val dalsiHrozi = kartyDalsiho <= 2
+        val dalsiMaPosledni = kartyDalsiho == 1
+        val mamUtocnouMimoSvrska = povolene.any { it.hodnota == HodnotaKarty.R7 || it.hodnota == HodnotaKarty.ESO }
+
+        val vybrana = povolene.maxByOrNull { karta ->
+            val zbytek = ruka.filterNot { it == karta }
+            val cilovaBarva = if (karta.hodnota == HodnotaKarty.SVRSEK) {
+                vyberNejlepsiBarvuProSvrska(stav, idx, zbytek)
+            } else {
+                karta.barva
+            }
+            val pocetStejneBarvyVZbytku = zbytek.count { it.barva == cilovaBarva && it.hodnota != HodnotaKarty.SVRSEK }
+            val souperiChybiCilova = (maskaDalsiho and (1 shl cilovaBarva.ordinal)) != 0
+            var skore = pocetStejneBarvyVZbytku * 7
+
+            // Koncovka se 2 kartami v ruce: seřaď pořadí odhozu tak, aby druhá karta šla hned zavřít
+            if (ruka.size == 2 && zbytek.size == 1) {
+                val druha = zbytek.first()
+                if (navazujeDruhaKartaVRuce(stav, karta, druha, cilovaBarva)) {
+                    skore += 38
+                }
+                if (aktivniSouperi.size == 1 && (karta.hodnota == HodnotaKarty.ESO || karta.hodnota == HodnotaKarty.R7)) {
+                    skore += 28
+                }
+                if (karta.hodnota == HodnotaKarty.SVRSEK && druha.hodnota != HodnotaKarty.SVRSEK) {
+                    skore -= 25
+                }
+            }
+
+            if (dalsiHrozi) {
+                // Další hráč má 1–2 karty („Prší!“) -> okamžitě brzdi sedmičkou, esem nebo změnou barvy!
+                when (karta.hodnota) {
+                    HodnotaKarty.R7 -> skore += if (dalsiMaPosledni) 85 else 58
+                    HodnotaKarty.ESO -> skore += if (dalsiMaPosledni) 72 else 48
+                    HodnotaKarty.SVRSEK -> {
+                        skore += if (!mamUtocnouMimoSvrska) {
+                            if (dalsiMaPosledni) 42 else 22
+                        } else {
+                            -15
+                        }
+                    }
+                    else -> {
+                        if (cilovaBarva != stav.aktualniPlatnaBarva) {
+                            skore += 18
+                        }
+                    }
+                }
+                if (souperiChybiCilova) {
+                    skore += 24
+                }
+            } else {
+                // Klidná fáze hry -> šetři sedmičky, esa i svršky do koncovky a zbavuj se drahých běžných karet
+                when (karta.hodnota) {
+                    HodnotaKarty.SVRSEK -> skore -= 44
+                    HodnotaKarty.R7 -> {
+                        skore -= if (stav.variantaPravidel == VariantaPravidel.HOSPODSKA && karta.barva == BarvaKarty.CERVENE) {
+                            24
+                        } else {
+                            16
+                        }
+                    }
+                    HodnotaKarty.ESO -> skore -= 12
+                    else -> {
+                        skore += trestnaHodnotaKartyPrsi(karta.hodnota) / 2
+                    }
+                }
+                if (souperiChybiCilova) {
+                    skore += 9
+                }
+            }
+
+            if (minKaretSoupere <= 2 && karta.hodnota != HodnotaKarty.SVRSEK) {
+                skore += trestnaHodnotaKartyPrsi(karta.hodnota)
+            }
+
+            skore
+        } ?: povolene.first()
 
         return if (vybrana.hodnota == HodnotaKarty.SVRSEK) {
             val zbytek = ruka.filterNot { it == vybrana }
-            zahrajKartu(stav, idx, vybrana, vyberNejlepsiBarvuProSvrska(zbytek))
+            zahrajKartu(stav, idx, vybrana, vyberNejlepsiBarvuProSvrska(stav, idx, zbytek))
         } else {
             zahrajKartu(stav, idx, vybrana)
         }
@@ -492,14 +668,7 @@ object PrsiEngine {
         val trestneBody: List<Int> = stav.ruceHracu.map { ruka ->
             var soucetRuky = 0
             for (karta in ruka) {
-                val bodyKarty: Int = when (karta.hodnota) {
-                    HodnotaKarty.SVRSEK -> 20
-                    HodnotaKarty.R7 -> 15
-                    HodnotaKarty.ESO -> 11
-                    HodnotaKarty.R10, HodnotaKarty.KRAL -> 10
-                    else -> 5
-                }
-                soucetRuky += bodyKarty
+                soucetRuky += trestnaHodnotaKartyPrsi(karta.hodnota)
             }
             soucetRuky
         }
