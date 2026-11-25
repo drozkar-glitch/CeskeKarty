@@ -249,8 +249,18 @@ private const val KLIC_PREZDIVKA = "ck_saved_nick_v1"
 private const val KLIC_PIN_OTISK = "ck_saved_pin_hash_v1"
 private const val KLIC_TEREZIANY = "ck_local_elo_v1"
 private const val KLIC_DENNI_ODMENA_DEN = "ck_daily_reward_day_v1"
+private const val KLIC_CISARSKA_PODPORA_DEN = "ck_support_day_v1"
+private const val KLIC_AKTIVNI_KAUCE = "ck_active_escrow_v1"
+private const val KLIC_VYPLACENA_ROZDANI = "ck_paid_deals_v1"
 private const val KLIC_ZVUK_HLASKY = "ck_sound_voice_enabled_v1"
 private const val KLIC_VARIANTA_PRAVIDEL = "ck_rules_variant_v1"
+
+data class AktivniKauceHry(
+    val idRozdani: String,
+    val zustatekPredHrou: Int,
+    val blokovanaKauce: Int,
+    val ulozenoMs: Long
+)
 
 fun jeZvukAHlaskyZapnuty(): Boolean {
     return nactiTextZUloziste(KLIC_ZVUK_HLASKY, "1") != "0"
@@ -333,6 +343,170 @@ fun ulozPosledniDenOdmeny(den: Int) {
 
 fun muzeVyzvednoutDenniOdmenu(): Boolean {
     return aktualniCisloDne() > nactiPosledniDenOdmeny()
+}
+
+fun nactiPosledniDenPodpory(): Int {
+    return (nactiTextZUloziste(KLIC_CISARSKA_PODPORA_DEN, "0").toIntOrNull() ?: 0).coerceAtLeast(0)
+}
+
+fun ulozPosledniDenPodpory(den: Int) {
+    ulozTextDoUloziste(KLIC_CISARSKA_PODPORA_DEN, den.coerceAtLeast(0).toString())
+}
+
+fun muzeAktivovatCisarskouPodporu(): Boolean {
+    return nactiLokalniTereziany() < HRANICE_PODPORY_TEREZIANY &&
+        aktualniCisloDne() > nactiPosledniDenPodpory()
+}
+
+fun nactiAktivniKauciHry(): AktivniKauceHry? {
+    val surove = nactiTextZUloziste(KLIC_AKTIVNI_KAUCE, "").trim()
+    if (surove.isEmpty()) return null
+    val casti = surove.split("|")
+    if (casti.size < 3) return null
+    val id = casti[0].trim()
+    val zaklad = casti[1].toIntOrNull() ?: return null
+    val kauce = casti[2].toIntOrNull() ?: return null
+    val casMs = casti.getOrNull(3)?.toLongOrNull() ?: 0L
+    if (id.isEmpty()) return null
+    return AktivniKauceHry(
+        idRozdani = id,
+        zustatekPredHrou = zaklad.coerceIn(0, 999_999),
+        blokovanaKauce = kauce.coerceIn(0, 999_999),
+        ulozenoMs = casMs
+    )
+}
+
+private fun zapisAktivniKauciHry(zaznam: AktivniKauceHry) {
+    val bezpecneId = zaznam.idRozdani.replace("|", "_")
+    ulozTextDoUloziste(
+        KLIC_AKTIVNI_KAUCE,
+        "$bezpecneId|${zaznam.zustatekPredHrou}|${zaznam.blokovanaKauce}|${zaznam.ulozenoMs}"
+    )
+}
+
+fun vymazAktivniKauciHry() {
+    ulozTextDoUloziste(KLIC_AKTIVNI_KAUCE, "")
+}
+
+fun uzamkniNeboNavysKauciRozdani(idRozdani: String, pozadovanaKauce: Int): Int {
+    val cisteId = idRozdani.trim().replace("|", "_")
+    if (cisteId.isEmpty()) return nactiLokalniTereziany()
+    val nyni = ziskejAktualniCasMs()
+    val existujici = nactiAktivniKauciHry()
+
+    if (existujici != null && existujici.idRozdani == cisteId) {
+        val zaklad = existujici.zustatekPredHrou
+        val novaKauce = maxOf(existujici.blokovanaKauce, pozadovanaKauce.coerceAtLeast(0)).coerceAtMost(zaklad)
+        if (novaKauce != existujici.blokovanaKauce) {
+            zapisAktivniKauciHry(
+                AktivniKauceHry(
+                    idRozdani = cisteId,
+                    zustatekPredHrou = zaklad,
+                    blokovanaKauce = novaKauce,
+                    ulozenoMs = nyni
+                )
+            )
+            ulozLokalniTereziany(zaklad - novaKauce)
+        }
+        return (zaklad - novaKauce).coerceIn(0, 999_999)
+    }
+
+    val aktualniZustatek = nactiLokalniTereziany()
+    val blokovano = pozadovanaKauce.coerceAtLeast(0).coerceAtMost(aktualniZustatek)
+    zapisAktivniKauciHry(
+        AktivniKauceHry(
+            idRozdani = cisteId,
+            zustatekPredHrou = aktualniZustatek,
+            blokovanaKauce = blokovano,
+            ulozenoMs = nyni
+        )
+    )
+    ulozLokalniTereziany(aktualniZustatek - blokovano)
+    return (aktualniZustatek - blokovano).coerceIn(0, 999_999)
+}
+
+fun ziskejZustatekPredHrouProRozdani(idRozdani: String): Int {
+    val cisteId = idRozdani.trim().replace("|", "_")
+    val existujici = nactiAktivniKauciHry()
+    return if (existujici != null && existujici.idRozdani == cisteId) {
+        existujici.zustatekPredHrou
+    } else {
+        nactiLokalniTereziany()
+    }
+}
+
+fun ziskejBlokovanouKauciProRozdani(idRozdani: String): Int {
+    val cisteId = idRozdani.trim().replace("|", "_")
+    val existujici = nactiAktivniKauciHry()
+    return if (existujici != null && existujici.idRozdani == cisteId) {
+        existujici.blokovanaKauce
+    } else {
+        0
+    }
+}
+
+fun vysporadejKauciPriDohrani(idRozdani: String, cistaZmenaTerezianu: Int): Int {
+    val cisteId = idRozdani.trim().replace("|", "_")
+    val existujici = nactiAktivniKauciHry()
+    val zaklad = if (existujici != null && existujici.idRozdani == cisteId) {
+        existujici.zustatekPredHrou
+    } else {
+        nactiLokalniTereziany()
+    }
+    if (existujici != null && existujici.idRozdani == cisteId) {
+        vymazAktivniKauciHry()
+    }
+    val vysledny = (zaklad + cistaZmenaTerezianu).coerceIn(0, 999_999)
+    ulozLokalniTereziany(vysledny)
+    return vysledny
+}
+
+fun propadniAktivniKauciPriOdchodu(idRozdani: String): Int {
+    val cisteId = idRozdani.trim().replace("|", "_")
+    val existujici = nactiAktivniKauciHry()
+    if (existujici != null && existujici.idRozdani == cisteId) {
+        val poPropadnuti = (existujici.zustatekPredHrou - existujici.blokovanaKauce).coerceIn(0, 999_999)
+        vymazAktivniKauciHry()
+        ulozLokalniTereziany(poPropadnuti)
+        return poPropadnuti
+    }
+    return nactiLokalniTereziany()
+}
+
+fun uzavriNeukoncenouKauciPoStartu(): Boolean {
+    val existujici = nactiAktivniKauciHry() ?: return false
+    val nyni = ziskejAktualniCasMs()
+    val jeOffline = existujici.idRozdani.startsWith("off_")
+    val jeStaraOnline = existujici.ulozenoMs <= 0L || (nyni - existujici.ulozenoMs) > 10 * 60_000L
+    if (jeOffline || jeStaraOnline) {
+        val poPropadnuti = (existujici.zustatekPredHrou - existujici.blokovanaKauce).coerceIn(0, 999_999)
+        ulozLokalniTereziany(poPropadnuti)
+        vymazAktivniKauciHry()
+        return true
+    }
+    return false
+}
+
+fun jeRozdaniUzVyplaceno(klicRozdani: String): Boolean {
+    val cisty = klicRozdani.trim().replace(";", "_").replace("|", "_")
+    if (cisty.isEmpty()) return false
+    val ulozene = nactiTextZUloziste(KLIC_VYPLACENA_ROZDANI, "")
+    if (ulozene.isBlank()) return false
+    return ulozene.split(";").any { it == cisty }
+}
+
+fun oznacRozdaniJakoVyplacene(klicRozdani: String) {
+    val cisty = klicRozdani.trim().replace(";", "_").replace("|", "_")
+    if (cisty.isEmpty()) return
+    val stavajici = nactiTextZUloziste(KLIC_VYPLACENA_ROZDANI, "")
+        .split(";")
+        .filter { it.isNotBlank() && it != cisty }
+    val novySeznam = (stavajici + cisty).takeLast(80)
+    ulozTextDoUloziste(KLIC_VYPLACENA_ROZDANI, novySeznam.joinToString(";"))
+}
+
+fun vymazHistoriiVyplacenychRozdani() {
+    ulozTextDoUloziste(KLIC_VYPLACENA_ROZDANI, "")
 }
 
 fun nazevMenaTerezian(pocet: Int): String {

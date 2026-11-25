@@ -73,6 +73,7 @@ fun App() {
         var ulozenyPinOtisk by remember { mutableStateOf(nactiUlozenyPinOtisk()) }
         var aktualniTereziany by remember { mutableStateOf(nactiLokalniTereziany()) }
         var dostupnaDenniOdmena by remember { mutableStateOf(muzeVyzvednoutDenniOdmenu()) }
+        var dostupnaCisarskaPodpora by remember { mutableStateOf(muzeAktivovatCisarskouPodporu()) }
         var vybranaPravidla by remember { mutableStateOf(nactiVychoziVariantuPravidel()) }
         var zpravaPoSmazaniUctu by remember { mutableStateOf("") }
 
@@ -89,26 +90,38 @@ fun App() {
             ulozenyPinOtisk = nactiUlozenyPinOtisk()
             aktualniTereziany = nactiLokalniTereziany()
             dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
+            dostupnaCisarskaPodpora = muzeAktivovatCisarskouPodporu()
         }
 
         LaunchedEffect(ulozenaPrezdivka, ulozenyPinOtisk) {
             if (ulozenaPrezdivka.isNotEmpty() && ulozenyPinOtisk.isNotEmpty()) {
                 aktualniTereziany = OnlineManager.synchronizujUcetPoStartu()
                 dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
+                dostupnaCisarskaPodpora = muzeAktivovatCisarskouPodporu()
             } else {
                 OnlineManager.ziskejOverenyCasServeruMs()
                 dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
+                dostupnaCisarskaPodpora = muzeAktivovatCisarskouPodporu()
             }
         }
 
         LaunchedEffect(aktualniObrazovka) {
             if (aktualniObrazovka == ObrazovkaHerny.DOMOV) {
                 obnovStavUctuAMesce()
+                if (ulozenaPrezdivka.isNotEmpty() && ulozenyPinOtisk.isNotEmpty()) {
+                    aktualniTereziany = OnlineManager.synchronizujUcetPoStartu()
+                    dostupnaDenniOdmena = muzeVyzvednoutDenniOdmenu()
+                    dostupnaCisarskaPodpora = muzeAktivovatCisarskouPodporu()
+                }
                 while (true) {
                     OnlineManager.ziskejOverenyCasServeruMs()
                     val novyNarok = muzeVyzvednoutDenniOdmenu()
                     if (novyNarok != dostupnaDenniOdmena) {
                         dostupnaDenniOdmena = novyNarok
+                    }
+                    val novaPodpora = muzeAktivovatCisarskouPodporu()
+                    if (novaPodpora != dostupnaCisarskaPodpora) {
+                        dostupnaCisarskaPodpora = novaPodpora
                     }
                     delay(15_000L)
                 }
@@ -128,6 +141,7 @@ fun App() {
                         ulozenyPinOtisk = ulozenyPinOtisk,
                         aktualniTereziany = aktualniTereziany,
                         dostupnaDenniOdmena = dostupnaDenniOdmena,
+                        dostupnaCisarskaPodpora = dostupnaCisarskaPodpora,
                         externiUspechHlaska = zpravaPoSmazaniUctu,
                         onExterniHlaskaPrectena = { zpravaPoSmazaniUctu = "" },
                         onUcetNeboMesecZmenen = { obnovStavUctuAMesce() },
@@ -385,6 +399,7 @@ private fun DomovskaObrazovka(
     ulozenyPinOtisk: String,
     aktualniTereziany: Int,
     dostupnaDenniOdmena: Boolean,
+    dostupnaCisarskaPodpora: Boolean,
     externiUspechHlaska: String = "",
     onExterniHlaskaPrectena: () -> Unit = {},
     onUcetNeboMesecZmenen: () -> Unit,
@@ -637,8 +652,7 @@ private fun DomovskaObrazovka(
                     }
                 }
 
-                val narokNaPodporu = aktualniTereziany < HRANICE_PODPORY_TEREZIANY
-                if (dostupnaDenniOdmena || narokNaPodporu) {
+                if (dostupnaDenniOdmena || dostupnaCisarskaPodpora) {
                     Spacer(modifier = Modifier.height(8.dp))
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -678,7 +692,7 @@ private fun DomovskaObrazovka(
                             }
                         }
 
-                        if (narokNaPodporu) {
+                        if (dostupnaCisarskaPodpora) {
                             Button(
                                 onClick = {
                                     jemnaHaptika()
@@ -695,6 +709,7 @@ private fun DomovskaObrazovka(
                                         }.onFailure { err ->
                                             jeUspechHlaska = false
                                             stavHlaska = err.message ?: "Podporu nelze uplatnit."
+                                            onUcetNeboMesecZmenen()
                                         }
                                         probihaAkce = false
                                     }
@@ -703,7 +718,7 @@ private fun DomovskaObrazovka(
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD4AF37))
                             ) {
                                 Text(
-                                    text = "Císařská podpora (dorovnat na $DOROVNANI_PODPORY_TEREZIANY)",
+                                    text = "Císařská podpora (1× denně dorovnat na $DOROVNANI_PODPORY_TEREZIANY)",
                                     color = Color(0xFF072312),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.ExtraBold
@@ -791,7 +806,11 @@ private fun DomovskaObrazovka(
                     stavHlaska = "Nejprve si prosím ulož nebo obnov přezdívku výše."
                 } else if (aktualniTereziany < 20) {
                     jeUspechHlaska = false
-                    stavHlaska = "Pro živý stůl potřebuješ alespoň 20 tereziánů — vyzvedni si nahoře Císařskou podporu zdarma!"
+                    stavHlaska = if (dostupnaCisarskaPodpora) {
+                        "Pro živý stůl potřebuješ alespoň 20 tereziánů — vyzvedni si nahoře Císařskou podporu zdarma!"
+                    } else {
+                        "Pro živý stůl potřebuješ alespoň 20 tereziánů — dnešní podporu už máš vybranou, přivydělej si v tréninku s boty nebo počkej na zítřejší odměnu."
+                    }
                 } else {
                     onOtevritZivouHernu()
                 }
@@ -1699,7 +1718,7 @@ private fun PravidlaObrazovka(
         )
         BlokPravidel(
             nadpis = "Měna tereziány a obnova účtu přes PIN",
-            text = "Tereziány jsou čistě bezplatné virtuální herní body bez peněžní hodnoty — nelze je kupovat za reálné peníze ani směňovat. Každý nový hráč dostává do začátku měšec s 1000 tereziány a za každé další denní přihlášení si na hlavní obrazovce může vyzvednout odměnu +100 tereziánů (vždy podle pražského času). Klesne-li tvůj měšec pod 100 tereziánů, tlačítko Císařská podpora ti ho zdarma dorovná na 200 tereziánů, případně si můžeš kdykoliv přivydělat v tréninku s boty. Díky 4místnému PINu si účet obnovíš v novém telefonu a níže na této stránce můžeš svůj účet kdykoliv trvale smazat."
+            text = "Tereziány jsou čistě bezplatné virtuální herní body bez peněžní hodnoty — nelze je kupovat za reálné peníze ani směňovat. Každý nový hráč dostává do začátku měšec s 1000 tereziány a za každé další denní přihlášení si na hlavní obrazovce může vyzvednout odměnu +100 tereziánů (vždy podle pražského času). Klesne-li tvůj měšec pod 100 tereziánů, tlačítko Císařská podpora ti ho zdarma dorovná na 200 tereziánů (nejvýše 1× denně). Po rozdání karet se na stole uzamkne sazba rozehrané hry — při předčasném opuštění nedohraného rozdání tato sazba propadá. Díky 4místnému PINu si účet obnovíš v novém telefonu a níže na této stránce můžeš svůj účet kdykoliv trvale smazat."
         )
         BlokPravidel(
             nadpis = "Hospodské hlášky a přehledný stůl",
@@ -1707,7 +1726,7 @@ private fun PravidlaObrazovka(
         )
         BlokPravidel(
             nadpis = "Živé online stoly bez botů",
-            text = "Karty při každém rozdání míchá server a každý hráč může mít otevřený nejvýše jeden vlastní stůl. Zelená ikona u přezdívky hlídá živé spojení — při výpadku delším než 60 sekund se běžný stůl v herně čistě uzavře bez zásahu botů a přítomným hráčům se žádné tereziány neodečtou."
+            text = "Karty při každém rozdání míchá server a každý hráč může mít otevřený nejvýše jeden vlastní stůl. Zelená ikona u přezdívky hlídá živé spojení — při opuštění nebo výpadku delším než 60 sekund propadá odpojenému hráči jeho rozehraná sazba, zatímco přítomnému hráči se kauce v plné výši vrátí (u veřejných stolů i s drobným odškodným za skreč)."
         )
         BlokPravidel(
             nadpis = "Původ a licence karetního obrazu",

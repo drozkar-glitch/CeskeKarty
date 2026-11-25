@@ -383,6 +383,7 @@ object OnlineManager {
             return VysledekRegistraceNicku.Chyba("Zadej prosím 4 číslice PIN kódu.")
         }
 
+        uzavriNeukoncenouKauciPoStartu()
         ziskejOverenyCasServeruMs()
         val dnes = aktualniCisloDne()
         val zadanyOtisk = vypoctiOtiskPinu(cista, cistyPin)
@@ -419,22 +420,34 @@ object OnlineManager {
             val puvodniDeviceId = ucetObj.retezec("deviceId", "").ifEmpty {
                 hsObj?.retezec("deviceId", "")?.ifEmpty { mojeId } ?: mojeId
             }
+            val stejnyLokalniUcet = nactiUlozenouPrezdivku().equals(kanonickyNick, ignoreCase = true)
             val ucetTereziany = ucetObj.cisloInt("score", -1)
             val hsTereziany = hsObj?.cisloInt("score", -1) ?: -1
-            val obnoveneTereziany = when {
+            val serverTereziany = when {
                 ucetTereziany >= 0 -> ucetTereziany
                 hsTereziany >= 0 -> hsTereziany
                 else -> STARTOVNI_TEREZIANY
             }.coerceIn(0, 999_999)
 
+            // Na tomtéž již přihlášeném zařízení nelze obnovou PINu přepsat lokální prohru vyšší hodnotou ze serveru
+            val obnoveneTereziany = if (stejnyLokalniUcet && puvodniDeviceId == mojeId) {
+                nactiLokalniTereziany()
+            } else {
+                serverTereziany
+            }
+
             val surovyUcetDen = ucetObj.cisloInt("lastDailyDay", 0)
             val cistyUcetDen = if (surovyUcetDen > dnes + 1) 0 else surovyUcetDen.coerceAtLeast(0)
             val lokalniDen = nactiPosledniDenOdmeny().let { if (it > dnes + 1) 0 else it }
-            val stejnyLokalniUcet = nactiUlozenouPrezdivku().equals(kanonickyNick, ignoreCase = true)
             val posledniDen = if (stejnyLokalniUcet) max(cistyUcetDen, lokalniDen) else cistyUcetDen
+
+            val surovyPodporaDen = ucetObj.cisloInt("lastSupportDay", 0)
+            val cistyPodporaDen = if (surovyPodporaDen > dnes + 1) 0 else surovyPodporaDen.coerceAtLeast(0)
+            val lokalniPodporaDen = nactiPosledniDenPodpory().let { if (it > dnes + 1) 0 else it }
+            val posledniPodpora = if (stejnyLokalniUcet) max(cistyPodporaDen, lokalniPodporaDen) else cistyPodporaDen
             val nyni = odhadniAktualniServerovyCasMs()
 
-            val teloUcet = """{"nick":${jsonEscape(kanonickyNick)},"pinHash":${jsonEscape(zadanyOtisk)},"deviceId":${jsonEscape(puvodniDeviceId)},"score":$obnoveneTereziany,"lastDailyDay":$posledniDen,"updatedAt":$nyni}"""
+            val teloUcet = """{"nick":${jsonEscape(kanonickyNick)},"pinHash":${jsonEscape(zadanyOtisk)},"deviceId":${jsonEscape(puvodniDeviceId)},"score":$obnoveneTereziany,"lastDailyDay":$posledniDen,"lastSupportDay":$posledniPodpora,"updatedAt":$nyni}"""
             val zapisUcet = dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
             if (!zapisUcet.uspesne) {
                 return VysledekRegistraceNicku.Chyba("Nepodařilo se potvrdit obnovu účtu v databázi (kód ${zapisUcet.stavovyKod}).")
@@ -443,11 +456,16 @@ object OnlineManager {
             val teloHs = """{"score":$obnoveneTereziany,"deviceId":${jsonEscape(puvodniDeviceId)},"updatedAt":$nyni}"""
             dotazSOpakovanim("PUT", urlHs, teloHs, pokusy = 2)
 
+            if (!stejnyLokalniUcet) {
+                vymazAktivniKauciHry()
+                vymazHistoriiVyplacenychRozdani()
+            }
             ulozObnoveneIdZarizeni(puvodniDeviceId)
             ulozPrezdivkuTrvale(kanonickyNick)
             ulozPinOtiskTrvale(zadanyOtisk)
             ulozLokalniTereziany(obnoveneTereziany)
             ulozPosledniDenOdmeny(posledniDen)
+            ulozPosledniDenPodpory(posledniPodpora)
 
             return VysledekRegistraceNicku.Uspech(
                 "Účet $kanonickyNick (${formatujTereziany(obnoveneTereziany)}) byl úspěšně obnoven!"
@@ -478,8 +496,9 @@ object OnlineManager {
         val startTereziany = (if (hsSkore >= 0) hsSkore else STARTOVNI_TEREZIANY).coerceIn(0, 999_999)
         val lokalniDen = nactiPosledniDenOdmeny().let { if (it > dnes + 1) 0 else it }
         val posledniDen = if (hsSkore >= 0) lokalniDen else dnes
+        val posledniPodpora = nactiPosledniDenPodpory().let { if (it > dnes + 1) 0 else it }
         val nyni = odhadniAktualniServerovyCasMs()
-        val teloUcet = """{"nick":${jsonEscape(cista)},"pinHash":${jsonEscape(zadanyOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$startTereziany,"lastDailyDay":$posledniDen,"updatedAt":$nyni}"""
+        val teloUcet = """{"nick":${jsonEscape(cista)},"pinHash":${jsonEscape(zadanyOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$startTereziany,"lastDailyDay":$posledniDen,"lastSupportDay":$posledniPodpora,"updatedAt":$nyni}"""
         val zapisUcet = dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
         if (!zapisUcet.uspesne) {
             return if (zapisUcet.stavovyKod == 401 || zapisUcet.stavovyKod == 403) {
@@ -496,6 +515,7 @@ object OnlineManager {
         ulozPinOtiskTrvale(zadanyOtisk)
         ulozLokalniTereziany(startTereziany)
         ulozPosledniDenOdmeny(posledniDen)
+        ulozPosledniDenPodpory(posledniPodpora)
 
         return VysledekRegistraceNicku.Uspech(
             "Účet $cista uložen — do začátku máš ${formatujTereziany(startTereziany)}!"
@@ -551,7 +571,7 @@ object OnlineManager {
             val serverPinHash = ucetObj?.retezec("pinHash", "") ?: ""
             val efektivniPinHash = pinOtisk.ifEmpty { serverPinHash }
 
-            val oznacUcet = """{"nick":${jsonEscape(kanonickyNick)},"pinHash":${jsonEscape(efektivniPinHash)},"deviceId":${jsonEscape(mojeId)},"score":0,"lastDailyDay":0,"confirmDelete":true,"updatedAt":$nyni}"""
+            val oznacUcet = """{"nick":${jsonEscape(kanonickyNick)},"pinHash":${jsonEscape(efektivniPinHash)},"deviceId":${jsonEscape(mojeId)},"score":0,"lastDailyDay":0,"lastSupportDay":0,"confirmDelete":true,"updatedAt":$nyni}"""
             val resOznacUcet = dotazSOpakovanim("PUT", urlUcet, oznacUcet, pokusy = 2)
             if (!resOznacUcet.uspesne) {
                 return Result.failure(Exception("Nepodařilo se potvrdit smazání účtu na serveru (kód ${resOznacUcet.stavovyKod})."))
@@ -575,21 +595,31 @@ object OnlineManager {
             }
         }
 
+        vymazAktivniKauciHry()
+        vymazHistoriiVyplacenychRozdani()
         ulozPrezdivkuTrvale("")
         ulozPinOtiskTrvale("")
         ulozPosledniDenOdmeny(0)
+        ulozPosledniDenPodpory(0)
         ulozLokalniTereziany(STARTOVNI_TEREZIANY)
 
         return Result.success("Účet „$kanonickyNick“ byl trvale smazán ze serveru i z tohoto zařízení.")
     }
 
     suspend fun synchronizujUcetPoStartu(): Int {
+        val propadlaKauce = uzavriNeukoncenouKauciPoStartu()
         ziskejOverenyCasServeruMs()
         val dnes = aktualniCisloDne()
+
         var lokalniDen = nactiPosledniDenOdmeny()
         if (lokalniDen > dnes + 1) {
             lokalniDen = 0
             ulozPosledniDenOdmeny(0)
+        }
+        var lokalniPodporaDen = nactiPosledniDenPodpory()
+        if (lokalniPodporaDen > dnes + 1) {
+            lokalniPodporaDen = 0
+            ulozPosledniDenPodpory(0)
         }
 
         val nick = nactiUlozenouPrezdivku()
@@ -605,7 +635,7 @@ object OnlineManager {
 
         val nyni = odhadniAktualniServerovyCasMs()
         if (odpoved.telo.isBlank() || odpoved.telo.trim() == "null") {
-            val teloUcet = """{"nick":${jsonEscape(nick)},"pinHash":${jsonEscape(pinOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$lokalni,"lastDailyDay":$lokalniDen,"updatedAt":$nyni}"""
+            val teloUcet = """{"nick":${jsonEscape(nick)},"pinHash":${jsonEscape(pinOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$lokalni,"lastDailyDay":$lokalniDen,"lastSupportDay":$lokalniPodporaDen,"updatedAt":$nyni}"""
             dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
             return lokalni
         }
@@ -619,17 +649,26 @@ object OnlineManager {
                 ulozPosledniDenOdmeny(sjednocenyDen)
             }
 
+            val surovyServerPodpora = obj.cisloInt("lastSupportDay", 0)
+            val serverPodpora = if (surovyServerPodpora > dnes + 1) 0 else surovyServerPodpora.coerceAtLeast(0)
+            val sjednocenaPodpora = max(lokalniPodporaDen, serverPodpora)
+            if (sjednocenaPodpora != nactiPosledniDenPodpory()) {
+                ulozPosledniDenPodpory(sjednocenaPodpora)
+            }
+
             val serverSkore = obj.cisloInt("score", -1)
             val serverDeviceId = obj.retezec("deviceId", "")
             if (serverSkore >= 0) {
                 val cistaServer = serverSkore.coerceIn(0, 999_999)
-                if ((serverDeviceId.isNotEmpty() && serverDeviceId != mojeId) || cistaServer > lokalni) {
+                // Ze serveru přebíráme částku jen při přenosu účtu z jiného zařízení;
+                // na stejném zařízení je směrodatný lokální zůstatek (nelze smazat offline prohru restartem).
+                if (!propadlaKauce && serverDeviceId.isNotEmpty() && serverDeviceId != mojeId) {
                     ulozLokalniTereziany(cistaServer)
-                    if (sjednocenyDen != surovyServerDen) {
+                    if (sjednocenyDen != surovyServerDen || sjednocenaPodpora != surovyServerPodpora) {
                         odesliAktualniTerezianyDoZebricku(cistaServer)
                     }
                     return cistaServer
-                } else if (lokalni != cistaServer || sjednocenyDen != surovyServerDen) {
+                } else if (propadlaKauce || lokalni != cistaServer || sjednocenyDen != surovyServerDen || sjednocenaPodpora != surovyServerPodpora) {
                     odesliAktualniTerezianyDoZebricku(lokalni)
                 }
             }
@@ -647,6 +686,7 @@ object OnlineManager {
         val kodovana = urlKodujKomponentu(nick)
         val nyni = odhadniAktualniServerovyCasMs()
         val posledniDen = nactiPosledniDenOdmeny()
+        val posledniPodpora = nactiPosledniDenPodpory()
 
         val urlHs = "$FIREBASE_DB_ZAKLAD/high_scores/$ZEBRICEK_GAME_ID/$kodovana.json"
         val teloHs = """{"score":$cistaCastka,"deviceId":${jsonEscape(mojeId)},"updatedAt":$nyni}"""
@@ -655,7 +695,7 @@ object OnlineManager {
         val pinOtisk = nactiUlozenyPinOtisk()
         if (pinOtisk.isNotEmpty()) {
             val urlUcet = "$FIREBASE_DB_ZAKLAD/card_accounts/${klicUctuProNick(nick)}.json"
-            val teloUcet = """{"nick":${jsonEscape(nick)},"pinHash":${jsonEscape(pinOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$cistaCastka,"lastDailyDay":$posledniDen,"updatedAt":$nyni}"""
+            val teloUcet = """{"nick":${jsonEscape(nick)},"pinHash":${jsonEscape(pinOtisk)},"deviceId":${jsonEscape(mojeId)},"score":$cistaCastka,"lastDailyDay":$posledniDen,"lastSupportDay":$posledniPodpora,"updatedAt":$nyni}"""
             dotazSOpakovanim("PUT", urlUcet, teloUcet, pokusy = 2)
         }
     }
@@ -674,12 +714,21 @@ object OnlineManager {
     }
 
     suspend fun aktivujCisarskouPodporu(): Result<Int> {
+        ziskejOverenyCasServeruMs()
         val aktualni = nactiLokalniTereziany()
         if (aktualni >= HRANICE_PODPORY_TEREZIANY) {
             return Result.failure(
                 Exception("Císařská podpora se vyplácí jen při poklesu pod ${formatujTereziany(HRANICE_PODPORY_TEREZIANY)}.")
             )
         }
+        val dnes = aktualniCisloDne()
+        val posledniPodpora = nactiPosledniDenPodpory().let { if (it > dnes + 1) 0 else it }
+        if (dnes <= posledniPodpora) {
+            return Result.failure(
+                Exception("Císařskou podporu lze využít nejvýše jednou denně — další bude připravena zítra.")
+            )
+        }
+        ulozPosledniDenPodpory(dnes)
         odesliAktualniTerezianyDoZebricku(DOROVNANI_PODPORY_TEREZIANY)
         return Result.success(DOROVNANI_PODPORY_TEREZIANY)
     }
@@ -1065,17 +1114,18 @@ object OnlineManager {
         stul: OnlineStul,
         zacinajiciIndex: Int,
         noveCisloRozdani: Int = stul.cisloRozdani,
-        noveSouctyBodu: List<Int> = stul.soucetBoduHracu
+        noveSouctyBodu: List<Int> = stul.soucetBoduHracu,
+        aktualizovaniHraci: List<HracUStolu> = stul.hraci
     ): OnlineStul? {
-        if (stul.hraci.size < stul.maxHracu) return null
+        if (aktualizovaniHraci.size < stul.maxHracu) return null
         if (stul.stavMistnosti == StavMistnosti.CEKANI) {
             val cerstvy = nactiKonkretniStul(stul.roomId)
             if (cerstvy != null && cerstvy.stavMistnosti == StavMistnosti.HRAJE_SE && cerstvy.serializovanyStavHry.isNotBlank()) {
                 return cerstvy
             }
         }
-        val jmena = stul.hraci.map { it.prezdivka }
-        val balicek = vygenerujBalicekPresWorkerNeboLokalne(stul.roomId, stul.typHry, stul.hraci)
+        val jmena = aktualizovaniHraci.map { it.prezdivka }
+        val balicek = vygenerujBalicekPresWorkerNeboLokalne(stul.roomId, stul.typHry, aktualizovaniHraci)
         val vp = stul.variantaPravidel
         val stavRetezec = when (stul.typHry) {
             TypHry.PRSI -> PrsiEngine.novaHra(jmena, balicek, zacinajiciIndex, vp).doKompaktnihoRetezce()
@@ -1091,6 +1141,7 @@ object OnlineManager {
         val nyni = ziskejAktualniCasMs()
         val novyStul = stul.copy(
             stavMistnosti = StavMistnosti.HRAJE_SE,
+            hraci = aktualizovaniHraci,
             serializovanyStavHry = stavRetezec,
             verzeStavu = stul.verzeStavu + 1,
             zacatekTahuMs = nyni,
