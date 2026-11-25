@@ -51,6 +51,7 @@ internal fun StredStoluPrsi(
     onLiznoutNeboStat: () -> Unit,
     onZvolitBarvuSvrskem: (BarvaKarty) -> Unit
 ) {
+    val uzDohralLokalni = lokalniIndex in stav.poradiDohrani && !stav.jeKonec
     val naTahuLokalni = stav.naTahu == lokalniIndex && !stav.jeKonec
     val hratelneKarty = remember(stav, lokalniIndex) {
         PrsiEngine.zjistiPovoleneKarty(stav, lokalniIndex)
@@ -97,8 +98,8 @@ internal fun StredStoluPrsi(
             sirka = sirkaLizaciho,
             pocetVBalicku = stav.lizaciBalicek.size,
             popisek = if (stav.aktivniEsoStoji) "STÁT" else "LÍZAT",
-            zvyseneZvyrazneni = naTahuLokalni && !stav.cekaNaVolbuBarvy && hratelneKarty.isEmpty(),
-            onClick = if (naTahuLokalni && !stav.cekaNaVolbuBarvy) onLiznoutNeboStat else null
+            zvyseneZvyrazneni = naTahuLokalni && !stav.cekaNaVolbuBarvy && !uzDohralLokalni && hratelneKarty.isEmpty(),
+            onClick = if (naTahuLokalni && !stav.cekaNaVolbuBarvy && !uzDohralLokalni) onLiznoutNeboStat else null
         )
 
         Spacer(modifier = Modifier.height(if (naSirku) 5.dp else 8.dp))
@@ -116,7 +117,6 @@ internal fun StredStoluPrsi(
                 val jeVrchni = idx == vynosKarty.lastIndex
                 val stitek = if (jeVrchni) {
                     stav.zvolenaBarvaSvrskem?.ceskyNazev
-                        ?: if (vynosKarty.size > 1) "VRCHNÍ" else null
                 } else {
                     null
                 }
@@ -134,7 +134,27 @@ internal fun StredStoluPrsi(
             }
         }
 
-        if (naTahuLokalni && !stav.cekaNaVolbuBarvy) {
+        if (uzDohralLokalni && !stav.cekaNaVolbuBarvy) {
+            val mojeUmisteni = stav.poradiDohrani.indexOf(lokalniIndex) + 1
+            Spacer(modifier = Modifier.height(if (naSirku) 5.dp else 8.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xD915492B))
+                    .border(1.dp, Color(0x8869F0AE), RoundedCornerShape(10.dp))
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = "✓ Máš $mojeUmisteni. místo — ostatní hráči dohrávají o pořadí",
+                    color = Color(0xFF69F0AE),
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        } else if (naTahuLokalni && !stav.cekaNaVolbuBarvy) {
             Spacer(modifier = Modifier.height(if (naSirku) 5.dp else 8.dp))
             val popisekAkce = when {
                 stav.aktivniEsoStoji -> "Stát 1 kolo (potvrdit eso)"

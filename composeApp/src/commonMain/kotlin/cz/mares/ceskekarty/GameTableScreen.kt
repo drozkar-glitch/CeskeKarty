@@ -151,7 +151,13 @@ private fun vypoctiKauciRozdani(
 ): Int {
     return when (typHry) {
         TypHry.PRSI -> {
-            if (stavPrsi == null || stavPrsi.jeKonec) 0 else 10
+            if (stavPrsi == null || stavPrsi.jeKonec) {
+                0
+            } else if (stavPrsi.variantaPravidel == VariantaPravidel.HOSPODSKA && stavPrsi.pocetHracu == 4) {
+                12
+            } else {
+                10
+            }
         }
         TypHry.SEDMA -> {
             if (stavSedma == null || stavSedma.jeKonec) {
@@ -357,6 +363,9 @@ fun GameTableScreen(
         val pocetBotu = (pocetHracu - 1).coerceAtLeast(1)
         listOf(mojePrezdivka) + vylosujJmenaOfflineBotu(pocetBotu)
     }
+    val offlineZiviPrsi = remember(pocetHracu) {
+        List(pocetHracu) { idx -> idx == 0 }
+    }
 
     var cisloOfflineRozdani by remember { mutableStateOf(1) }
     var soucetBoduOffline by remember { mutableStateOf(List(pocetHracu) { 0 }) }
@@ -367,7 +376,8 @@ fun GameTableScreen(
                 onlineStul?.serializovanyStavHry?.let { StavPrsi.zKompaktnihoRetezce(it) }
                     ?: PrsiEngine.novaHra(
                         jmenaHracu = vychoziJmenaOffline,
-                        variantaPravidel = pocatecniPravidla
+                        variantaPravidel = pocatecniPravidla,
+                        ziviHraci = offlineZiviPrsi
                     )
             } else null
         )
@@ -1179,7 +1189,8 @@ fun GameTableScreen(
                                 TypHry.PRSI -> stavPrsi = PrsiEngine.novaHra(
                                     jmenaHracu = vychoziJmenaOffline,
                                     zacinajiciHrac = zacinajici,
-                                    variantaPravidel = aktivniPravidla
+                                    variantaPravidel = aktivniPravidla,
+                                    ziviHraci = offlineZiviPrsi
                                 )
                                 TypHry.SEDMA -> stavSedma = SedmaEngine.novaHra(
                                     jmenaHracu = vychoziJmenaOffline,
@@ -1737,7 +1748,10 @@ private fun PruhySouperu(
                     else -> "Obrana"
                 }
                 TypHry.SEDMA -> if (pocet == 4 && idx % 2 == lokalniIndex % 2) "Parťák" else "Soupeř"
-                TypHry.PRSI -> ""
+                TypHry.PRSI -> {
+                    val pIdx = stavPrsi?.poradiDohrani?.indexOf(idx) ?: -1
+                    if (pIdx >= 0) "${pIdx + 1}. místo ✓" else ""
+                }
             }
             val hracNaTahu = naTahu == idx
             val onlineHrac = onlineStul?.hraci?.getOrNull(idx)
@@ -1785,6 +1799,8 @@ private fun PruhySouperu(
                     val podtext = when {
                         infoSpojeni?.stav == StavPripojeniHrace.VYPADEK_ZLUTA ->
                             "Výpadek (${infoSpojeni.zbyvaSekundDoUkonceni}s)"
+                        typHry == TypHry.PRSI && pocetKaret == 0 && rolePopisek.isNotEmpty() ->
+                            "$rolePopisek • dohráno"
                         rolePopisek.isNotEmpty() -> "$rolePopisek • ${sklonujListy(pocetKaret)}"
                         else -> "${sklonujListy(pocetKaret)} v ruce"
                     }

@@ -429,7 +429,6 @@ object OnlineManager {
                 else -> STARTOVNI_TEREZIANY
             }.coerceIn(0, 999_999)
 
-            // Na tomtéž již přihlášeném zařízení nelze obnovou PINu přepsat lokální prohru vyšší hodnotou ze serveru
             val obnoveneTereziany = if (stejnyLokalniUcet && puvodniDeviceId == mojeId) {
                 nactiLokalniTereziany()
             } else {
@@ -660,8 +659,6 @@ object OnlineManager {
             val serverDeviceId = obj.retezec("deviceId", "")
             if (serverSkore >= 0) {
                 val cistaServer = serverSkore.coerceIn(0, 999_999)
-                // Ze serveru přebíráme částku jen při přenosu účtu z jiného zařízení;
-                // na stejném zařízení je směrodatný lokální zůstatek (nelze smazat offline prohru restartem).
                 if (!propadlaKauce && serverDeviceId.isNotEmpty() && serverDeviceId != mojeId) {
                     ulozLokalniTereziany(cistaServer)
                     if (sjednocenyDen != surovyServerDen || sjednocenaPodpora != surovyServerPodpora) {
@@ -1125,10 +1122,17 @@ object OnlineManager {
             }
         }
         val jmena = aktualizovaniHraci.map { it.prezdivka }
+        val zivi = aktualizovaniHraci.map { !jeBotDeviceId(it.deviceId) }
         val balicek = vygenerujBalicekPresWorkerNeboLokalne(stul.roomId, stul.typHry, aktualizovaniHraci)
         val vp = stul.variantaPravidel
         val stavRetezec = when (stul.typHry) {
-            TypHry.PRSI -> PrsiEngine.novaHra(jmena, balicek, zacinajiciIndex, vp).doKompaktnihoRetezce()
+            TypHry.PRSI -> PrsiEngine.novaHra(
+                jmenaHracu = jmena,
+                predmichanyBalicek = balicek,
+                zacinajiciHrac = zacinajiciIndex,
+                variantaPravidel = vp,
+                ziviHraci = zivi
+            ).doKompaktnihoRetezce()
             TypHry.SEDMA -> SedmaEngine.novaHra(jmena, balicek, zacinajiciIndex, vp).doKompaktnihoRetezce()
             TypHry.MARIAS -> MariasEngine.novaHra(
                 jmenaHracu = jmena,
@@ -1205,9 +1209,37 @@ object OnlineManager {
 
         val nyni = ziskejAktualniCasMs()
         val jmena = noviHraci.map { it.prezdivka }
+        val zivi = noviHraci.map { !jeBotDeviceId(it.deviceId) }
         val novyStavHry = when (stul.typHry) {
-            TypHry.PRSI -> PrsiEngine.zKompaktnihoRetezce(stul.serializovanyStavHry)
-                ?.copy(jmenaHracu = jmena)?.doKompaktnihoRetezce() ?: stul.serializovanyStavHry
+            TypHry.PRSI -> {
+                val staryPrsi = PrsiEngine.zKompaktnihoRetezce(stul.serializovanyStavHry)
+                if (staryPrsi != null) {
+                    val sNovymiZivymi = staryPrsi.copy(jmenaHracu = jmena, ziviHraci = zivi)
+                    if (!sNovymiZivymi.jeKonec &&
+                        sNovymiZivymi.poradiDohrani.isNotEmpty() &&
+                        !PrsiEngine.maPokracovatDohravani(
+                            variantaPravidel = sNovymiZivymi.variantaPravidel,
+                            pocetHracu = sNovymiZivymi.pocetHracu,
+                            ruce = sNovymiZivymi.ruceHracu,
+                            poradiDohrani = sNovymiZivymi.poradiDohrani,
+                            ziviHraci = zivi
+                        )
+                    ) {
+                        sNovymiZivymi.copy(
+                            jeKonec = true,
+                            aktivniSedmyPocet = 0,
+                            aktivniEsoStoji = false,
+                            cekaNaVolbuBarvy = false,
+                            indexViteze = sNovymiZivymi.poradiDohrani.first(),
+                            posledniHlaska = "Zbyli pouze boti — partie je dohrána!"
+                        ).doKompaktnihoRetezce()
+                    } else {
+                        sNovymiZivymi.doKompaktnihoRetezce()
+                    }
+                } else {
+                    stul.serializovanyStavHry
+                }
+            }
             TypHry.SEDMA -> SedmaEngine.zKompaktnihoRetezce(stul.serializovanyStavHry)
                 ?.copy(jmenaHracu = jmena)?.doKompaktnihoRetezce() ?: stul.serializovanyStavHry
             TypHry.MARIAS -> MariasEngine.zKompaktnihoRetezce(stul.serializovanyStavHry)

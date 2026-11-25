@@ -15,7 +15,9 @@ data class StavPrsi(
     val jeKonec: Boolean,
     val indexViteze: Int,
     val cisloTahu: Int,
-    val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
+    val variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA,
+    val poradiDohrani: List<Int> = emptyList(),
+    val ziviHraci: List<Boolean> = List(pocetHracu) { it == 0 }
 ) {
     val vrchniKarta: Karta
         get() = odhazovaciBalicek.last()
@@ -42,6 +44,8 @@ data class StavPrsi(
         pole.add("vit" to indexViteze.toString())
         pole.add("ct" to cisloTahu.toString())
         pole.add("vp" to variantaPravidel.kod)
+        pole.add("pd" to poradiDohrani.joinToString(","))
+        pole.add("zh" to ziviHraci.take(pocetHracu).joinToString(",") { if (it) "1" else "0" })
         return serializujMapuPoli(pole)
     }
 
@@ -59,13 +63,26 @@ data class StavPrsi(
             }
             val odh = retezecNaKarty(r.text("odh"))
             if (odh.isEmpty()) return null
+            val pdText = r.text("pd")
+            val nactenePoradi = if (pdText.isBlank()) {
+                emptyList()
+            } else {
+                pdText.split(",").mapNotNull { it.toIntOrNull()?.takeIf { idx -> idx in 0 until pocet } }.distinct()
+            }
+            val zhText = r.text("zh")
+            val nacteniZivi = if (zhText.isBlank()) {
+                List(pocet) { idx -> idx == 0 }
+            } else {
+                val casti = zhText.split(",")
+                List(pocet) { idx -> casti.getOrNull(idx) == "1" }
+            }
             return StavPrsi(
                 pocetHracu = pocet,
                 jmenaHracu = jmena,
                 ruceHracu = ruce,
                 lizaciBalicek = retezecNaKarty(r.text("liz")),
                 odhazovaciBalicek = odh,
-                naTahu = r.cislo("nt", 0),
+                naTahu = r.cislo("nt", 0).mod(pocet),
                 zvolenaBarvaSvrskem = BarvaKarty.dleNazvu(r.text("zbs")),
                 aktivniSedmyPocet = r.cislo("sed", 0),
                 aktivniEsoStoji = r.pravda("eso", false),
@@ -74,7 +91,9 @@ data class StavPrsi(
                 jeKonec = r.pravda("kon", false),
                 indexViteze = r.cislo("vit", -1),
                 cisloTahu = r.cislo("ct", 1),
-                variantaPravidel = VariantaPravidel.dleKodu(r.text("vp", VariantaPravidel.HOSPODSKA.kod))
+                variantaPravidel = VariantaPravidel.dleKodu(r.text("vp", VariantaPravidel.HOSPODSKA.kod)),
+                poradiDohrani = nactenePoradi,
+                ziviHraci = nacteniZivi
             )
         }
     }
@@ -105,11 +124,46 @@ object PrsiEngine {
         }
     }
 
+    private fun najdiDalsihoAktivnihoHrace(
+        odIndexu: Int,
+        pocetHracu: Int,
+        ruce: List<List<Karta>>,
+        poradiDohrani: List<Int>
+    ): Int {
+        for (krok in 1..pocetHracu) {
+            val idx = (odIndexu + krok) % pocetHracu
+            if (idx !in poradiDohrani && ruce.getOrNull(idx)?.isNotEmpty() == true) {
+                return idx
+            }
+        }
+        return odIndexu
+    }
+
+    internal fun maPokracovatDohravani(
+        variantaPravidel: VariantaPravidel,
+        pocetHracu: Int,
+        ruce: List<List<Karta>>,
+        poradiDohrani: List<Int>,
+        ziviHraci: List<Boolean>
+    ): Boolean {
+        if (variantaPravidel != VariantaPravidel.HOSPODSKA || pocetHracu <= 2) {
+            return false
+        }
+        val zbyliHraci = (0 until pocetHracu).filter { idx ->
+            idx !in poradiDohrani && ruce.getOrNull(idx)?.isNotEmpty() == true
+        }
+        if (zbyliHraci.size < 2) {
+            return false
+        }
+        return zbyliHraci.any { idx -> ziviHraci.getOrElse(idx) { false } }
+    }
+
     fun novaHra(
         jmenaHracu: List<String>,
         predmichanyBalicek: List<Karta>? = null,
         zacinajiciHrac: Int = 0,
-        variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA
+        variantaPravidel: VariantaPravidel = VariantaPravidel.HOSPODSKA,
+        ziviHraci: List<Boolean>? = null
     ): StavPrsi {
         val pocet = jmenaHracu.size.coerceIn(2, 4)
         val balicek = (predmichanyBalicek ?: Karta.vytvorZamichanyBalicek()).toMutableList()
@@ -122,6 +176,24 @@ object PrsiEngine {
         }
         val prvniNaStole = balicek.removeAt(0)
         val startIndex = zacinajiciHrac.mod(pocet)
+        val seznamZivych = List(pocet) { idx -> ziviHraci?.getOrNull(idx) ?: (idx == 0) }
+
+        val uvodniSedmy = if (variantaPravidel == VariantaPravidel.HOSPODSKA && prvniNaStole.hodnota == HodnotaKarty.R7) {
+            1
+        } else {
+            0
+        }
+        val uvodniEso = variantaPravidel == VariantaPravidel.HOSPODSKA && prvniNaStole.hodnota == HodnotaKarty.ESO
+
+        val uvodniHlaska = when {
+            uvodniSedmy > 0 ->
+                "Rozdáno (hospodská pravidla)! Na stole leží ${prvniNaStole.celyNazev()} — začíná ${jmenaHracu[startIndex]}, berou se 2 karty!"
+            uvodniEso ->
+                "Rozdáno (hospodská pravidla)! Na stole leží ${prvniNaStole.celyNazev()} — začíná ${jmenaHracu[startIndex]}, stojí 1 kolo!"
+            else ->
+                "Rozdáno (${variantaPravidel.kratkyNazev.lowercase()} pravidla)! Začíná ${jmenaHracu[startIndex]} na kartu ${prvniNaStole.celyNazev()}."
+        }
+
         return StavPrsi(
             pocetHracu = pocet,
             jmenaHracu = jmenaHracu.take(pocet),
@@ -130,22 +202,25 @@ object PrsiEngine {
             odhazovaciBalicek = listOf(prvniNaStole),
             naTahu = startIndex,
             zvolenaBarvaSvrskem = null,
-            aktivniSedmyPocet = 0,
-            aktivniEsoStoji = false,
+            aktivniSedmyPocet = uvodniSedmy,
+            aktivniEsoStoji = uvodniEso,
             cekaNaVolbuBarvy = false,
-            posledniHlaska = "Rozdáno (${variantaPravidel.kratkyNazev.lowercase()} pravidla)! Začíná ${jmenaHracu[startIndex]} na kartu ${prvniNaStole.celyNazev()}.",
+            posledniHlaska = uvodniHlaska,
             jeKonec = false,
             indexViteze = -1,
             cisloTahu = 1,
-            variantaPravidel = variantaPravidel
+            variantaPravidel = variantaPravidel,
+            poradiDohrani = emptyList(),
+            ziviHraci = seznamZivych
         )
     }
 
     fun zjistiPovoleneKarty(stav: StavPrsi, indexHrace: Int): Set<Karta> {
-        if (stav.jeKonec || stav.naTahu != indexHrace || stav.cekaNaVolbuBarvy) {
+        if (stav.jeKonec || stav.naTahu != indexHrace || stav.cekaNaVolbuBarvy || indexHrace in stav.poradiDohrani) {
             return emptySet()
         }
         val ruka = stav.ruceHracu.getOrNull(indexHrace) ?: return emptySet()
+        if (ruka.isEmpty()) return emptySet()
 
         if (stav.aktivniSedmyPocet > 0) {
             return ruka.filter { it.hodnota == HodnotaKarty.R7 }.toSet()
@@ -183,17 +258,85 @@ object PrsiEngine {
         val novyOdhazovaci = stav.odhazovaciBalicek + karta
 
         if (novaRuka.isEmpty()) {
+            val novePoradi = if (indexHrace in stav.poradiDohrani) {
+                stav.poradiDohrani
+            } else {
+                stav.poradiDohrani + indexHrace
+            }
+            val prvniVitez = novePoradi.first()
+            val umisteni = novePoradi.size
+            val pokracovat = maPokracovatDohravani(
+                variantaPravidel = stav.variantaPravidel,
+                pocetHracu = stav.pocetHracu,
+                ruce = noveRuce,
+                poradiDohrani = novePoradi,
+                ziviHraci = stav.ziviHraci
+            )
+
+            if (!pokracovat) {
+                val zaverecnaBarva = if (karta.hodnota == HodnotaKarty.SVRSEK) {
+                    zvolenaBarva ?: karta.barva
+                } else {
+                    null
+                }
+                val textKonce = if (umisteni == 1) {
+                    "$jmeno odhazuje poslední kartu (${karta.celyNazev()}) a vyhrává!"
+                } else {
+                    "$jmeno dohrává na $umisteni. místě (${karta.celyNazev()}) — konec partie!"
+                }
+                return stav.copy(
+                    ruceHracu = noveRuce,
+                    odhazovaciBalicek = novyOdhazovaci,
+                    zvolenaBarvaSvrskem = zaverecnaBarva,
+                    aktivniSedmyPocet = 0,
+                    aktivniEsoStoji = false,
+                    cekaNaVolbuBarvy = false,
+                    posledniHlaska = textKonce,
+                    jeKonec = true,
+                    indexViteze = prvniVitez,
+                    cisloTahu = stav.cisloTahu + 1,
+                    poradiDohrani = novePoradi
+                )
+            }
+
+            if (karta.hodnota == HodnotaKarty.SVRSEK && zvolenaBarva == null) {
+                return stav.copy(
+                    ruceHracu = noveRuce,
+                    odhazovaciBalicek = novyOdhazovaci,
+                    aktivniSedmyPocet = 0,
+                    aktivniEsoStoji = false,
+                    cekaNaVolbuBarvy = true,
+                    indexViteze = prvniVitez,
+                    poradiDohrani = novePoradi,
+                    posledniHlaska = "$jmeno bere $umisteni. místo svrškem a volí barvu pro dohrávku…"
+                )
+            }
+
+            val dalsiAktivni = najdiDalsihoAktivnihoHrace(indexHrace, stav.pocetHracu, noveRuce, novePoradi)
+            val noveSedmyDohrani = if (karta.hodnota == HodnotaKarty.R7) stav.aktivniSedmyPocet + 1 else 0
+            val noveEsoDohrani = karta.hodnota == HodnotaKarty.ESO
+            val barvaSvrskemDohrani = if (karta.hodnota == HodnotaKarty.SVRSEK) zvolenaBarva else null
+
+            val dovetekDohrani = when {
+                noveSedmyDohrani > 0 -> " — ${sklonujBereSeKaret(noveSedmyDohrani * 2)}, dohrává ${stav.jmenaHracu[dalsiAktivni]}!"
+                noveEsoDohrani -> " — ${stav.jmenaHracu[dalsiAktivni]} stojí, dohrává se dál!"
+                barvaSvrskemDohrani != null -> " (barva ${barvaSvrskemDohrani.ceskyNazev}) — dohrává ${stav.jmenaHracu[dalsiAktivni]}!"
+                else -> " — o další pořadí pokračuje ${stav.jmenaHracu[dalsiAktivni]}!"
+            }
+
             return stav.copy(
                 ruceHracu = noveRuce,
                 odhazovaciBalicek = novyOdhazovaci,
-                zvolenaBarvaSvrskem = zvolenaBarva,
-                aktivniSedmyPocet = 0,
-                aktivniEsoStoji = false,
+                naTahu = dalsiAktivni,
+                zvolenaBarvaSvrskem = barvaSvrskemDohrani,
+                aktivniSedmyPocet = noveSedmyDohrani,
+                aktivniEsoStoji = noveEsoDohrani,
                 cekaNaVolbuBarvy = false,
-                posledniHlaska = "$jmeno odhazuje poslední kartu (${karta.celyNazev()}) a vyhrává!",
-                jeKonec = true,
-                indexViteze = indexHrace,
-                cisloTahu = stav.cisloTahu + 1
+                posledniHlaska = "$jmeno bere $umisteni. místo (${karta.celyNazev()})$dovetekDohrani",
+                jeKonec = false,
+                indexViteze = prvniVitez,
+                cisloTahu = stav.cisloTahu + 1,
+                poradiDohrani = novePoradi
             )
         }
 
@@ -206,7 +349,7 @@ object PrsiEngine {
             )
         }
 
-        val dalsiHrac = (indexHrace + 1) % stav.pocetHracu
+        val dalsiHrac = najdiDalsihoAktivnihoHrace(indexHrace, stav.pocetHracu, noveRuce, stav.poradiDohrani)
         val prebilEsoCervenouSedmou = stav.aktivniEsoStoji && karta.hodnota == HodnotaKarty.R7
         val noveSedmy = if (karta.hodnota == HodnotaKarty.R7) stav.aktivniSedmyPocet + 1 else 0
         val noveEso = karta.hodnota == HodnotaKarty.ESO
@@ -241,7 +384,7 @@ object PrsiEngine {
     fun potvrdVolbuBarvySvrskem(stav: StavPrsi, barva: BarvaKarty): StavPrsi {
         if (!stav.cekaNaVolbuBarvy || stav.jeKonec) return stav
         val jmeno = stav.jmenaHracu[stav.naTahu]
-        val dalsiHrac = (stav.naTahu + 1) % stav.pocetHracu
+        val dalsiHrac = najdiDalsihoAktivnihoHrace(stav.naTahu, stav.pocetHracu, stav.ruceHracu, stav.poradiDohrani)
         return stav.copy(
             naTahu = dalsiHrac,
             zvolenaBarvaSvrskem = barva,
@@ -252,9 +395,11 @@ object PrsiEngine {
     }
 
     fun lizniNeboStuj(stav: StavPrsi, indexHrace: Int): StavPrsi {
-        if (stav.jeKonec || stav.naTahu != indexHrace || stav.cekaNaVolbuBarvy) return stav
+        if (stav.jeKonec || stav.naTahu != indexHrace || stav.cekaNaVolbuBarvy || indexHrace in stav.poradiDohrani) {
+            return stav
+        }
         val jmeno = stav.jmenaHracu[indexHrace]
-        val dalsiHrac = (indexHrace + 1) % stav.pocetHracu
+        val dalsiHrac = najdiDalsihoAktivnihoHrace(indexHrace, stav.pocetHracu, stav.ruceHracu, stav.poradiDohrani)
 
         if (stav.aktivniEsoStoji) {
             return stav.copy(
@@ -344,9 +489,6 @@ object PrsiEngine {
     }
 
     fun vyhodnotVysledek(stav: StavPrsi): VysledekPartie {
-        val vitez = stav.indexViteze.coerceAtLeast(0)
-        val jmenoViteze = stav.jmenaHracu.getOrElse(vitez) { "Vítěz" }
-
         val trestneBody: List<Int> = stav.ruceHracu.map { ruka ->
             var soucetRuky = 0
             for (karta in ruka) {
@@ -361,28 +503,74 @@ object PrsiEngine {
             }
             soucetRuky
         }
+
+        val jizDohrani = if (stav.poradiDohrani.isNotEmpty()) {
+            stav.poradiDohrani
+        } else {
+            listOf(stav.indexViteze.coerceIn(0, stav.pocetHracu - 1))
+        }
+        val nedohrani = (0 until stav.pocetHracu)
+            .filter { it !in jizDohrani }
+            .sortedWith(
+                compareBy<Int>(
+                    { stav.ruceHracu[it].size },
+                    { trestneBody[it] },
+                    { it }
+                )
+            )
+        val konecnePoradi = jizDohrani + nedohrani
+        val vitez = konecnePoradi.first()
+        val jmenoViteze = stav.jmenaHracu.getOrElse(vitez) { "Vítěz" }
         val celkemOdSouperu: Int = trestneBody.fold(0) { acc, hodnota -> acc + hodnota }
 
         val polozky = ArrayList<PolozkaVyuctovani>()
         polozky.add(PolozkaVyuctovani("Vítěz partie", jmenoViteze, jeZvyraznena = true))
-        for (i in 0 until stav.pocetHracu) {
-            val pocetKaret = stav.ruceHracu[i].size
+        for ((poradiIdx, hracIdx) in konecnePoradi.withIndex()) {
+            val umisteni = poradiIdx + 1
+            val pocetKaret = stav.ruceHracu[hracIdx].size
+            val popisKaret = if (pocetKaret == 0) "dohráno" else sklonujKartyVRuce(pocetKaret)
+            val hodnotaRadku = when {
+                hracIdx == vitez -> "+$celkemOdSouperu b."
+                pocetKaret == 0 -> "0 b."
+                else -> "-${trestneBody[hracIdx]} b."
+            }
             polozky.add(
                 PolozkaVyuctovani(
-                    popis = "${stav.jmenaHracu[i]} (${sklonujKartyVRuce(pocetKaret)})",
-                    hodnotaText = if (i == vitez) "+$celkemOdSouperu b." else "-${trestneBody[i]} b.",
-                    jeZvyraznena = i == vitez
+                    popis = "$umisteni. ${stav.jmenaHracu[hracIdx]} ($popisKaret)",
+                    hodnotaText = hodnotaRadku,
+                    jeZvyraznena = umisteni == 1
                 )
             )
         }
 
+        val hospodskaDohravka = stav.variantaPravidel == VariantaPravidel.HOSPODSKA && stav.pocetHracu >= 3
         val zmenyHracu = List(stav.pocetHracu) { i ->
+            val umisteni = konecnePoradi.indexOf(i) + 1
             val jeVit = i == vitez
+            val terezianyZmena = if (hospodskaDohravka) {
+                if (stav.pocetHracu == 3) {
+                    when (umisteni) {
+                        1 -> 21
+                        2 -> 0
+                        else -> -10
+                    }
+                } else {
+                    when (umisteni) {
+                        1 -> 26
+                        2 -> 8
+                        3 -> -4
+                        else -> -12
+                    }
+                }
+            } else {
+                if (jeVit) 16 + (stav.pocetHracu - 2) * 5 else -10
+            }
+
             ZmenaBoduHrace(
                 indexHrace = i,
                 jmenoHrace = stav.jmenaHracu[i],
                 bodyZapasu = if (jeVit) celkemOdSouperu else -trestneBody[i],
-                zmenaElo = if (jeVit) 16 + (stav.pocetHracu - 2) * 5 else -10,
+                zmenaElo = terezianyZmena,
                 jeVitez = jeVit
             )
         }
@@ -390,7 +578,7 @@ object PrsiEngine {
         return VysledekPartie(
             typHry = TypHry.PRSI,
             nadpis = "Vítězí $jmenoViteze!",
-            podnadpis = "Automatické vyúčtování zbylých karet (${stav.variantaPravidel.kratkyNazev.lowercase()} pravidla)",
+            podnadpis = "Konečné pořadí u stolu (${stav.variantaPravidel.kratkyNazev.lowercase()} pravidla)",
             polozky = polozky,
             hraci = zmenyHracu
         )
