@@ -131,7 +131,8 @@ data class StavMarias(
     val lizaciBalicek: List<Karta> = emptyList(),
     val otocenyTrumf: Karta? = null,
     val odehraneKarty: List<Karta> = emptyList(),
-    val chybejiciBarvyMaska: List<Int> = List(pocetHracu) { 0 }
+    val chybejiciBarvyMaska: List<Int> = List(pocetHracu) { 0 },
+    val nahlaseneHlaskyMaska: List<Int> = List(pocetHracu) { 0 }
 ) {
     val jeBetlNeboDurch: Boolean
         get() = zavazek.jeBezTrumfu
@@ -181,6 +182,7 @@ data class StavMarias(
         pole.add("otr" to (otocenyTrumf?.kod ?: ""))
         pole.add("ok" to kartyNaRetezec(odehraneKarty))
         pole.add("cbm" to chybejiciBarvyMaska.take(pocetHracu).joinToString(","))
+        pole.add("nhm" to nahlaseneHlaskyMaska.take(pocetHracu).joinToString(","))
         return serializujMapuPoli(pole)
     }
 
@@ -210,6 +212,13 @@ data class StavMarias(
                 List(pocet) { 0 }
             } else {
                 val casti = cbmText.split(",")
+                List(pocet) { idx -> casti.getOrNull(idx)?.toIntOrNull() ?: 0 }
+            }
+            val nhmText = r.text("nhm")
+            val nacteneHlaskyMaska = if (nhmText.isBlank()) {
+                List(pocet) { 0 }
+            } else {
+                val casti = nhmText.split(",")
                 List(pocet) { idx -> casti.getOrNull(idx)?.toIntOrNull() ?: 0 }
             }
             return StavMarias(
@@ -253,7 +262,8 @@ data class StavMarias(
                 lizaciBalicek = retezecNaKarty(r.text("liz")),
                 otocenyTrumf = Karta.zKodu(r.text("otr")),
                 odehraneKarty = retezecNaKarty(r.text("ok")),
-                chybejiciBarvyMaska = nacteneChybejici
+                chybejiciBarvyMaska = nacteneChybejici,
+                nahlaseneHlaskyMaska = nacteneHlaskyMaska
             )
         }
     }
@@ -334,7 +344,8 @@ object MariasEngine {
             pocetHracu = 3,
             puvodniForhont = startForhont,
             odehraneKarty = emptyList(),
-            chybejiciBarvyMaska = listOf(0, 0, 0)
+            chybejiciBarvyMaska = listOf(0, 0, 0),
+            nahlaseneHlaskyMaska = listOf(0, 0, 0)
         )
     }
 
@@ -621,7 +632,7 @@ object MariasEngine {
         }
     }
 
-    private fun kdoVynasiPrvniStych(stav: StavMarias): Int {
+    internal fun kdoVynasiPrvniStych(stav: StavMarias): Int {
         return if (stav.rezimMariase == RezimMariase.LICITOVANY && !stav.jeBetlNeboDurch) {
             stav.puvodniForhont
         } else {
@@ -791,7 +802,7 @@ object MariasEngine {
         return ruka.toSet()
     }
 
-    private fun urciVitezeStychu(
+    internal fun urciVitezeStychu(
         stych: List<TahStychuMariase>,
         trumf: BarvaKarty?,
         bezTrumfu: Boolean
@@ -816,11 +827,7 @@ object MariasEngine {
             if (poTahu === stav || poTahu.cisloTahu == stav.cisloTahu) {
                 return poTahu
             }
-            var noveMaskyLiz = if (poTahu.chybejiciBarvyMaska.size >= poTahu.pocetHracu) {
-                poTahu.chybejiciBarvyMaska
-            } else {
-                List(poTahu.pocetHracu) { idx -> poTahu.chybejiciBarvyMaska.getOrElse(idx) { 0 } }
-            }
+            var noveMaskyLiz = List(poTahu.pocetHracu) { idx -> poTahu.chybejiciBarvyMaska.getOrElse(idx) { 0 } }
             if (stav.lizaciBalicek.isEmpty() && stav.aktualniStych.isNotEmpty()) {
                 val barvaVynosuLiz = stav.aktualniStych.first().karta.barva
                 if (karta.barva != barvaVynosuLiz) {
@@ -832,9 +839,17 @@ object MariasEngine {
                     noveMaskyLiz = noveMaskyLiz.mapIndexed { idx, puv -> if (idx == indexHrace) m else puv }
                 }
             }
+            var noveHlaskyLiz = List(poTahu.pocetHracu) { idx -> poTahu.nahlaseneHlaskyMaska.getOrElse(idx) { 0 } }
+            val padlaHlaskaLiz = poTahu.hlaskyForhont > stav.hlaskyForhont || poTahu.hlaskyObrana > stav.hlaskyObrana
+            if (padlaHlaskaLiz) {
+                noveHlaskyLiz = noveHlaskyLiz.mapIndexed { idx, puv ->
+                    if (idx == indexHrace) puv or (1 shl karta.barva.ordinal) else puv
+                }
+            }
             return poTahu.copy(
                 odehraneKarty = stav.odehraneKarty + karta,
-                chybejiciBarvyMaska = noveMaskyLiz
+                chybejiciBarvyMaska = noveMaskyLiz,
+                nahlaseneHlaskyMaska = noveHlaskyLiz
             )
         }
 
@@ -849,12 +864,7 @@ object MariasEngine {
         )
         val noveRuce = stav.ruceHracu.mapIndexed { idx, r -> if (idx == indexHrace) zbylaRuka else r }
 
-        // Veřejné sledování přiznání barvy a trumfu (renons)
-        var zakladMasky = if (stav.chybejiciBarvyMaska.size >= 3) {
-            stav.chybejiciBarvyMaska
-        } else {
-            List(3) { idx -> stav.chybejiciBarvyMaska.getOrElse(idx) { 0 } }
-        }
+        var zakladMasky = List(3) { idx -> stav.chybejiciBarvyMaska.getOrElse(idx) { 0 } }
         if (stav.aktualniStych.isNotEmpty()) {
             val barvaVynosu = stav.aktualniStych.first().karta.barva
             if (karta.barva != barvaVynosu) {
@@ -865,6 +875,7 @@ object MariasEngine {
                 zakladMasky = zakladMasky.mapIndexed { idx, m -> if (idx == indexHrace) novaMaskaHrace else m }
             }
         }
+        var zakladHlaskyMaska = List(3) { idx -> stav.nahlaseneHlaskyMaska.getOrElse(idx) { 0 } }
         val noveOdehrane = stav.odehraneKarty + karta
 
         var noveHlaskyForhont = stav.hlaskyForhont
@@ -879,6 +890,9 @@ object MariasEngine {
                     noveHlaskyForhont += hodnotaHlasky
                 } else {
                     noveHlaskyObrana += hodnotaHlasky
+                }
+                zakladHlaskyMaska = zakladHlaskyMaska.mapIndexed { idx, m ->
+                    if (idx == indexHrace) m or (1 shl karta.barva.ordinal) else m
                 }
                 hlaskaPrirustekText = " (+hláška $hodnotaHlasky!)"
             }
@@ -900,7 +914,8 @@ object MariasEngine {
                 posledniHlaska = "$jmeno $akce ${karta.celyNazev()}$hlaskaPrirustekText.",
                 cisloTahu = stav.cisloTahu + 1,
                 odehraneKarty = noveOdehrane,
-                chybejiciBarvyMaska = zakladMasky
+                chybejiciBarvyMaska = zakladMasky,
+                nahlaseneHlaskyMaska = zakladHlaskyMaska
             )
         }
 
@@ -971,747 +986,86 @@ object MariasEngine {
             posledniHlaska = textHlasky,
             cisloTahu = stav.cisloTahu + 1,
             odehraneKarty = noveOdehrane,
-            chybejiciBarvyMaska = zakladMasky
+            chybejiciBarvyMaska = zakladMasky,
+            nahlaseneHlaskyMaska = zakladHlaskyMaska
         )
     }
 
-    private fun soucastHlasky(ruka: List<Karta>, karta: Karta): Boolean {
-        if (karta.hodnota != HodnotaKarty.SVRSEK && karta.hodnota != HodnotaKarty.KRAL) return false
-        val druha = if (karta.hodnota == HodnotaKarty.SVRSEK) HodnotaKarty.KRAL else HodnotaKarty.SVRSEK
-        return ruka.any { it.barva == karta.barva && it.hodnota == druha }
-    }
-
-    private fun sestavZnameKartyBota(stav: StavMarias, idxBota: Int): HashSet<Karta> {
-        val zname = HashSet<Karta>(32)
-        zname.addAll(stav.odehraneKarty)
-        for (tah in stav.aktualniStych) {
-            zname.add(tah.karta)
-        }
-        stav.ruceHracu.getOrNull(idxBota)?.let { zname.addAll(it) }
-        // Forhont si do talonu odložil karty sám — obránci talon neznají
-        if (stav.rezimMariase != RezimMariase.LIZACI && idxBota == stav.indexForhonta) {
-            zname.addAll(stav.talon)
-        }
-        // V Lízacím mariáši leží otočený trumf veřejně lícem nahoru pod talonem
-        if (stav.rezimMariase == RezimMariase.LIZACI && stav.lizaciBalicek.isNotEmpty() && stav.otocenyTrumf != null) {
-            zname.add(stav.otocenyTrumf)
-        }
-        return zname
-    }
-
-    private fun jeNejvyssiZbylaVBarve(
-        karta: Karta,
-        znameKarty: Set<Karta>,
-        bezTrumfu: Boolean
-    ): Boolean {
-        val mojeSila = karta.silaProMarias(bezTrumfu)
-        for (hodnota in HodnotaKarty.entries) {
-            val kandidat = Karta(karta.barva, hodnota)
-            if (kandidat.silaProMarias(bezTrumfu) > mojeSila && kandidat !in znameKarty) {
-                return false
-            }
-        }
-        return true
-    }
-
-    private fun zbyvaCizichVBarve(barva: BarvaKarty, znameKarty: Set<Karta>): Int {
-        var znameVBarve = 0
-        for (h in HodnotaKarty.entries) {
-            if (Karta(barva, h) in znameKarty) znameVBarve++
-        }
-        return (8 - znameVBarve).coerceAtLeast(0)
-    }
-
-    private fun maSouperMoznouBarvu(
-        stav: StavMarias,
-        souperIdx: Int,
-        barva: BarvaKarty,
-        znameKarty: Set<Karta>
-    ): Boolean {
-        val maska = stav.chybejiciBarvyMaska.getOrElse(souperIdx) { 0 }
-        if ((maska and (1 shl barva.ordinal)) != 0) return false
-        return zbyvaCizichVBarve(barva, znameKarty) > 0
-    }
-
     fun provedTahBota(stav: StavMarias): StavMarias {
-        if (stav.faze == FazeMariase.KONEC) return stav
-        if (stav.rezimMariase == RezimMariase.LIZACI) {
-            return provedTahBotaLizaciChytre(stav)
-        }
-
-        return when (stav.faze) {
-            FazeMariase.DRAZBA -> MariasVariantyEngine.provedTahDrazbyBota(stav)
-            FazeMariase.VOLBA_TRUMFU -> provedVolbuTrumfuBota(stav)
-            FazeMariase.ODKLADANI_TALONU -> provedOdlozeniTalonuBota(stav)
-            FazeMariase.FLEKOVANI -> provedFlekovaniBota(stav)
-            FazeMariase.SEHRAVKA -> provedSehravkuBota(stav)
-            FazeMariase.KONEC -> stav
-        }
+        return MariasBotAi.provedTah(stav)
     }
 
-    private fun provedTahBotaLizaciChytre(stav: StavMarias): StavMarias {
-        val idx = stav.naTahu
-        // 1. Výhodná výměna trumfové sedmy za vyšší otočenou kartu pod talonem
-        if (muzeVymenitTrumfovouSedmu(stav, idx)) {
-            val otoceny = stav.otocenyTrumf
-            if (otoceny != null && otoceny.hodnota != HodnotaKarty.R7 && otoceny.hodnota != HodnotaKarty.R8) {
-                return vymenTrumfovouSedmu(stav, idx)
-            }
+    internal fun spoctiJednotkyForhonta(
+        zavazek: ZavazekMariase,
+        trumf: BarvaKarty?,
+        nasobekFlekHra: Int,
+        nasobekFlekSedma: Int,
+        pocetStychuForhont: Int,
+        pocetStychuObrana: Int,
+        bodyKaretForhont: Int,
+        bodyKaretObrana: Int,
+        bodyTalonu: Int,
+        hlaskyForhont: Int,
+        hlaskyObrana: Int,
+        stav9Sedma: Int,
+        stav10Sedma: Int
+    ): Int {
+        if (zavazek == ZavazekMariase.BETL) {
+            val s = 5 * nasobekFlekHra
+            return if (pocetStychuForhont == 0) s else -s
+        }
+        if (zavazek == ZavazekMariase.DURCH) {
+            val s = 10 * nasobekFlekHra
+            return if (pocetStychuObrana == 0) s else -s
         }
 
-        val povolene = zjistiPovoleneKarty(stav, idx).toList()
-        if (povolene.isEmpty()) return stav
-        if (povolene.size == 1) return zahrajKartu(stav, idx, povolene.first())
+        val cervene = if (trumf == BarvaKarty.CERVENE) 2 else 1
+        val platneHlF = if (pocetStychuForhont > 0) hlaskyForhont else 0
+        val platneHlO = if (pocetStychuObrana > 0) hlaskyObrana else 0
+        val celkemF = bodyKaretForhont + platneHlF
+        val celkemO = bodyKaretObrana + bodyTalonu + platneHlO
+        var jednotky = 0
 
-        val ruka = stav.ruceHracu[idx]
-        val trumf = stav.trumf
-        val trumfSedma = trumf?.let { Karta(it, HodnotaKarty.R7) }
-        val zname = sestavZnameKartyBota(stav, idx)
-        val souperIdx = (idx + 1) % 2
-        val talonNeniDobrany = stav.lizaciBalicek.isNotEmpty()
-
-        // A) První fáze Lízacího mariáše (dokud je talon, neplatí povinnost barvy ani trumfu)
-        if (talonNeniDobrany) {
-            if (stav.aktualniStych.isEmpty()) {
-                // Hlaš netrumfovou dvacítku vynesením svrška (neriskuje 10 bodů) nebo trumfovou čtyřicítku
-                val bezpecnaHlaska = povolene.firstOrNull {
-                    soucastHlasky(ruka, it) && (it.barva == trumf || it.hodnota == HodnotaKarty.SVRSEK)
-                }
-                if (bezpecnaHlaska != null) return zahrajKartu(stav, idx, bezpecnaHlaska)
-
-                // Šetři trumfy, hlášky, esa i desítky do koncovky — vynášej nízké vedlejší karty
-                val levnaVedlejsi = povolene
-                    .filter { it.barva != trumf && it.hodnota.bodyMariasSedma == 0 && !soucastHlasky(ruka, it) }
-                    .minByOrNull { it.hodnota.silaMarias }
-                if (levnaVedlejsi != null) return zahrajKartu(stav, idx, levnaVedlejsi)
-
-                val jakakolivNulova = povolene
-                    .filter { it.hodnota.bodyMariasSedma == 0 && it != trumfSedma }
-                    .minByOrNull { (if (it.barva == trumf) 20 else 0) + it.hodnota.silaMarias }
-                return zahrajKartu(stav, idx, jakakolivNulova ?: povolene.minBy { it.hodnota.silaMarias })
+        if (zavazek.hlasiSto) {
+            if (celkemF >= 100) {
+                val nadSto = (celkemF - 100) / 10
+                jednotky += (4 + nadSto) * cervene * nasobekFlekHra
             } else {
-                // Hrajeme jako druzí (poslední ve štychu!) -> přesně víme, zda štych bereme
-                val vynesena = stav.aktualniStych.first().karta
-                val vitezne = povolene.filter { k ->
-                    val test = stav.aktualniStych + TahStychuMariase(idx, "", k)
-                    urciVitezeStychu(test, trumf, false).indexHrace == idx
-                }
-                if (vynesena.hodnota.bodyMariasSedma >= 10 && vitezne.isNotEmpty()) {
-                    // Soupeř vynesl 10 nebo Eso! Seber ho přednostně v barvě za 20 bodů, jinak nejnižším trumfem mimo sedmu
-                    val vBarveVyssi = vitezne.filter { it.barva == vynesena.barva }
-                        .maxByOrNull { it.hodnota.bodyMariasSedma * 10 - it.hodnota.silaMarias }
-                    if (vBarveVyssi != null) return zahrajKartu(stav, idx, vBarveVyssi)
-
-                    val trumfSeber = vitezne
-                        .filter { it != trumfSedma && !soucastHlasky(ruka, it) }
-                        .minByOrNull { it.hodnota.silaMarias }
-                        ?: vitezne.filterNot { it == trumfSedma }.minByOrNull { it.hodnota.silaMarias }
-                        ?: vitezne.first()
-                    return zahrajKartu(stav, idx, trumfSeber)
-                }
-
-                // Soupeř vynesl nebodovanou kartu -> vezmi jen v barvě s 10/Esem (zisk +10 b. bez plýtvání trumfem!)
-                val ziskVBarveBezTrumfu = vitezne.firstOrNull {
-                    it.barva == vynesena.barva && it.barva != trumf && it.hodnota.bodyMariasSedma >= 10
-                }
-                if (ziskVBarveBezTrumfu != null) return zahrajKartu(stav, idx, ziskVBarveBezTrumfu)
-
-                val odhoz = povolene
-                    .filter { it.barva != trumf && it.hodnota.bodyMariasSedma == 0 && !soucastHlasky(ruka, it) }
-                    .minByOrNull { it.hodnota.silaMarias }
-                    ?: povolene.minWithOrNull(
-                        compareBy<Karta>(
-                            { if (it.barva == trumf) 1 else 0 },
-                            { it.hodnota.bodyMariasSedma },
-                            { if (soucastHlasky(ruka, it)) 1 else 0 },
-                            { it.hodnota.silaMarias }
-                        )
-                    ) ?: povolene.first()
-                return zahrajKartu(stav, idx, odhoz)
+                jednotky -= 4 * cervene * nasobekFlekHra
             }
-        }
-
-        // B) Druhá fáze Lízacího mariáše (posledních 5 štychů — přísná povinnost barvy a trumfu + plné počítání karet)
-        val jePosledniStych = ruka.size == 1
-        val bezTrumf7 = if (!jePosledniStych && trumfSedma != null && povolene.size > 1) {
-            povolene.filterNot { it == trumfSedma }.ifEmpty { povolene }
         } else {
-            povolene
-        }
-        val souperMaTrumfy = trumf != null && maSouperMoznouBarvu(stav, souperIdx, trumf, zname)
-
-        if (stav.aktualniStych.isEmpty()) {
-            val hlaskova = bezTrumf7.firstOrNull { soucastHlasky(ruka, it) }
-            if (hlaskova != null) return zahrajKartu(stav, idx, hlaskova)
-
-            if (souperMaTrumfy && trumf != null) {
-                val vyssiTrumf = bezTrumf7
-                    .filter { it.barva == trumf && jeNejvyssiZbylaVBarve(it, zname, false) }
-                    .maxByOrNull { it.hodnota.silaMarias }
-                if (vyssiTrumf != null) return zahrajKartu(stav, idx, vyssiTrumf)
-            }
-
-            val vypracovanaVedlejsi = bezTrumf7.firstOrNull {
-                it.barva != trumf &&
-                    jeNejvyssiZbylaVBarve(it, zname, false) &&
-                    (!souperMaTrumfy || maSouperMoznouBarvu(stav, souperIdx, it.barva, zname))
-            }
-            if (vypracovanaVedlejsi != null) return zahrajKartu(stav, idx, vypracovanaVedlejsi)
-
-            val levnyVynos = bezTrumf7.minByOrNull { it.hodnota.bodyMariasSedma * 10 + it.hodnota.silaMarias }
-                ?: povolene.first()
-            return zahrajKartu(stav, idx, levnyVynos)
-        } else {
-            val vitezne = bezTrumf7.filter { k ->
-                val test = stav.aktualniStych + TahStychuMariase(idx, "", k)
-                urciVitezeStychu(test, trumf, false).indexHrace == idx
-            }
-            if (vitezne.isNotEmpty()) {
-                val vybranaVit = vitezne.maxByOrNull { it.hodnota.bodyMariasSedma * 12 - it.hodnota.silaMarias }!!
-                return zahrajKartu(stav, idx, vybranaVit)
-            }
-            val nejlevnejsi = bezTrumf7.minWithOrNull(
-                compareBy<Karta>(
-                    { it.hodnota.bodyMariasSedma },
-                    { if (soucastHlasky(ruka, it)) 1 else 0 },
-                    { it.hodnota.silaMarias }
-                )
-            ) ?: povolene.first()
-            return zahrajKartu(stav, idx, nejlevnejsi)
-        }
-    }
-
-    private fun provedVolbuTrumfuBota(stav: StavMarias): StavMarias {
-        if (stav.rezimMariase == RezimMariase.LICITOVANY) {
-            return MariasVariantyEngine.zvolTrumfPoDrazbeBot(stav)
-        }
-        val fh = stav.indexForhonta
-        val ruka7 = stav.ruceHracu.getOrNull(fh) ?: return stav
-
-        val pocetEs = ruka7.count { it.hodnota == HodnotaKarty.ESO }
-        val pocetKralu = ruka7.count { it.hodnota == HodnotaKarty.KRAL }
-        if (pocetEs >= 4 && pocetKralu >= 2) {
-            return zvolTrumfNeboHruBezTrumfu(stav, null, false, ZavazekMariase.DURCH)
-        }
-        val nizkeBetl = ruka7.count {
-            it.hodnota == HodnotaKarty.R7 || it.hodnota == HodnotaKarty.R8 || it.hodnota == HodnotaKarty.R9
-        }
-        if (nizkeBetl >= 6 && pocetEs == 0) {
-            return zvolTrumfNeboHruBezTrumfu(stav, null, false, ZavazekMariase.BETL)
-        }
-
-        var nejlepsiBarva: BarvaKarty? = null
-        var nejSkore = -1
-        for (barva in BarvaKarty.entries) {
-            val vBarve = ruka7.filter { it.barva == barva }
-            if (vBarve.isEmpty()) continue
-            val hl40 = if (
-                Karta(barva, HodnotaKarty.SVRSEK) in ruka7 &&
-                Karta(barva, HodnotaKarty.KRAL) in ruka7
-            ) 28 else 0
-            val maSedmu = Karta(barva, HodnotaKarty.R7) in ruka7
-            val sedmaUprava = if (maSedmu && vBarve.size >= 4) 8 else if (maSedmu && vBarve.size <= 2) -6 else 0
-            val skore = vBarve.size * 16 + vBarve.sumOf { it.hodnota.silaMarias } + hl40 + sedmaUprava +
-                if (barva == BarvaKarty.CERVENE && vBarve.size >= 3) 7 else 0
-            if (skore > nejSkore) {
-                nejSkore = skore
-                nejlepsiBarva = barva
-            }
-        }
-
-        val nejdelsiBarvaPocet = BarvaKarty.entries.maxOf { b -> ruka7.count { it.barva == b } }
-        return if (nejdelsiBarvaPocet <= 2 && nejSkore < 44 && stav.zbytekProForhonta.isNotEmpty()) {
-            zvolTrumfNeboHruBezTrumfu(stav, null, volitZTalonu = true)
-        } else {
-            zvolTrumfNeboHruBezTrumfu(stav, nejlepsiBarva ?: BarvaKarty.CERVENE, volitZTalonu = false)
-        }
-    }
-
-    private fun vyberDveKartyDoTalonuBot(
-        stav: StavMarias,
-        plan: ZavazekMariase
-    ): List<Karta> {
-        val ruka12 = stav.ruceHracu[stav.indexForhonta]
-        val povolene = zjistiKartyPovoleneDoTalonu(stav, plan).toList()
-        if (povolene.size <= 2) return povolene
-
-        if (plan == ZavazekMariase.BETL) {
-            // V Betlu odhoď nejnebezpečnější vysoké karty v barvách, kde chybí nízká sedma/osma na podlezení
-            return povolene.sortedByDescending { k ->
-                val vBarve = ruka12.filter { it.barva == k.barva }
-                val maNizkeKryti = vBarve.any { it.hodnota == HodnotaKarty.R7 || it.hodnota == HodnotaKarty.R8 }
-                k.hodnota.silaBetlDurch * 10 + (if (!maNizkeKryti) 25 else 0) - vBarve.size * 3
-            }.take(2)
-        }
-        if (plan == ZavazekMariase.DURCH) {
-            return povolene.sortedBy { k ->
-                val maEsoVBarve = Karta(k.barva, HodnotaKarty.ESO) in ruka12
-                k.hodnota.silaBetlDurch * 10 + (if (maEsoVBarve) 8 else 0)
-            }.take(2)
-        }
-
-        val trumf = stav.trumf
-        val trumfSedma = trumf?.let { Karta(it, HodnotaKarty.R7) }
-
-        // Vyzkoušej všechny dvojice povolených karet a vyber tu, která nechá nejsilnější 10kartovou ruku (včetně čistých renonsů!)
-        var nejDvojice: List<Karta> = listOf(povolene[0], povolene[1])
-        var nejHodnoceni = Int.MIN_VALUE
-
-        for (i in 0 until povolene.size - 1) {
-            for (j in i + 1 until povolene.size) {
-                val k1 = povolene[i]
-                val k2 = povolene[j]
-                val zbytek10 = ruka12.filterNot { it == k1 || it == k2 }
-
-                var skore = 0
-                val trumfyPocet = zbytek10.count { it.barva == trumf }
-                skore += trumfyPocet * 36
-
-                if (trumfSedma != null && trumfSedma in zbytek10) {
-                    skore += if (plan.hlasiSedmu || trumfyPocet >= 4) 55 else 14
-                }
-                if (plan.hlasiDveSedmy) {
-                    val pocetSedem = zbytek10.count { it.hodnota == HodnotaKarty.R7 }
-                    skore += pocetSedem * 45
-                }
-
-                for (b in BarvaKarty.entries) {
-                    val vBarve = zbytek10.filter { it.barva == b }
-                    if (Karta(b, HodnotaKarty.SVRSEK) in vBarve && Karta(b, HodnotaKarty.KRAL) in vBarve) {
-                        skore += if (b == trumf) 72 else 46
-                    }
-                    if (b != trumf) {
-                        if (vBarve.isEmpty()) {
-                            // Čistý renons ve vedlejší barvě (umožní hned trumfovat soupeřova esa!)
-                            skore += 28
-                        } else if (vBarve.size == 1 && vBarve.first().hodnota == HodnotaKarty.R10) {
-                            // Holá nechráněná desítka bez esa je zranitelná -> snaž se jí nechat krytí
-                            skore -= 18
-                        }
-                    }
-                }
-
-                skore -= (k1.hodnota.silaMarias + k2.hodnota.silaMarias) * 2
-                if (skore > nejHodnoceni) {
-                    nejHodnoceni = skore
-                    nejDvojice = listOf(k1, k2)
-                }
-            }
-        }
-        return nejDvojice
-    }
-
-    private fun provedOdlozeniTalonuBota(stav: StavMarias): StavMarias {
-        val povoleneZavazky = zjistiPovoleneZavazkyTalonu(stav)
-        if (stav.zavazek.jeBezTrumfu) {
-            val odhoz = vyberDveKartyDoTalonuBot(stav, stav.zavazek)
-            return potvrdTalonAZavazek(stav, odhoz, stav.zavazek)
-        }
-
-        val ruka12 = stav.ruceHracu[stav.indexForhonta]
-        val trumf = stav.trumf
-        val zakladniOdhoz = vyberDveKartyDoTalonuBot(stav, povoleneZavazky.first())
-        val ruka10 = ruka12.filterNot { it in zakladniOdhoz }
-
-        val trumfy = ruka10.filter { it.barva == trumf }
-        val maTrumf7 = trumf != null && Karta(trumf, HodnotaKarty.R7) in ruka10
-        val maTrumfEso = trumf != null && Karta(trumf, HodnotaKarty.ESO) in ruka10
-        val pocetVsechSedem = ruka10.count { it.hodnota == HodnotaKarty.R7 }
-        val vedlejsiEsa = ruka10.count { it.barva != trumf && it.hodnota == HodnotaKarty.ESO }
-        val vedlejsiRenonsy = BarvaKarty.entries.count { b -> b != trumf && ruka10.none { it.barva == b } }
-        val trumfVysoke = trumfy.count {
-            it.hodnota == HodnotaKarty.ESO || it.hodnota == HodnotaKarty.R10 || it.hodnota == HodnotaKarty.KRAL
-        }
-        val hlaskyVlastni: Int = BarvaKarty.entries.fold(0) { soucet, b ->
-            if (Karta(b, HodnotaKarty.SVRSEK) in ruka10 && Karta(b, HodnotaKarty.KRAL) in ruka10) {
-                soucet + if (b == trumf) 40 else 20
+            val vyhraHry = celkemF > celkemO
+            if (vyhraHry && celkemF >= 100) {
+                jednotky += (2 + (celkemF - 100) / 10) * cervene * nasobekFlekHra
+            } else if (!vyhraHry && celkemO >= 100) {
+                jednotky -= (2 + (celkemO - 100) / 10) * cervene * nasobekFlekHra
             } else {
-                soucet
+                jednotky += (if (vyhraHry) 1 else -1) * cervene * nasobekFlekHra
+            }
+            if (vyhraHry && pocetStychuObrana == 0) {
+                jednotky += 1 * cervene * nasobekFlekHra
+            } else if (!vyhraHry && pocetStychuForhont == 0) {
+                jednotky -= 1 * cervene * nasobekFlekHra
             }
         }
-        val odhadBodu = trumfy.size * 8 + trumfVysoke * 9 + vedlejsiEsa * 12 + vedlejsiRenonsy * 5 + hlaskyVlastni + 10
 
-        val chteny = when {
-            ZavazekMariase.STO_A_DVE_SEDMY in povoleneZavazky &&
-                maTrumf7 && maTrumfEso && pocetVsechSedem >= 2 && trumfy.size >= 6 && odhadBodu >= 110 ->
-                ZavazekMariase.STO_A_DVE_SEDMY
-            ZavazekMariase.STO_A_SEDMA in povoleneZavazky && maTrumf7 && trumfy.size >= 5 && odhadBodu >= 105 ->
-                ZavazekMariase.STO_A_SEDMA
-            ZavazekMariase.STO in povoleneZavazky && trumfy.size >= 4 && odhadBodu >= 102 ->
-                ZavazekMariase.STO
-            ZavazekMariase.HRA_A_SEDMA in povoleneZavazky && maTrumf7 && trumfy.size >= 5 && trumfVysoke >= 2 ->
-                ZavazekMariase.HRA_A_SEDMA
-            else ->
-                povoleneZavazky.first()
-        }
-
-        val definitivniZavazek = if (chteny.vahaDrazby >= (stav.nejvyssiNabidka?.vahaDrazby ?: 1) && chteny in povoleneZavazky) {
-            chteny
+        if (zavazek.hlasiDveSedmy) {
+            val uhralObe = stav9Sedma == 1 && stav10Sedma == 1
+            jednotky += (if (uhralObe) 8 else -8) * cervene * nasobekFlekSedma
+        } else if (zavazek.hlasiSedmu) {
+            val uhral7 = stav10Sedma == 1
+            jednotky += (if (uhral7) 4 else -4) * cervene * nasobekFlekSedma
+        } else if (stav9Sedma == 1 && stav10Sedma == 1) {
+            jednotky += 4 * cervene
         } else {
-            povoleneZavazky.first()
-        }
-        val definitivniOdhoz = vyberDveKartyDoTalonuBot(stav, definitivniZavazek)
-        return potvrdTalonAZavazek(stav, definitivniOdhoz, definitivniZavazek)
-    }
-
-    private fun provedFlekovaniBota(stav: StavMarias): StavMarias {
-        val idx = stav.naTahu
-        val ruka = stav.ruceHracu.getOrNull(idx) ?: return odpovezNaFlekovani(stav, idx, false, false)
-        val lzeHra = muzeHracFlekHry(stav, idx)
-        val lzeSedma = muzeHracFlekSedmy(stav, idx)
-
-        if (!lzeHra && !lzeSedma) {
-            return odpovezNaFlekovani(stav, idx, false, false)
-        }
-
-        val trumf = stav.trumf
-        if (idx == stav.indexForhonta) {
-            val trumfy = ruka.count { it.barva == trumf }
-            val esa = ruka.count { it.hodnota == HodnotaKarty.ESO }
-            val ma40 = trumf != null &&
-                Karta(trumf, HodnotaKarty.SVRSEK) in ruka &&
-                Karta(trumf, HodnotaKarty.KRAL) in ruka
-            val daReHra = lzeHra && stav.nasobekFlekHra <= 2 && (trumfy >= 6 || (trumfy >= 5 && (esa >= 3 || ma40)))
-            val daReSedma = lzeSedma && stav.nasobekFlekSedma <= 2 && trumfy >= 6 &&
-                trumf != null && Karta(trumf, HodnotaKarty.ESO) in ruka && Karta(trumf, HodnotaKarty.R7) in ruka
-            return odpovezNaFlekovani(stav, idx, daReHra, daReSedma)
-        } else {
-            val trumfy = ruka.filter { it.barva == trumf }
-            val esa = ruka.count { it.hodnota == HodnotaKarty.ESO }
-            val ma40 = trumf != null &&
-                Karta(trumf, HodnotaKarty.SVRSEK) in ruka &&
-                Karta(trumf, HodnotaKarty.KRAL) in ruka
-            val vynasimJaPrvni = kdoVynasiPrvniStych(stav) == idx
-
-            val daFlekHra = lzeHra && stav.nasobekFlekHra == 1 && when (stav.zavazek) {
-                ZavazekMariase.DURCH -> (vynasimJaPrvni && esa >= 1) || esa >= 2 || BarvaKarty.entries.any { b ->
-                    itMaKrytehoStoperaDurch(ruka, b)
-                }
-                ZavazekMariase.BETL -> ruka.count {
-                    it.hodnota == HodnotaKarty.R7 || it.hodnota == HodnotaKarty.R8
-                } >= 4 && BarvaKarty.entries.any { b -> ruka.none { it.barva == b } }
-                else -> trumfy.size >= 4 || (trumfy.size >= 3 && (esa >= 2 || ma40))
-            }
-            val daFlekSedma = lzeSedma && stav.nasobekFlekSedma == 1 && trumf != null && (
-                Karta(trumf, HodnotaKarty.R7) in ruka ||
-                    (trumfy.size >= 4 && trumfy.any { it.hodnota == HodnotaKarty.ESO || it.hodnota == HodnotaKarty.R10 }) ||
-                    (trumfy.size >= 3 && Karta(trumf, HodnotaKarty.ESO) in ruka && Karta(trumf, HodnotaKarty.R10) in ruka)
-                )
-            return odpovezNaFlekovani(stav, idx, daFlekHra, daFlekSedma)
-        }
-    }
-
-    private fun itMaKrytehoStoperaDurch(ruka: List<Karta>, barva: BarvaKarty): Boolean {
-        val vBarve = ruka.filter { it.barva == barva }
-        return (vBarve.size >= 3 && Karta(barva, HodnotaKarty.R10) in vBarve) ||
-            (vBarve.size >= 4 && Karta(barva, HodnotaKarty.KRAL) in vBarve)
-    }
-
-    private fun provedSehravkuBota(stav: StavMarias): StavMarias {
-        val idx = stav.naTahu
-        val povolene = zjistiPovoleneKarty(stav, idx).toList()
-        if (povolene.isEmpty()) return stav
-        if (povolene.size == 1) return zahrajKartu(stav, idx, povolene.first())
-
-        val ruka = stav.ruceHracu[idx]
-        val jsemForhont = idx == stav.indexForhonta
-        val fh = stav.indexForhonta
-        val trumf = if (stav.jeBetlNeboDurch) null else stav.trumf
-        val trumfSedma = trumf?.let { Karta(it, HodnotaKarty.R7) }
-        val zname = sestavZnameKartyBota(stav, idx)
-
-        // Speciální taktika pro Betl (včetně bezpečného podlézání forhontovy karty v obraně!)
-        if (stav.zavazek == ZavazekMariase.BETL) {
-            if (jsemForhont) {
-                if (stav.aktualniStych.isEmpty()) {
-                    // Vynes z kratší barvy, kde máš nízkou kartu, ať si vyčistíš barvu
-                    val vynosBetl = povolene.minBy { k ->
-                        k.hodnota.silaBetlDurch * 10 + ruka.count { it.barva == k.barva }
-                    }
-                    return zahrajKartu(stav, idx, vynosBetl)
-                }
-                val barvaVynosu = stav.aktualniStych.first().karta.barva
-                val nejvyssiNaStole = stav.aktualniStych
-                    .filter { it.karta.barva == barvaVynosu }
-                    .maxOf { it.karta.hodnota.silaBetlDurch }
-                val podlez = povolene
-                    .filter { it.barva == barvaVynosu && it.hodnota.silaBetlDurch < nejvyssiNaStole }
-                    .maxByOrNull { it.hodnota.silaBetlDurch }
-                if (podlez != null) return zahrajKartu(stav, idx, podlez)
-                val ciziOdhoz = povolene.filter { it.barva != barvaVynosu }
-                    .maxByOrNull { k ->
-                        val vBarve = ruka.filter { it.barva == k.barva }
-                        val nebezpecna = vBarve.none { it.hodnota == HodnotaKarty.R7 || it.hodnota == HodnotaKarty.R8 }
-                        k.hodnota.silaBetlDurch * 10 + if (nebezpecna) 20 else 0
-                    }
-                if (ciziOdhoz != null) return zahrajKartu(stav, idx, ciziOdhoz)
-                return zahrajKartu(stav, idx, povolene.minBy { it.hodnota.silaBetlDurch })
-            } else {
-                // Obrana v Betlu: nenuť spoluhráče brát, a pokud už forhont dal do štychu kartu v barvě,
-                // podlez těsně pod forhonta (ušetříš sedmičku a zbavíš se vysoké karty!)
-                if (stav.aktualniStych.isEmpty()) {
-                    val mozneBarvyFh = povolene.filter { maSouperMoznouBarvu(stav, fh, it.barva, zname) }
-                    val kandidati = mozneBarvyFh.ifEmpty { povolene }
-                    return zahrajKartu(stav, idx, kandidati.minBy { it.hodnota.silaBetlDurch })
-                }
-                val barvaVynosu = stav.aktualniStych.first().karta.barva
-                val tahForhonta = stav.aktualniStych.firstOrNull {
-                    it.indexHrace == fh && it.karta.barva == barvaVynosu
-                }
-                if (tahForhonta != null) {
-                    val podForhontem = povolene
-                        .filter { it.barva == barvaVynosu && it.hodnota.silaBetlDurch < tahForhonta.karta.hodnota.silaBetlDurch }
-                        .maxByOrNull { it.hodnota.silaBetlDurch }
-                    if (podForhontem != null) return zahrajKartu(stav, idx, podForhontem)
-                }
-                return zahrajKartu(stav, idx, povolene.minBy { it.hodnota.silaBetlDurch })
+            when (stav10Sedma) {
+                1 -> jednotky += 2 * cervene
+                -1 -> jednotky -= 2 * cervene
+                2 -> jednotky -= 2 * cervene
+                -2 -> jednotky += 2 * cervene
             }
         }
-
-        // Speciální taktika pro Durch (ochrana krytých stoperů v obraně a výběr vítězných barev u forhonta)
-        if (stav.zavazek == ZavazekMariase.DURCH) {
-            return if (jsemForhont) {
-                if (stav.aktualniStych.isEmpty()) {
-                    val vypracovana = povolene
-                        .filter { jeNejvyssiZbylaVBarve(it, zname, true) }
-                        .maxByOrNull { ruka.count { k -> k.barva == it.barva } * 10 + it.hodnota.silaBetlDurch }
-                    zahrajKartu(stav, idx, vypracovana ?: povolene.maxBy { it.hodnota.silaBetlDurch })
-                } else {
-                    zahrajKartu(stav, idx, povolene.maxBy { it.hodnota.silaBetlDurch })
-                }
-            } else {
-                if (stav.aktualniStych.isEmpty()) {
-                    val vitezna = povolene.firstOrNull { jeNejvyssiZbylaVBarve(it, zname, true) }
-                    zahrajKartu(stav, idx, vitezna ?: povolene.maxBy { it.hodnota.silaBetlDurch })
-                } else {
-                    val vynesenaBarva = stav.aktualniStych.first().karta.barva
-                    val maxSila = stav.aktualniStych.filter { it.karta.barva == vynesenaBarva }
-                        .maxOf { it.karta.hodnota.silaBetlDurch }
-                    val prebij = povolene.filter { it.barva == vynesenaBarva && it.hodnota.silaBetlDurch > maxSila }
-                        .minByOrNull { it.hodnota.silaBetlDurch }
-                    if (prebij != null) {
-                        zahrajKartu(stav, idx, prebij)
-                    } else {
-                        // Neodhazuj krytí od desítky/krále, který ještě chytá forhontovu barvu!
-                        val chytryOdhoz = povolene.minBy { k ->
-                            val chranimeStopera = itMaKrytehoStoperaDurch(ruka, k.barva) &&
-                                maSouperMoznouBarvu(stav, fh, k.barva, zname)
-                            (if (chranimeStopera) 100 else 0) + k.hodnota.silaBetlDurch
-                        }
-                        zahrajKartu(stav, idx, chytryOdhoz)
-                    }
-                }
-            }
-        }
-
-        // Trumfová hra — přesné počítání zbylých trumfů soupeřů a šetření trumfové sedmy do 10. štychu
-        val partakIdx = if (!jsemForhont) {
-            (0..2).first { it != idx && it != fh }
-        } else {
-            -1
-        }
-        val obrance1 = (fh + 1) % 3
-        val obrance2 = (fh + 2) % 3
-        val zbyvaObraneTrumfu = if (trumf == null) {
-            0
-        } else if (!maSouperMoznouBarvu(stav, obrance1, trumf, zname) && !maSouperMoznouBarvu(stav, obrance2, trumf, zname)) {
-            0
-        } else {
-            zbyvaCizichVBarve(trumf, zname)
-        }
-        val maForhontTrumfy = trumf != null && maSouperMoznouBarvu(stav, fh, trumf, zname)
-
-        val kandidatiBezTrumf7 = if (trumfSedma != null && stav.cisloStychu < 10 && povolene.size > 1) {
-            povolene.filterNot { it == trumfSedma }.ifEmpty { povolene }
-        } else {
-            povolene
-        }
-
-        // 1) Výnos do prázdného štychu
-        if (stav.aktualniStych.isEmpty()) {
-            val bezpecnaHlaska = kandidatiBezTrumf7.firstOrNull { k ->
-                soucastHlasky(ruka, k) && (k.barva == trumf || k.hodnota == HodnotaKarty.SVRSEK || (!jsemForhont && !maForhontTrumfy))
-            } ?: kandidatiBezTrumf7.firstOrNull { soucastHlasky(ruka, it) }
-            if (bezpecnaHlaska != null) return zahrajKartu(stav, idx, bezpecnaHlaska)
-
-            if (jsemForhont) {
-                // Forhont dotahuje trumfy jen tehdy, dokud v obraně ještě nějaké trumfy zbývají!
-                if (trumf != null && zbyvaObraneTrumfu > 0) {
-                    val nejvyssiTrumf = kandidatiBezTrumf7
-                        .filter { it.barva == trumf && jeNejvyssiZbylaVBarve(it, zname, false) }
-                        .maxByOrNull { it.hodnota.silaMarias }
-                    if (nejvyssiTrumf != null) {
-                        return zahrajKartu(stav, idx, nejvyssiTrumf)
-                    }
-                    val vytloukaciTrumf = kandidatiBezTrumf7
-                        .filter { it.barva == trumf && ruka.count { k -> k.barva == trumf } >= 3 }
-                        .minByOrNull { it.hodnota.bodyMariasSedma * 10 + it.hodnota.silaMarias }
-                    if (vytloukaciTrumf != null) {
-                        return zahrajKartu(stav, idx, vytloukaciTrumf)
-                    }
-                }
-
-                // Sklizeň vypracovaných nejvyšších karet ve vedlejších barvách (esa, ale i desítky po odehraném esu!)
-                val vypracovanaVedlejsi = kandidatiBezTrumf7
-                    .filter {
-                        it.barva != trumf &&
-                            jeNejvyssiZbylaVBarve(it, zname, false) &&
-                            (zbyvaObraneTrumfu == 0 ||
-                                (maSouperMoznouBarvu(stav, obrance1, it.barva, zname) &&
-                                    maSouperMoznouBarvu(stav, obrance2, it.barva, zname)))
-                    }
-                    .maxByOrNull { it.hodnota.bodyMariasSedma * 10 + it.hodnota.silaMarias }
-                if (vypracovanaVedlejsi != null) {
-                    return zahrajKartu(stav, idx, vypracovanaVedlejsi)
-                }
-            } else {
-                // Obrana vynáší:
-                val forhontSediHnedZaMnou = (idx + 1) % 3 == fh
-
-                // A) Pokud forhont hlásí sedmu, útoč trumfem a vybij mu krytí sedmičky
-                if (stav.zavazek.hlasiSedmu && trumf != null && maForhontTrumfy) {
-                    val utocnyTrumf = kandidatiBezTrumf7
-                        .filter { it.barva == trumf && (jeNejvyssiZbylaVBarve(it, zname, false) || it.hodnota.bodyMariasSedma == 0) }
-                        .maxByOrNull { if (jeNejvyssiZbylaVBarve(it, zname, false)) 100 else (10 - it.hodnota.silaMarias) }
-                    if (utocnyTrumf != null) {
-                        return zahrajKartu(stav, idx, utocnyTrumf)
-                    }
-                }
-
-                // B) Vypracovaná nejvyšší vedlejší karta (eso / plonk desítka), kterou forhont ještě musí přiznat
-                val jistaVedlejsi = kandidatiBezTrumf7
-                    .filter {
-                        it.barva != trumf &&
-                            jeNejvyssiZbylaVBarve(it, zname, false) &&
-                            (!maForhontTrumfy || maSouperMoznouBarvu(stav, fh, it.barva, zname))
-                    }
-                    .maxByOrNull { it.hodnota.bodyMariasSedma }
-                if (jistaVedlejsi != null) {
-                    return zahrajKartu(stav, idx, jistaVedlejsi)
-                }
-
-                // C) Parťák sedí na 3. místě za forhontem a nemá barvu B, ale má trumfy -> nahraj mu renons!
-                if (forhontSediHnedZaMnou && partakIdx >= 0 && trumf != null &&
-                    maSouperMoznouBarvu(stav, partakIdx, trumf, zname)
-                ) {
-                    val nahravkaDoRenonsuPartaka = kandidatiBezTrumf7
-                        .filter {
-                            it.barva != trumf &&
-                                !maSouperMoznouBarvu(stav, partakIdx, it.barva, zname) &&
-                                it.hodnota.bodyMariasSedma == 0
-                        }
-                        .minByOrNull { it.hodnota.silaMarias }
-                    if (nahravkaDoRenonsuPartaka != null) {
-                        return zahrajKartu(stav, idx, nahravkaDoRenonsuPartaka)
-                    }
-                }
-
-                // D) Zkracuj forhonta v barvě, kterou už forhont nemá (levnou nebodovanou kartou)
-                if (maForhontTrumfy) {
-                    val zkracovaci = kandidatiBezTrumf7
-                        .filter {
-                            it.barva != trumf &&
-                                !maSouperMoznouBarvu(stav, fh, it.barva, zname) &&
-                                it.hodnota.bodyMariasSedma == 0
-                        }
-                        .minByOrNull { it.hodnota.silaMarias }
-                    if (zkracovaci != null) {
-                        return zahrajKartu(stav, idx, zkracovaci)
-                    }
-                }
-
-                val kratkaNulova = kandidatiBezTrumf7
-                    .filter { it.barva != trumf && it.hodnota.bodyMariasSedma == 0 }
-                    .minByOrNull { it.hodnota.silaMarias }
-                if (kratkaNulova != null) return zahrajKartu(stav, idx, kratkaNulova)
-            }
-
-            val vybrana = kandidatiBezTrumf7.minByOrNull { it.hodnota.bodyMariasSedma * 10 + it.hodnota.silaMarias }
-                ?: povolene.first()
-            return zahrajKartu(stav, idx, vybrana)
-        }
-
-        // 2) Hra na 2. nebo 3. pozici ve štychu
-        val prozatimVitez = urciVitezeStychu(stav.aktualniStych, trumf, false).indexHrace
-        val prozatimBereMojeStrana = if (jsemForhont) {
-            prozatimVitez == fh
-        } else {
-            prozatimVitez != fh
-        }
-
-        val vitezneKarty = kandidatiBezTrumf7.filter { k ->
-            val testStych = stav.aktualniStych + TahStychuMariase(idx, "", k)
-            val vit = urciVitezeStychu(testStych, trumf, false).indexHrace
-            if (jsemForhont) vit == fh else vit != fh
-        }
-
-        // Obrana na 3. místě (poslední ve štychu) a parťák už štych bere -> bezpečně namaž 10 nebo Eso!
-        if (stav.aktualniStych.size == 2 && !jsemForhont && prozatimBereMojeStrana) {
-            val namaz = kandidatiBezTrumf7
-                .filter { it.hodnota.bodyMariasSedma >= 10 && it.barva != trumf }
-                .maxByOrNull { k ->
-                    val neChranena10 = k.hodnota == HodnotaKarty.R10 && !jeNejvyssiZbylaVBarve(k, zname, false)
-                    (if (neChranena10) 50 else 0) + k.hodnota.silaMarias
-                }
-                ?: kandidatiBezTrumf7.firstOrNull { it.hodnota.bodyMariasSedma >= 10 }
-            if (namaz != null) return zahrajKartu(stav, idx, namaz)
-        }
-
-        // Obrana na 2. místě poté, co parťák vynesl nejvyšší kartu v barvě a forhont za námi nemůže přebít ani trumfnout!
-        if (stav.aktualniStych.size == 1 && !jsemForhont && prozatimBereMojeStrana) {
-            val vynesenaPartakem = stav.aktualniStych.first().karta
-            val partakDrziJiste = jeNejvyssiZbylaVBarve(vynesenaPartakem, zname, false) &&
-                (vynesenaPartakem.barva == trumf || !maForhontTrumfy || maSouperMoznouBarvu(stav, fh, vynesenaPartakem.barva, zname))
-            if (partakDrziJiste) {
-                val namazHned = kandidatiBezTrumf7
-                    .filter { it.hodnota.bodyMariasSedma >= 10 && it.barva != trumf }
-                    .maxByOrNull { it.hodnota.silaMarias }
-                if (namazHned != null) return zahrajKartu(stav, idx, namazHned)
-            }
-        }
-
-        if (vitezneKarty.isNotEmpty()) {
-            val bodyNaStole = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
-            val jsemPosledniVeStychu = stav.aktualniStych.size == 2
-            val vybranaVitezna = if (jsemPosledniVeStychu) {
-                // Na 3. místě vezmi bodovanou kartou v barvě, nebo nejlevnějším trumfem
-                vitezneKarty.maxByOrNull { k ->
-                    val trumfUspora = if (k.barva == trumf && stav.aktualniStych.first().karta.barva != trumf) {
-                        -k.hodnota.silaMarias * 3
-                    } else {
-                        k.hodnota.bodyMariasSedma * 12 - k.hodnota.silaMarias
-                    }
-                    trumfUspora
-                }!!
-            } else if (bodyNaStole >= 10) {
-                vitezneKarty.maxByOrNull { k ->
-                    (if (jeNejvyssiZbylaVBarve(k, zname, false)) 35 else 0) +
-                        k.hodnota.bodyMariasSedma * 8 - k.hodnota.silaMarias
-                }!!
-            } else {
-                // Na 2. místě v prázdném štychu ber buď jistou nejvyšší kartou, nebo nejlevnější přebíjející
-                vitezneKarty.firstOrNull { jeNejvyssiZbylaVBarve(it, zname, false) && it.barva != trumf }
-                    ?: vitezneKarty.minByOrNull { it.hodnota.silaMarias }!!
-            }
-            return zahrajKartu(stav, idx, vybranaVitezna)
-        }
-
-        // Štych bere soupeř -> odhoď nejlevnější nebodovanou kartu (neodhazuj krytí od nechráněné desítky!)
-        val nejlevnejsiOdhoz = kandidatiBezTrumf7.minWithOrNull(
-            compareBy<Karta>(
-                { it.hodnota.bodyMariasSedma },
-                { if (soucastHlasky(ruka, it)) 1 else 0 },
-                { k ->
-                    val drziKratkouDesitku = k.barva != trumf &&
-                        ruka.count { it.barva == k.barva } == 2 &&
-                        Karta(k.barva, HodnotaKarty.R10) in ruka &&
-                        !jeNejvyssiZbylaVBarve(Karta(k.barva, HodnotaKarty.R10), zname, false)
-                    if (drziKratkouDesitku) 1 else 0
-                },
-                { it.hodnota.silaMarias }
-            )
-        ) ?: povolene.first()
-        return zahrajKartu(stav, idx, nejlevnejsiOdhoz)
+        return jednotky
     }
 
     fun vyhodnotMariase(stav: StavMarias): VyuctovaniMariase {
@@ -1976,10 +1330,19 @@ object MariasEngine {
         }
 
         return VyuctovaniMariase(
+            typHryPlaceholder = Unit,
             nadpis = nadpis,
             podnadpis = "${stav.rezimMariase.plnyNazev} (${stav.zavazek.nazev}) • ${stav.variantaPravidel.kratkyNazev} pravidla",
             polozky = polozky,
             hraci = hraci
         )
     }
+
+    private fun VyuctovaniMariase(
+        typHryPlaceholder: Unit,
+        nadpis: String,
+        podnadpis: String,
+        polozky: List<PolozkaVyuctovaniMariase>,
+        hraci: List<HracVyuctovaniMariase>
+    ): VyuctovaniMariase = VyuctovaniMariase(nadpis = nadpis, podnadpis = podnadpis, polozky = polozky, hraci = hraci)
 }

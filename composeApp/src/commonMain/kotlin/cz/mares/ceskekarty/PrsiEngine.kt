@@ -1,5 +1,8 @@
 package cz.mares.ceskekarty
 
+internal const val PRSI_BIT_BEZ_SVRSKU = 1 shl 4
+internal const val PRSI_BIT_BEZ_ESA = 1 shl 6
+
 data class StavPrsi(
     val pocetHracu: Int,
     val jmenaHracu: List<String>,
@@ -134,7 +137,7 @@ object PrsiEngine {
         }
     }
 
-    private fun trestnaHodnotaKartyPrsi(hodnota: HodnotaKarty): Int {
+    internal fun trestnaHodnotaKartyPrsi(hodnota: HodnotaKarty): Int {
         return when (hodnota) {
             HodnotaKarty.SVRSEK -> 20
             HodnotaKarty.R7 -> 15
@@ -144,7 +147,7 @@ object PrsiEngine {
         }
     }
 
-    private fun najdiDalsihoAktivnihoHrace(
+    internal fun najdiDalsihoAktivnihoHrace(
         odIndexu: Int,
         pocetHracu: Int,
         ruce: List<List<Karta>>,
@@ -280,10 +283,14 @@ object PrsiEngine {
 
         val hranaBarvaProMasku = if (karta.hodnota == HodnotaKarty.SVRSEK) zvolenaBarva else karta.barva
         val upraveneMasky = stav.chybejiciBarvyMaska.mapIndexed { idx, maska ->
-            if (idx == indexHrace && hranaBarvaProMasku != null) {
-                maska and (1 shl hranaBarvaProMasku.ordinal).inv()
-            } else {
+            if (idx != indexHrace) {
                 maska
+            } else {
+                var m = maska
+                if (hranaBarvaProMasku != null) m = m and (1 shl hranaBarvaProMasku.ordinal).inv()
+                if (karta.hodnota == HodnotaKarty.SVRSEK) m = m and PRSI_BIT_BEZ_SVRSKU.inv()
+                if (karta.hodnota == HodnotaKarty.ESO) m = m and PRSI_BIT_BEZ_ESA.inv()
+                m
             }
         }
 
@@ -422,7 +429,7 @@ object PrsiEngine {
         val jmeno = stav.jmenaHracu[hracIdx]
         val dalsiHrac = najdiDalsihoAktivnihoHrace(hracIdx, stav.pocetHracu, stav.ruceHracu, stav.poradiDohrani)
         val upraveneMasky = stav.chybejiciBarvyMaska.mapIndexed { idx, m ->
-            if (idx == hracIdx) m and (1 shl barva.ordinal).inv() else m
+            if (idx == hracIdx) m and (1 shl barva.ordinal).inv() and PRSI_BIT_BEZ_SVRSKU.inv() else m
         }
         return stav.copy(
             naTahu = dalsiHrac,
@@ -442,11 +449,16 @@ object PrsiEngine {
         val dalsiHrac = najdiDalsihoAktivnihoHrace(indexHrace, stav.pocetHracu, stav.ruceHracu, stav.poradiDohrani)
 
         if (stav.aktivniEsoStoji) {
+            // Hráč stál na esu a nelízal -> veřejně víme, že nedrží Eso (ani Červenou sedmu v hospodských pravidlech)
+            val maskyPoStani = stav.chybejiciBarvyMaska.mapIndexed { idx, m ->
+                if (idx == indexHrace) m or PRSI_BIT_BEZ_ESA else m
+            }
             return stav.copy(
                 naTahu = dalsiHrac,
                 aktivniEsoStoji = false,
                 posledniHlaska = "$jmeno stojí jedno kolo.",
-                cisloTahu = stav.cisloTahu + 1
+                cisloTahu = stav.cisloTahu + 1,
+                chybejiciBarvyMaska = maskyPoStani
             )
         }
 
@@ -469,15 +481,13 @@ object PrsiEngine {
             }
         }
 
-        // Veřejná informace ze stolu: musel-li si hráč běžně líznout 1 kartu, neměl platnou barvu (ani svrška);
-        // naopak pokud si nabral více karet za sedmičky, získal čerstvé neznámé barvy.
         val upraveneMasky = stav.chybejiciBarvyMaska.mapIndexed { idx, maska ->
             if (idx != indexHrace) {
                 maska
             } else if (bylUtokSedmou && dobrane.size >= 2) {
                 0
             } else {
-                maska or (1 shl platnaBarvaPredLiznutim.ordinal)
+                maska or (1 shl platnaBarvaPredLiznutim.ordinal) or PRSI_BIT_BEZ_SVRSKU
             }
         }
 
@@ -501,167 +511,8 @@ object PrsiEngine {
         )
     }
 
-    private fun vyberNejlepsiBarvuProSvrska(
-        stav: StavPrsi,
-        idxBota: Int,
-        kartyVRuce: List<Karta>
-    ): BarvaKarty {
-        val dalsiIdx = najdiDalsihoAktivnihoHrace(idxBota, stav.pocetHracu, stav.ruceHracu, stav.poradiDohrani)
-        val kartyDalsiho = stav.ruceHracu.getOrNull(dalsiIdx)?.size ?: 4
-        val maskaDalsiho = stav.chybejiciBarvyMaska.getOrElse(dalsiIdx) { 0 }
-        val souperHrozi = kartyDalsiho <= 2
-
-        return BarvaKarty.entries.maxByOrNull { barva ->
-            val vlastniBezSvrsku = kartyVRuce.filter { it.barva == barva && it.hodnota != HodnotaKarty.SVRSEK }
-            var bodyBarvy = 0
-            for (k in vlastniBezSvrsku) {
-                bodyBarvy += trestnaHodnotaKartyPrsi(k.hodnota)
-            }
-            val maUtok = vlastniBezSvrsku.any { it.hodnota == HodnotaKarty.R7 || it.hodnota == HodnotaKarty.ESO }
-            val jizOdehrano = stav.odhazovaciBalicek.count { it.barva == barva }
-            val souperiChybi = (maskaDalsiho and (1 shl barva.ordinal)) != 0
-
-            var skore = vlastniBezSvrsku.size * 16 + bodyBarvy + jizOdehrano * 2
-            if (maUtok) skore += 7
-            if (souperiChybi) {
-                skore += if (souperHrozi) 26 else 10
-            }
-            if (souperHrozi && barva == stav.aktualniPlatnaBarva) {
-                skore -= 20
-            }
-            skore
-        } ?: BarvaKarty.CERVENE
-    }
-
-    private fun navazujeDruhaKartaVRuce(
-        stav: StavPrsi,
-        prvni: Karta,
-        druha: Karta,
-        zvolenaBarvaPrvni: BarvaKarty?
-    ): Boolean {
-        if (druha.hodnota == HodnotaKarty.SVRSEK) return true
-        val novaPlatnaBarva = if (prvni.hodnota == HodnotaKarty.SVRSEK) {
-            zvolenaBarvaPrvni ?: prvni.barva
-        } else {
-            prvni.barva
-        }
-        return druha.barva == novaPlatnaBarva || druha.hodnota == prvni.hodnota
-    }
-
     fun provedTahBota(stav: StavPrsi): StavPrsi {
-        if (stav.jeKonec) return stav
-        val idx = stav.naTahu
-        val ruka = stav.ruceHracu[idx]
-
-        if (stav.cekaNaVolbuBarvy) {
-            return potvrdVolbuBarvySvrskem(stav, vyberNejlepsiBarvuProSvrska(stav, idx, ruka))
-        }
-
-        val povolene = zjistiPovoleneKarty(stav, idx).toList()
-        if (povolene.isEmpty()) {
-            return lizniNeboStuj(stav, idx)
-        }
-        if (povolene.size == 1) {
-            val jedina = povolene.first()
-            return if (jedina.hodnota == HodnotaKarty.SVRSEK) {
-                val zbytek = ruka.filterNot { it == jedina }
-                zahrajKartu(stav, idx, jedina, vyberNejlepsiBarvuProSvrska(stav, idx, zbytek))
-            } else {
-                zahrajKartu(stav, idx, jedina)
-            }
-        }
-
-        val dalsiIdx = najdiDalsihoAktivnihoHrace(idx, stav.pocetHracu, stav.ruceHracu, stav.poradiDohrani)
-        val kartyDalsiho = stav.ruceHracu.getOrNull(dalsiIdx)?.size ?: 4
-        val maskaDalsiho = stav.chybejiciBarvyMaska.getOrElse(dalsiIdx) { 0 }
-        val aktivniSouperi = (0 until stav.pocetHracu).filter {
-            it != idx && it !in stav.poradiDohrani && stav.ruceHracu[it].isNotEmpty()
-        }
-        val minKaretSoupere = aktivniSouperi.minOfOrNull { stav.ruceHracu[it].size } ?: 4
-        val dalsiHrozi = kartyDalsiho <= 2
-        val dalsiMaPosledni = kartyDalsiho == 1
-        val mamUtocnouMimoSvrska = povolene.any { it.hodnota == HodnotaKarty.R7 || it.hodnota == HodnotaKarty.ESO }
-
-        val vybrana = povolene.maxByOrNull { karta ->
-            val zbytek = ruka.filterNot { it == karta }
-            val cilovaBarva = if (karta.hodnota == HodnotaKarty.SVRSEK) {
-                vyberNejlepsiBarvuProSvrska(stav, idx, zbytek)
-            } else {
-                karta.barva
-            }
-            val pocetStejneBarvyVZbytku = zbytek.count { it.barva == cilovaBarva && it.hodnota != HodnotaKarty.SVRSEK }
-            val souperiChybiCilova = (maskaDalsiho and (1 shl cilovaBarva.ordinal)) != 0
-            var skore = pocetStejneBarvyVZbytku * 7
-
-            // Koncovka se 2 kartami v ruce: seřaď pořadí odhozu tak, aby druhá karta šla hned zavřít
-            if (ruka.size == 2 && zbytek.size == 1) {
-                val druha = zbytek.first()
-                if (navazujeDruhaKartaVRuce(stav, karta, druha, cilovaBarva)) {
-                    skore += 38
-                }
-                if (aktivniSouperi.size == 1 && (karta.hodnota == HodnotaKarty.ESO || karta.hodnota == HodnotaKarty.R7)) {
-                    skore += 28
-                }
-                if (karta.hodnota == HodnotaKarty.SVRSEK && druha.hodnota != HodnotaKarty.SVRSEK) {
-                    skore -= 25
-                }
-            }
-
-            if (dalsiHrozi) {
-                // Další hráč má 1–2 karty („Prší!“) -> okamžitě brzdi sedmičkou, esem nebo změnou barvy!
-                when (karta.hodnota) {
-                    HodnotaKarty.R7 -> skore += if (dalsiMaPosledni) 85 else 58
-                    HodnotaKarty.ESO -> skore += if (dalsiMaPosledni) 72 else 48
-                    HodnotaKarty.SVRSEK -> {
-                        skore += if (!mamUtocnouMimoSvrska) {
-                            if (dalsiMaPosledni) 42 else 22
-                        } else {
-                            -15
-                        }
-                    }
-                    else -> {
-                        if (cilovaBarva != stav.aktualniPlatnaBarva) {
-                            skore += 18
-                        }
-                    }
-                }
-                if (souperiChybiCilova) {
-                    skore += 24
-                }
-            } else {
-                // Klidná fáze hry -> šetři sedmičky, esa i svršky do koncovky a zbavuj se drahých běžných karet
-                when (karta.hodnota) {
-                    HodnotaKarty.SVRSEK -> skore -= 44
-                    HodnotaKarty.R7 -> {
-                        skore -= if (stav.variantaPravidel == VariantaPravidel.HOSPODSKA && karta.barva == BarvaKarty.CERVENE) {
-                            24
-                        } else {
-                            16
-                        }
-                    }
-                    HodnotaKarty.ESO -> skore -= 12
-                    else -> {
-                        skore += trestnaHodnotaKartyPrsi(karta.hodnota) / 2
-                    }
-                }
-                if (souperiChybiCilova) {
-                    skore += 9
-                }
-            }
-
-            if (minKaretSoupere <= 2 && karta.hodnota != HodnotaKarty.SVRSEK) {
-                skore += trestnaHodnotaKartyPrsi(karta.hodnota)
-            }
-
-            skore
-        } ?: povolene.first()
-
-        return if (vybrana.hodnota == HodnotaKarty.SVRSEK) {
-            val zbytek = ruka.filterNot { it == vybrana }
-            zahrajKartu(stav, idx, vybrana, vyberNejlepsiBarvuProSvrska(stav, idx, zbytek))
-        } else {
-            zahrajKartu(stav, idx, vybrana)
-        }
+        return PrsiBotAi.provedTah(stav)
     }
 
     fun vyhodnotVysledek(stav: StavPrsi): VysledekPartie {
