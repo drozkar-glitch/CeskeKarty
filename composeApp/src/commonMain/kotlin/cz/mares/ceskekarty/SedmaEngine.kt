@@ -113,12 +113,10 @@ private sealed class AkceBotaSedma {
 
 private class CitacUzluSedma(var zbyva: Int)
 
-private class SimStavSedma(
+private class SimKoncovkaSedma(
     val pocetHracu: Int,
     val variantaPravidel: VariantaPravidel,
     val ruce: List<List<Karta>>,
-    val talon: List<Karta>,
-    val talonIndex: Int,
     val stychHodnoty: List<HodnotaKarty>,
     val vynasejiciStychu: Int,
     val vedouciHodnota: HodnotaKarty?,
@@ -200,9 +198,6 @@ object SedmaEngine {
         )
     }
 
-    /**
-     * V hospodských pravidlech lze hlásit Spálenou i při 4 kartách stejné hodnoty na ruce.
-     */
     fun zjistiSpalenouVRuce(stav: StavSedma, indexHrace: Int): HodnotaKarty? {
         if (stav.jeKonec || stav.variantaPravidel != VariantaPravidel.HOSPODSKA) return null
         if (stav.naTahu != indexHrace && stav.aktualniStych.isNotEmpty()) return null
@@ -470,6 +465,234 @@ object SedmaEngine {
         )
     }
 
+    // =========================================================================
+    // FÁZE 1 (DOKUD JE TALON): Čistá karbanická taktika s počítáním odehraných karet
+    // =========================================================================
+
+    private fun najdiKartuProSpalenouVeStychu(stav: StavSedma, kandidati: Collection<Karta>): Karta? {
+        if (stav.aktualniStych.size < 3) return null
+        val posledniTri = stav.aktualniStych.takeLast(3)
+        val hledana = posledniTri.first().karta.hodnota
+        if (hledana != stav.vedouciHodnota && hledana != HodnotaKarty.R7) return null
+        if (!posledniTri.all { it.karta.hodnota == hledana }) return null
+        return kandidati.firstOrNull { it.hodnota == hledana }
+    }
+
+    /**
+     * Hlídá, abychom nepřiložili 3. stejnou kartu v řadě, když 4. kus je pořád u soupeřů/v talonu
+     * a soupeř má ještě příležitost štych zavřít na Spálenou!
+     */
+    private fun hroziNahravkaNaSpalenou(
+        stav: StavSedma,
+        hodnotaKarty: HodnotaKarty,
+        zbyvaCizichTetoHodnoty: Int
+    ): Boolean {
+        if (zbyvaCizichTetoHodnoty <= 0) return false
+        if (stav.pocetHracu == 4 && stav.aktualniStych.size == 3) return false
+        if (stav.aktualniStych.size < 2) return false
+        val vedouci = stav.vedouciHodnota ?: return false
+        if (hodnotaKarty != vedouci && hodnotaKarty != HodnotaKarty.R7) return false
+        val n = stav.aktualniStych.size
+        return stav.aktualniStych[n - 1].karta.hodnota == hodnotaKarty &&
+            stav.aktualniStych[n - 2].karta.hodnota == hodnotaKarty
+    }
+
+    private fun provedTahSFaziTalonu(stav: StavSedma): StavSedma {
+        val idx = stav.naTahu
+        val ruka = stav.ruceHracu[idx]
+
+        // Férová tabulka neviděných karet (nikdy nečte karty soupeřů ani obsah talonu!)
+        val videnePocty = IntArray(HodnotaKarty.entries.size)
+        for (k in stav.odehraneKarty) videnePocty[k.hodnota.ordinal]++
+        for (hk in stav.aktualniStych) videnePocty[hk.karta.hodnota.ordinal]++
+        for (k in ruka) videnePocty[k.hodnota.ordinal]++
+
+        fun zbyvaCizich(hodnota: HodnotaKarty): Int = (4 - videnePocty[hodnota.ordinal]).coerceAtLeast(0)
+
+        val zbyvaCizichSedem = zbyvaCizich(HodnotaKarty.R7)
+        val pocetVlastnichSedem = ruka.count { it.hodnota == HodnotaKarty.R7 }
+        val bodyVeStychu = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
+        val mujTym = stav.tymHrace(idx)
+        val mojeBody = if (mujTym == 0) stav.uhraneBodyTym0 else stav.uhraneBodyTym1
+        val souperBody = if (mujTym == 0) stav.uhraneBodyTym1 else stav.uhraneBodyTym0
+
+        // 1) Návrat tahu v 1 na 1 (rozhodnutí točit / přebít zpět / pustit štych)
+        if (stav.muzePustitStych) {
+            val povolene = zjistiPovoleneKarty(stav, idx)
+            val spalena = najdiKartuProSpalenouVeStychu(stav, povolene)
+            if (spalena != null) return zahrajKartu(stav, idx, spalena)
+
+            if (stav.prozatimBereHrac == idx) {
+                // Štych už držíme my (hospodské točení):
+                val dalsiStejna = povolene.firstOrNull {
+                    it.hodnota == stav.vedouciHodnota && it.hodnota != HodnotaKarty.R7
+                } ?: return pustStych(stav, idx)
+
+                // Bodovanou kartu ani štych, ve kterém už leží 10+ bodů, zbytečně neriskuj — ber domů!
+                if (dalsiStejna.hodnota.bodyMariasSedma >= 10) return pustStych(stav, idx)
+                if (bodyVeStychu >= 10) {
+                    val neprustrelne = zbyvaCizichSedem == 0 && zbyvaCizich(dalsiStejna.hodnota) == 0
+                    return if (neprustrelne) zahrajKartu(stav, idx, dalsiStejna) else pustStych(stav, idx)
+                }
+
+                // V nulovém štychu toč jen tehdy, když nenahraješ na Spálenou a máš jištění
+                if (hroziNahravkaNaSpalenou(stav, dalsiStejna.hodnota, zbyvaCizich(dalsiStejna.hodnota))) {
+                    return pustStych(stav, idx)
+                }
+                val maJisteni = pocetVlastnichSedem >= 1 ||
+                    ruka.count { it.hodnota == dalsiStejna.hodnota } >= 2 ||
+                    zbyvaCizichSedem == 0
+                return if (maJisteni) zahrajKartu(stav, idx, dalsiStejna) else pustStych(stav, idx)
+            } else {
+                // Štych přebil soupeř:
+                val vedouci = stav.vedouciHodnota
+                val bezSedmy = povolene.firstOrNull { it.hodnota != HodnotaKarty.R7 }
+
+                if (bodyVeStychu == 0) {
+                    // Na nulový štych NIKDY nepálíme sedmičku! Přebij jen stejnou plívou bez rizika Spálené.
+                    if (bezSedmy != null && !hroziNahravkaNaSpalenou(stav, bezSedmy.hodnota, zbyvaCizich(bezSedmy.hodnota))) {
+                        return zahrajKartu(stav, idx, bezSedmy)
+                    }
+                    return pustStych(stav, idx)
+                }
+
+                // Ve štychu leží 10+ bodů:
+                if (bezSedmy != null && !hroziNahravkaNaSpalenou(stav, bezSedmy.hodnota, zbyvaCizich(bezSedmy.hodnota))) {
+                    return zahrajKartu(stav, idx, bezSedmy)
+                }
+                val sedmicka = povolene.firstOrNull { it.hodnota == HodnotaKarty.R7 }
+                val zbyvaVedouci = if (vedouci != null) zbyvaCizich(vedouci) else 0
+                val vyplatiseSedma = bodyVeStychu >= 20 ||
+                    pocetVlastnichSedem >= 2 ||
+                    zbyvaCizichSedem == 0 ||
+                    zbyvaVedouci <= 1
+                return if (sedmicka != null && vyplatiseSedma) {
+                    zahrajKartu(stav, idx, sedmicka)
+                } else {
+                    pustStych(stav, idx)
+                }
+            }
+        }
+
+        // 2) Výnos do prázdného štychu
+        if (stav.aktualniStych.isEmpty()) {
+            val plivy = ruka.filter { it.hodnota != HodnotaKarty.R7 && it.hodnota.bodyMariasSedma == 0 }
+            val bodovane = ruka.filter { it.hodnota.bodyMariasSedma >= 10 }
+
+            // A) 100% neporazitelná desítka nebo eso (venku už není žádná sedma ani stejná karta)
+            if (zbyvaCizichSedem == 0) {
+                val jistaBodovana = bodovane.firstOrNull { zbyvaCizich(it.hodnota) == 0 }
+                if (jistaBodovana != null) return zahrajKartu(stav, idx, jistaBodovana)
+            }
+
+            // B) Trojice plív (držíme 3 ze 4 kusů -> soupeř nemůže udělat Spálenou a my ho vyždímáme)
+            val trojicePliv = plivy.firstOrNull { p -> plivy.count { it.hodnota == p.hodnota } >= 3 }
+            if (trojicePliv != null) return zahrajKartu(stav, idx, trojicePliv)
+
+            // C) Karbanická past na sedmu: dvojice (nebo trojice) desítek/es krytá sedmičkou (nebo do vybitých sedem)
+            val pastBodovana = bodovane.firstOrNull { k ->
+                val pocetStejnych = bodovane.count { it.hodnota == k.hodnota }
+                pocetStejnych >= 3 ||
+                    (pocetStejnych >= 2 && (pocetVlastnichSedem >= 1 || zbyvaCizichSedem <= 1))
+            }
+            if (pastBodovana != null) return zahrajKartu(stav, idx, pastBodovana)
+
+            // D) Mrtvá 4. plíva (zbylé 3 kusy už padly -> soupeř ji nemůže vzít bez sedmičky!)
+            val mrtvaPliva = plivy.firstOrNull { zbyvaCizich(it.hodnota) == 0 }
+            if (mrtvaPliva != null) return zahrajKartu(stav, idx, mrtvaPliva)
+
+            // E) Nejlepší plíva (přednostně z páru a s nejmenším počtem kusů venku — NIKDY holá 10/Eso/7!)
+            if (plivy.isNotEmpty()) {
+                val nejPliva = plivy.maxBy { k ->
+                    plivy.count { it.hodnota == k.hodnota } * 12 - zbyvaCizich(k.hodnota) * 5
+                }
+                return zahrajKartu(stav, idx, nejPliva)
+            }
+
+            // F) Nouzový výnos (v ruce jsou výhradně 10/Esa a sedmičky — šetři sedmičky!)
+            if (bodovane.isNotEmpty()) {
+                val nejlepeKryta = bodovane.minBy { zbyvaCizich(it.hodnota) }
+                return zahrajKartu(stav, idx, nejlepeKryta)
+            }
+            return zahrajKartu(stav, idx, ruka.first())
+        }
+
+        // 3) Odpověď do rozehraného štychu
+        val spalenaStych = najdiKartuProSpalenouVeStychu(stav, ruka)
+        if (spalenaStych != null) return zahrajKartu(stav, idx, spalenaStych)
+
+        val tymDrzitele = stav.tymHrace(stav.prozatimBereHrac)
+        val plivy = ruka.filter { it.hodnota != HodnotaKarty.R7 && it.hodnota.bodyMariasSedma == 0 }
+        // Na odhoz vybíráme osamocenou plívu, které je venku nejvíc (párové a mrtvé 4. plívy šetříme na výnos!)
+        val nejlepsiPlivaOdhoz = plivy.maxByOrNull { k ->
+            zbyvaCizich(k.hodnota) * 10 - plivy.count { it.hodnota == k.hodnota } * 8
+        }
+
+        // Čtyřhra: štych prozatím drží náš parťák
+        if (stav.pocetHracu == 4 && tymDrzitele == mujTym) {
+            val vedouci = stav.vedouciHodnota
+            val muzuBezpecneNamazat = stav.aktualniStych.size == 3 ||
+                (stav.aktualniStych.size == 2 && zbyvaCizichSedem == 0 && vedouci != null && zbyvaCizich(vedouci) == 0)
+
+            if (muzuBezpecneNamazat || nejlepsiPlivaOdhoz == null) {
+                val namaz = ruka
+                    .filter { it.hodnota.bodyMariasSedma >= 10 && it.hodnota != vedouci }
+                    .maxByOrNull { zbyvaCizich(it.hodnota) }
+                    ?: ruka.firstOrNull { it.hodnota.bodyMariasSedma >= 10 }
+                if (namaz != null) return zahrajKartu(stav, idx, namaz)
+            }
+            return zahrajKartu(stav, idx, nejlepsiPlivaOdhoz ?: ruka.firstOrNull { it.hodnota != HodnotaKarty.R7 } ?: ruka.first())
+        }
+
+        // Štych prozatím drží soupeř:
+        val vedouci = stav.vedouciHodnota
+        val stejnaBezSedmy = ruka.firstOrNull { it.hodnota == vedouci && it.hodnota != HodnotaKarty.R7 }
+
+        if (bodyVeStychu == 0) {
+            // A) Soupeř nese nulovou plívu -> přebij stejnou plívou, jinak odhoď plívu (NIKDY sedmu, pokud máš plívu!)
+            if (stejnaBezSedmy != null && !hroziNahravkaNaSpalenou(stav, stejnaBezSedmy.hodnota, zbyvaCizich(stejnaBezSedmy.hodnota))) {
+                return zahrajKartu(stav, idx, stejnaBezSedmy)
+            }
+            if (nejlepsiPlivaOdhoz != null) {
+                return zahrajKartu(stav, idx, nejlepsiPlivaOdhoz)
+            }
+            // V ruce není ani jedna plíva (jen sedmy a 10/Esa) -> zachraň vlastní body sedmičkou
+            val nouzovaSedma = ruka.firstOrNull { it.hodnota == HodnotaKarty.R7 }
+            return zahrajKartu(stav, idx, nouzovaSedma ?: ruka.first())
+        }
+
+        // B) Soupeř nese bodovaný štych (10+ bodů):
+        if (stejnaBezSedmy != null && !hroziNahravkaNaSpalenou(stav, stejnaBezSedmy.hodnota, zbyvaCizich(stejnaBezSedmy.hodnota))) {
+            return zahrajKartu(stav, idx, stejnaBezSedmy)
+        }
+
+        val sedmicka = ruka.firstOrNull { it.hodnota == HodnotaKarty.R7 }
+        if (sedmicka != null && !hroziNahravkaNaSpalenou(stav, HodnotaKarty.R7, zbyvaCizichSedem)) {
+            val zbyvaVedouci = if (vedouci != null) zbyvaCizich(vedouci) else 0
+            val jsemPosledniVeStychu4 = stav.pocetHracu == 4 && stav.aktualniStych.size == 3
+            val vzitSedmou = bodyVeStychu >= 20 ||
+                jsemPosledniVeStychu4 ||
+                pocetVlastnichSedem >= 2 ||
+                zbyvaVedouci <= 1 ||
+                nejlepsiPlivaOdhoz == null ||
+                mojeBody < souperBody ||
+                ((stav.cisloTahu + stav.odehraneKarty.size) % 3 != 0)
+            if (vzitSedmou) {
+                return zahrajKartu(stav, idx, sedmicka)
+            }
+        }
+
+        return zahrajKartu(
+            stav,
+            idx,
+            nejlepsiPlivaOdhoz ?: ruka.firstOrNull { it.hodnota != HodnotaKarty.R7 } ?: ruka.first()
+        )
+    }
+
+    // =========================================================================
+    // FÁZE 2 (KONCOVKA PO DOBRÁNÍ TALONU): 100% přesný Alpha-Beta Minimax do konce
+    // =========================================================================
+
     private fun vyberUnikatniPodleHodnoty(karty: Collection<Karta>): List<Karta> {
         if (karty.size <= 1) return karty.toList()
         var maska = 0
@@ -484,55 +707,7 @@ object SedmaEngine {
         return vysledek
     }
 
-    private fun zkompletujeSpalenouSedmou(stychHodnoty: List<HodnotaKarty>): Boolean {
-        val n = stychHodnoty.size
-        return n >= 3 &&
-            stychHodnoty[n - 1] == HodnotaKarty.R7 &&
-            stychHodnoty[n - 2] == HodnotaKarty.R7 &&
-            stychHodnoty[n - 3] == HodnotaKarty.R7
-    }
-
-    /**
-     * Hospodská disciplína: dokud jsou v talonu karty a nejde o zkompletování Spálené,
-     * sedmička se nikdy nevyhazuje na nulovou plívu (0 bodů), pokud má hráč v ruce plívu na odhoz!
-     */
-    private fun smiZahratSedmuNaStul(
-        talonZbylo: Int,
-        stychHodnoty: List<HodnotaKarty>,
-        bodyVeStychu: Int,
-        muzePustitStych: Boolean,
-        prozatimBereHrac: Int,
-        hrac: Int,
-        ruka: List<Karta>
-    ): Boolean {
-        if (talonZbylo <= 0) return true
-        if (zkompletujeSpalenouSedmou(stychHodnoty)) return true
-
-        // 1) Výnos do prázdného štychu: nikdy nevynášej sedmičku, pokud máš jakoukoliv jinou kartu
-        if (stychHodnoty.isEmpty()) {
-            return ruka.all { it.hodnota == HodnotaKarty.R7 }
-        }
-
-        // 2) Rozhodnutí o přebití po soupeřově tahu v 1 na 1 (kdy lze štych bezplatně pustit)
-        if (muzePustitStych) {
-            return bodyVeStychu >= 10
-        }
-
-        // 3) Ve čtyřhře štych už drží náš parťák -> neplýtvej sedmou na vlastní štych
-        if ((prozatimBereHrac % 2) == (hrac % 2)) {
-            return ruka.all { it.hodnota == HodnotaKarty.R7 }
-        }
-
-        // 4) Soupeř drží bodovaný štych (>= 10 b.) -> sedmička je plně povolena k propočtu
-        if (bodyVeStychu >= 10) return true
-
-        // 5) Soupeř drží nulový štych (plívu) -> sedmičku smíš použít jen v nouzi, když nemáš žádnou plívu
-        // a jinak bys musel soupeři namazat vlastní desítku nebo eso!
-        val maPlivuNaOdhoz = ruka.any { it.hodnota != HodnotaKarty.R7 && it.hodnota.bodyMariasSedma == 0 }
-        return !maPlivuNaOdhoz
-    }
-
-    private fun maSpalenouZRukySim(sim: SimStavSedma, indexHrace: Int): Boolean {
+    private fun maSpalenouZRukySim(sim: SimKoncovkaSedma, indexHrace: Int): Boolean {
         if (sim.jeKonec || sim.variantaPravidel != VariantaPravidel.HOSPODSKA) return false
         if (sim.naTahu != indexHrace && sim.stychHodnoty.isNotEmpty()) return false
         val ruka = sim.ruce[indexHrace]
@@ -541,44 +716,16 @@ object SedmaEngine {
         return ruka[1].hodnota == h0 && ruka[2].hodnota == h0 && ruka[3].hodnota == h0
     }
 
-    private fun simUzavriStych(sim: SimStavSedma): SimStavSedma {
+    private fun simUzavriKoncovku(sim: SimKoncovkaSedma): SimKoncovkaSedma {
         val vitez = sim.prozatimBereHrac
         val viteznyTym = vitez % 2
-        val bodyStychu = sim.bodyAktualnihoStychu
+        val vsechnyPrazdne = sim.ruce.all { it.isEmpty() }
+        val prirustek = sim.bodyAktualnihoStychu + if (vsechnyPrazdne) 10 else 0
 
-        var tIdx = sim.talonIndex
-        val noveRuce: List<List<Karta>> = if (sim.talon.size - tIdx >= sim.pocetHracu && sim.ruce[vitez].size < 4) {
-            val mut = Array(sim.pocetHracu) { p -> ArrayList<Karta>(4).apply { addAll(sim.ruce[p]) } }
-            while (sim.talon.size - tIdx >= sim.pocetHracu && mut[vitez].size < 4) {
-                for (posun in 0 until sim.pocetHracu) {
-                    val p = (vitez + posun) % sim.pocetHracu
-                    mut[p].add(sim.talon[tIdx++])
-                }
-            }
-            mut.toList()
-        } else {
-            sim.ruce
-        }
-
-        var vsechnyPrazdne = true
-        for (r in noveRuce) {
-            if (r.isNotEmpty()) {
-                vsechnyPrazdne = false
-                break
-            }
-        }
-        val bonusPosledni = if (vsechnyPrazdne) 10 else 0
-        val noveB0 = sim.bodyTym0 + if (viteznyTym == 0) bodyStychu + bonusPosledni else 0
-        val noveB1 = sim.bodyTym1 + if (viteznyTym == 1) bodyStychu + bonusPosledni else 0
-        val noveS0 = sim.stychyTym0 + if (viteznyTym == 0) 1 else 0
-        val noveS1 = sim.stychyTym1 + if (viteznyTym == 1) 1 else 0
-
-        return SimStavSedma(
+        return SimKoncovkaSedma(
             pocetHracu = sim.pocetHracu,
             variantaPravidel = sim.variantaPravidel,
-            ruce = noveRuce,
-            talon = sim.talon,
-            talonIndex = tIdx,
+            ruce = sim.ruce,
             stychHodnoty = emptyList(),
             vynasejiciStychu = vitez,
             vedouciHodnota = null,
@@ -586,56 +733,50 @@ object SedmaEngine {
             bodyAktualnihoStychu = 0,
             naTahu = vitez,
             muzePustitStych = false,
-            bodyTym0 = noveB0,
-            bodyTym1 = noveB1,
-            stychyTym0 = noveS0,
-            stychyTym1 = noveS1,
+            bodyTym0 = sim.bodyTym0 + if (viteznyTym == 0) prirustek else 0,
+            bodyTym1 = sim.bodyTym1 + if (viteznyTym == 1) prirustek else 0,
+            stychyTym0 = sim.stychyTym0 + if (viteznyTym == 0) 1 else 0,
+            stychyTym1 = sim.stychyTym1 + if (viteznyTym == 1) 1 else 0,
             spalenaTym = -1,
             jeKonec = vsechnyPrazdne
         )
     }
 
-    private fun simZahrajKartu(sim: SimStavSedma, karta: Karta): SimStavSedma {
+    private fun simZahrajKoncovku(sim: SimKoncovkaSedma, karta: Karta): SimKoncovkaSedma {
         val hrac = sim.naTahu
-        val puvodniRuka = sim.ruce[hrac]
-        val novaRuka = ArrayList<Karta>(puvodniRuka.size - 1)
+        val puvRuka = sim.ruce[hrac]
+        val novaRuka = ArrayList<Karta>(puvRuka.size - 1)
         var odebrano = false
-        for (k in puvodniRuka) {
-            if (!odebrano && k == karta) {
-                odebrano = true
-            } else {
-                novaRuka.add(k)
-            }
+        for (k in puvRuka) {
+            if (!odebrano && k == karta) odebrano = true else novaRuka.add(k)
         }
         val noveRuce = sim.ruce.mapIndexed { i, r -> if (i == hrac) novaRuka else r }
 
-        val jePrvniVeStychu = sim.stychHodnoty.isEmpty()
-        val vynasejici = if (jePrvniVeStychu) hrac else sim.vynasejiciStychu
+        val prvni = sim.stychHodnoty.isEmpty()
+        val vynasejici = if (prvni) hrac else sim.vynasejiciStychu
         val vedouci = sim.vedouciHodnota ?: karta.hodnota
-        val prebiji = jePrvniVeStychu || karta.hodnota == vedouci || karta.hodnota == HodnotaKarty.R7
+        val prebiji = prvni || karta.hodnota == vedouci || karta.hodnota == HodnotaKarty.R7
         val novyDrzitel = if (prebiji) hrac else sim.prozatimBereHrac
-        val novyStychHodnoty = sim.stychHodnoty + karta.hodnota
-        val noveBodyStychu = sim.bodyAktualnihoStychu + karta.hodnota.bodyMariasSedma
+        val novyStych = sim.stychHodnoty + karta.hodnota
+        val noveBody = sim.bodyAktualnihoStychu + karta.hodnota.bodyMariasSedma
 
-        val n = novyStychHodnoty.size
+        val n = novyStych.size
         if (n >= 4) {
-            val hPosl = novyStychHodnoty[n - 1]
+            val hPosl = novyStych[n - 1]
             if ((hPosl == vedouci || hPosl == HodnotaKarty.R7) &&
-                novyStychHodnoty[n - 2] == hPosl &&
-                novyStychHodnoty[n - 3] == hPosl &&
-                novyStychHodnoty[n - 4] == hPosl
+                novyStych[n - 2] == hPosl &&
+                novyStych[n - 3] == hPosl &&
+                novyStych[n - 4] == hPosl
             ) {
-                return SimStavSedma(
+                return SimKoncovkaSedma(
                     pocetHracu = sim.pocetHracu,
                     variantaPravidel = sim.variantaPravidel,
                     ruce = noveRuce,
-                    talon = sim.talon,
-                    talonIndex = sim.talonIndex,
-                    stychHodnoty = novyStychHodnoty,
+                    stychHodnoty = novyStych,
                     vynasejiciStychu = vynasejici,
                     vedouciHodnota = vedouci,
                     prozatimBereHrac = novyDrzitel,
-                    bodyAktualnihoStychu = noveBodyStychu,
+                    bodyAktualnihoStychu = noveBody,
                     naTahu = novyDrzitel,
                     muzePustitStych = false,
                     bodyTym0 = sim.bodyTym0,
@@ -650,17 +791,15 @@ object SedmaEngine {
 
         val dalsi = (hrac + 1) % sim.pocetHracu
         if (sim.pocetHracu == 4) {
-            val meziprechod = SimStavSedma(
+            val dalsiSim = SimKoncovkaSedma(
                 pocetHracu = 4,
                 variantaPravidel = sim.variantaPravidel,
                 ruce = noveRuce,
-                talon = sim.talon,
-                talonIndex = sim.talonIndex,
-                stychHodnoty = novyStychHodnoty,
+                stychHodnoty = novyStych,
                 vynasejiciStychu = vynasejici,
                 vedouciHodnota = vedouci,
                 prozatimBereHrac = novyDrzitel,
-                bodyAktualnihoStychu = noveBodyStychu,
+                bodyAktualnihoStychu = noveBody,
                 naTahu = dalsi,
                 muzePustitStych = false,
                 bodyTym0 = sim.bodyTym0,
@@ -670,21 +809,19 @@ object SedmaEngine {
                 spalenaTym = -1,
                 jeKonec = false
             )
-            return if (novyStychHodnoty.size < 4) meziprechod else simUzavriStych(meziprechod)
+            return if (novyStych.size < 4) dalsiSim else simUzavriKoncovku(dalsiSim)
         }
 
-        if (novyStychHodnoty.size % 2 == 1) {
-            return SimStavSedma(
+        if (novyStych.size % 2 == 1) {
+            return SimKoncovkaSedma(
                 pocetHracu = 2,
                 variantaPravidel = sim.variantaPravidel,
                 ruce = noveRuce,
-                talon = sim.talon,
-                talonIndex = sim.talonIndex,
-                stychHodnoty = novyStychHodnoty,
+                stychHodnoty = novyStych,
                 vynasejiciStychu = vynasejici,
                 vedouciHodnota = vedouci,
                 prozatimBereHrac = novyDrzitel,
-                bodyAktualnihoStychu = noveBodyStychu,
+                bodyAktualnihoStychu = noveBody,
                 naTahu = dalsi,
                 muzePustitStych = false,
                 bodyTym0 = sim.bodyTym0,
@@ -705,17 +842,15 @@ object SedmaEngine {
         }
         val maDalsiStejnou = souperMaKarty && rukaVyn.any { it.hodnota == vedouci }
 
-        val zakladni = SimStavSedma(
+        val zakladni = SimKoncovkaSedma(
             pocetHracu = 2,
             variantaPravidel = sim.variantaPravidel,
             ruce = noveRuce,
-            talon = sim.talon,
-            talonIndex = sim.talonIndex,
-            stychHodnoty = novyStychHodnoty,
+            stychHodnoty = novyStych,
             vynasejiciStychu = vynasejici,
             vedouciHodnota = vedouci,
             prozatimBereHrac = novyDrzitel,
-            bodyAktualnihoStychu = noveBodyStychu,
+            bodyAktualnihoStychu = noveBody,
             naTahu = vynasejici,
             muzePustitStych = true,
             bodyTym0 = sim.bodyTym0,
@@ -731,11 +866,11 @@ object SedmaEngine {
         } else if (!souperPrebil && sim.variantaPravidel == VariantaPravidel.HOSPODSKA && maDalsiStejnou) {
             zakladni
         } else {
-            simUzavriStych(zakladni)
+            simUzavriKoncovku(zakladni)
         }
     }
 
-    private fun ohodnotKoncovySim(sim: SimStavSedma, mujTym: Int): Int {
+    private fun ohodnotKonec(sim: SimKoncovkaSedma, mujTym: Int): Int {
         if (sim.spalenaTym >= 0) {
             return if (sim.spalenaTym == mujTym) 4000 else -4000
         }
@@ -761,170 +896,55 @@ object SedmaEngine {
         }
     }
 
-    private fun ohodnotRozehranySim(sim: SimStavSedma, mujTym: Int): Int {
-        if (sim.jeKonec) return ohodnotKoncovySim(sim, mujTym)
-
-        val mojeBody = if (mujTym == 0) sim.bodyTym0 else sim.bodyTym1
-        val souperBody = if (mujTym == 0) sim.bodyTym1 else sim.bodyTym0
-        val mojeStychy = if (mujTym == 0) sim.stychyTym0 else sim.stychyTym1
-        val souperStychy = if (mujTym == 0) sim.stychyTym1 else sim.stychyTym0
-        val zbyvaTalon = sim.talon.size - sim.talonIndex
-
-        var skore = (mojeBody - souperBody) * 18
-        if (mojeBody >= 50) skore += 240
-        if (souperBody >= 50) skore -= 240
-
-        // Holátko řešíme až v závěru hry, nikdy ne po prvních 2 štyších!
-        if (zbyvaTalon <= 4) {
-            if (mojeStychy == 0 && souperStychy >= 5) skore -= 220
-            if (souperStychy == 0 && mojeStychy >= 5) skore += 220
-        }
-
-        if (sim.stychHodnoty.isEmpty()) {
-            skore += if (sim.naTahu % 2 == mujTym) 14 else -14
-        } else {
-            val vPotu = sim.bodyAktualnihoStychu * 12 + 6
-            skore += if (sim.prozatimBereHrac % 2 == mujTym) vPotu else -vPotu
-        }
-
-        val poctyHodnotRuky = IntArray(HodnotaKarty.entries.size)
-        for (p in 0 until sim.pocetHracu) {
-            val znamenko = if (p % 2 == mujTym) 1 else -1
-            val ruka = sim.ruce[p]
-            if (ruka.isEmpty()) continue
-            poctyHodnotRuky.fill(0)
-            for (k in ruka) {
-                poctyHodnotRuky[k.hodnota.ordinal]++
-            }
-            val sedmy = poctyHodnotRuky[HodnotaKarty.R7.ordinal]
-            // Vysoká hodnota sedmičky v ruce zabraňuje jejímu plýtvání na bezcenné štychy
-            var hodnotaRuky = sedmy * 165 + if (sedmy > 0) 20 else 0
-
-            for (hod in HodnotaKarty.entries) {
-                val pocet = poctyHodnotRuky[hod.ordinal]
-                if (pocet == 0) continue
-                if (pocet == 4 && sim.variantaPravidel == VariantaPravidel.HOSPODSKA) {
-                    hodnotaRuky += if (sim.talonIndex == 0) 3200 else 420
-                } else if (hod != HodnotaKarty.R7) {
-                    if (pocet == 3) hodnotaRuky += 48
-                    if (hod.bodyMariasSedma >= 10) {
-                        hodnotaRuky += if (pocet >= 2) {
-                            42
-                        } else if (sedmy > 0) {
-                            14
-                        } else {
-                            -16
-                        }
-                    } else if (pocet == 2) {
-                        hodnotaRuky += 8
-                    }
-                }
-            }
-            skore += znamenko * hodnotaRuky
-        }
-        return skore
-    }
-
-    private fun generujAkceSim(sim: SimStavSedma): List<AkceBotaSedma> {
+    private fun generujAkceKoncovky(sim: SimKoncovkaSedma): List<AkceBotaSedma> {
         val hrac = sim.naTahu
         val ruka = sim.ruce[hrac]
         if (ruka.isEmpty()) return emptyList()
-
-        val talonZbylo = sim.talon.size - sim.talonIndex
-        val sedmaPovolena = smiZahratSedmuNaStul(
-            talonZbylo = talonZbylo,
-            stychHodnoty = sim.stychHodnoty,
-            bodyVeStychu = sim.bodyAktualnihoStychu,
-            muzePustitStych = sim.muzePustitStych,
-            prozatimBereHrac = sim.prozatimBereHrac,
-            hrac = hrac,
-            ruka = ruka
-        )
 
         if (sim.muzePustitStych) {
             val vedouci = sim.vedouciHodnota ?: return listOf(AkceBotaSedma.PustitStych)
             val karty = if (sim.prozatimBereHrac == hrac) {
                 vyberUnikatniPodleHodnoty(ruka.filter { it.hodnota == vedouci })
             } else {
-                vyberUnikatniPodleHodnoty(
-                    ruka.filter {
-                        it.hodnota == vedouci || (sedmaPovolena && it.hodnota == HodnotaKarty.R7)
-                    }
-                )
+                vyberUnikatniPodleHodnoty(ruka.filter { it.hodnota == vedouci || it.hodnota == HodnotaKarty.R7 })
             }
             val akce = ArrayList<AkceBotaSedma>(karty.size + 1)
-            if (sim.prozatimBereHrac == hrac && sim.bodyAktualnihoStychu >= 10) {
-                akce.add(AkceBotaSedma.PustitStych)
-                for (k in karty) akce.add(AkceBotaSedma.ZahratKartu(k))
-            } else {
-                for (k in karty) akce.add(AkceBotaSedma.ZahratKartu(k))
-                akce.add(AkceBotaSedma.PustitStych)
-            }
+            for (k in karty) akce.add(AkceBotaSedma.ZahratKartu(k))
+            akce.add(AkceBotaSedma.PustitStych)
             return akce
         }
-
-        val filtrovanaRuka = if (sedmaPovolena) {
-            ruka
-        } else {
-            ruka.filterNot { it.hodnota == HodnotaKarty.R7 }.ifEmpty { ruka }
-        }
-        val unikatni = vyberUnikatniPodleHodnoty(filtrovanaRuka)
-        if (unikatni.size <= 1) {
-            return unikatni.map { AkceBotaSedma.ZahratKartu(it) }
-        }
-
-        val vedouci = sim.vedouciHodnota
-        val serazene = unikatni.sortedByDescending { k ->
-            when {
-                vedouci != null && k.hodnota == vedouci -> 50 + k.hodnota.bodyMariasSedma
-                vedouci != null && k.hodnota == HodnotaKarty.R7 && sim.bodyAktualnihoStychu >= 10 -> 45
-                vedouci == null && k.hodnota != HodnotaKarty.R7 && k.hodnota.bodyMariasSedma == 0 -> 30
-                k.hodnota == HodnotaKarty.R7 -> 5
-                else -> 20
-            }
-        }
-        return serazene.map { AkceBotaSedma.ZahratKartu(it) }
+        return vyberUnikatniPodleHodnoty(ruka).map { AkceBotaSedma.ZahratKartu(it) }
     }
 
-    private fun alphaBetaSim(
-        sim: SimStavSedma,
-        zbyvaStychu: Int,
+    private fun alphaBetaKoncovka(
+        sim: SimKoncovkaSedma,
         alfaPuv: Int,
         betaPuv: Int,
         mujTym: Int,
         citac: CitacUzluSedma
     ): Int {
-        if (sim.jeKonec) {
-            return ohodnotKoncovySim(sim, mujTym)
+        if (sim.jeKonec || citac.zbyva <= 0) {
+            return ohodnotKonec(sim, mujTym)
         }
         if (maSpalenouZRukySim(sim, sim.naTahu)) {
             return if (sim.naTahu % 2 == mujTym) 4000 else -4000
         }
         citac.zbyva--
-        if ((zbyvaStychu <= 0 && sim.stychHodnoty.isEmpty()) || citac.zbyva <= 0) {
-            return ohodnotRozehranySim(sim, mujTym)
-        }
 
-        val akceSeznam = generujAkceSim(sim)
-        if (akceSeznam.isEmpty()) {
-            return ohodnotRozehranySim(sim, mujTym)
-        }
+        val akceSeznam = generujAkceKoncovky(sim)
+        if (akceSeznam.isEmpty()) return ohodnotKonec(sim, mujTym)
 
-        val maximalizuje = (sim.naTahu % 2) == mujTym
         var alfa = alfaPuv
         var beta = betaPuv
-
-        if (maximalizuje) {
+        if ((sim.naTahu % 2) == mujTym) {
             var nej = Int.MIN_VALUE / 2
             for (akce in akceSeznam) {
-                val dalsiSim = when (akce) {
-                    is AkceBotaSedma.PustitStych -> simUzavriStych(sim)
-                    is AkceBotaSedma.ZahratKartu -> simZahrajKartu(sim, akce.karta)
+                val dalsi = when (akce) {
+                    is AkceBotaSedma.PustitStych -> simUzavriKoncovku(sim)
+                    is AkceBotaSedma.ZahratKartu -> simZahrajKoncovku(sim, akce.karta)
                 }
-                val dokoncilStych = dalsiSim.stychHodnoty.isEmpty() && !dalsiSim.jeKonec
-                val dalsiHloubka = if (dokoncilStych) zbyvaStychu - 1 else zbyvaStychu
-                val hodnota = alphaBetaSim(dalsiSim, dalsiHloubka, alfa, beta, mujTym, citac)
-                if (hodnota > nej) nej = hodnota
+                val h = alphaBetaKoncovka(dalsi, alfa, beta, mujTym, citac)
+                if (h > nej) nej = h
                 if (nej > alfa) alfa = nej
                 if (alfa >= beta) break
             }
@@ -932,14 +952,12 @@ object SedmaEngine {
         } else {
             var nej = Int.MAX_VALUE / 2
             for (akce in akceSeznam) {
-                val dalsiSim = when (akce) {
-                    is AkceBotaSedma.PustitStych -> simUzavriStych(sim)
-                    is AkceBotaSedma.ZahratKartu -> simZahrajKartu(sim, akce.karta)
+                val dalsi = when (akce) {
+                    is AkceBotaSedma.PustitStych -> simUzavriKoncovku(sim)
+                    is AkceBotaSedma.ZahratKartu -> simZahrajKoncovku(sim, akce.karta)
                 }
-                val dokoncilStych = dalsiSim.stychHodnoty.isEmpty() && !dalsiSim.jeKonec
-                val dalsiHloubka = if (dokoncilStych) zbyvaStychu - 1 else zbyvaStychu
-                val hodnota = alphaBetaSim(dalsiSim, dalsiHloubka, alfa, beta, mujTym, citac)
-                if (hodnota < nej) nej = hodnota
+                val h = alphaBetaKoncovka(dalsi, alfa, beta, mujTym, citac)
+                if (h < nej) nej = h
                 if (nej < beta) beta = nej
                 if (alfa >= beta) break
             }
@@ -947,40 +965,29 @@ object SedmaEngine {
         }
     }
 
-    private fun sestavSimStavProSvet(
+    private fun sestavSimKoncovky(
         stav: StavSedma,
         idxBota: Int,
         mojeRuka: List<Karta>,
-        poctyKaretHracu: IntArray,
         zamichaneNevidene: List<Karta>
-    ): SimStavSedma {
+    ): SimKoncovkaSedma {
         var pos = 0
         val ruce = List(stav.pocetHracu) { p ->
             if (p == idxBota) {
                 mojeRuka
             } else {
-                val pocet = poctyKaretHracu[p]
+                val pocet = stav.ruceHracu[p].size
                 val vyrez = ArrayList<Karta>(pocet)
                 repeat(pocet) {
-                    if (pos < zamichaneNevidene.size) {
-                        vyrez.add(zamichaneNevidene[pos++])
-                    }
+                    if (pos < zamichaneNevidene.size) vyrez.add(zamichaneNevidene[pos++])
                 }
                 vyrez
             }
         }
-        val talon = if (pos < zamichaneNevidene.size) {
-            zamichaneNevidene.subList(pos, zamichaneNevidene.size)
-        } else {
-            emptyList()
-        }
-
-        return SimStavSedma(
+        return SimKoncovkaSedma(
             pocetHracu = stav.pocetHracu,
             variantaPravidel = stav.variantaPravidel,
             ruce = ruce,
-            talon = talon,
-            talonIndex = 0,
             stychHodnoty = stav.aktualniStych.map { it.karta.hodnota },
             vynasejiciStychu = stav.aktualniStych.firstOrNull()?.indexHrace ?: stav.naTahu,
             vedouciHodnota = stav.vedouciHodnota,
@@ -1008,35 +1015,17 @@ object SedmaEngine {
         val mojeRuka = stav.ruceHracu[idx]
         if (mojeRuka.isEmpty()) return stav
 
-        val velikostTalonu = stav.lizaciBalicek.size
-        val stychHodnotyRoot = stav.aktualniStych.map { it.karta.hodnota }
-        val bodyVeStychuRoot = stav.aktualniStych.sumOf { it.karta.hodnota.bodyMariasSedma }
-        val sedmaPovolenaRoot = smiZahratSedmuNaStul(
-            talonZbylo = velikostTalonu,
-            stychHodnoty = stychHodnotyRoot,
-            bodyVeStychu = bodyVeStychuRoot,
-            muzePustitStych = stav.muzePustitStych,
-            prozatimBereHrac = stav.prozatimBereHrac,
-            hrac = idx,
-            ruka = mojeRuka
-        )
-
-        val povoleneSurove = zjistiPovoleneKarty(stav, idx)
-        val povoleneFiltrovane = if (sedmaPovolenaRoot) {
-            povoleneSurove
-        } else {
-            val bezSedmy = povoleneSurove.filterNot { it.hodnota == HodnotaKarty.R7 }.toSet()
-            if (bezSedmy.isNotEmpty() || stav.muzePustitStych) bezSedmy else povoleneSurove
+        // Dokud jsou v talonu karty, hraj čistou karbanickou taktiku s počítáním odehraných karet
+        if (stav.lizaciBalicek.isNotEmpty()) {
+            return provedTahSFaziTalonu(stav)
         }
 
-        val unikatniKarty = vyberUnikatniPodleHodnoty(povoleneFiltrovane)
-        val korenoveAkce = ArrayList<AkceBotaSedma>(unikatniKarty.size + 1)
-        for (k in unikatniKarty) {
-            korenoveAkce.add(AkceBotaSedma.ZahratKartu(k))
-        }
-        if (stav.muzePustitStych) {
-            korenoveAkce.add(AkceBotaSedma.PustitStych)
-        }
+        // Po dobrání talonu (poslední 4 štychy) dopočítej přesný Alpha-Beta Minimax až na konec hry
+        val povolene = zjistiPovoleneKarty(stav, idx)
+        val unikatni = vyberUnikatniPodleHodnoty(povolene)
+        val korenoveAkce = ArrayList<AkceBotaSedma>(unikatni.size + 1)
+        for (k in unikatni) korenoveAkce.add(AkceBotaSedma.ZahratKartu(k))
+        if (stav.muzePustitStych) korenoveAkce.add(AkceBotaSedma.PustitStych)
 
         if (korenoveAkce.isEmpty()) return stav
         if (korenoveAkce.size == 1) {
@@ -1046,165 +1035,65 @@ object SedmaEngine {
             }
         }
 
-        val znameKarty = HashSet<Karta>(32)
-        znameKarty.addAll(mojeRuka)
-        znameKarty.addAll(stav.odehraneKarty)
-        for (hk in stav.aktualniStych) {
-            znameKarty.add(hk.karta)
-        }
-        val nevideneKarty = VSECHNY_KARTY_BALICKU.filterNot { it in znameKarty }
-        val nevidenePodleHodnoty = IntArray(HodnotaKarty.entries.size)
-        for (k in nevideneKarty) {
-            nevidenePodleHodnoty[k.hodnota.ordinal]++
-        }
-
-        val poctyKaretHracu = IntArray(stav.pocetHracu) { p -> stav.ruceHracu[p].size }
+        val zname = HashSet<Karta>(32)
+        zname.addAll(mojeRuka)
+        zname.addAll(stav.odehraneKarty)
+        for (hk in stav.aktualniStych) zname.add(hk.karta)
+        val nevidene = VSECHNY_KARTY_BALICKU.filterNot { it in zname }
         val mujTym = stav.tymHrace(idx)
+        val soucty = DoubleArray(korenoveAkce.size)
 
-        var maskaHracuBezVedouci = 0
-        val aktVedouci = stav.vedouciHodnota
-        if (aktVedouci != null) {
-            var prubezneBody = 0
-            var prubeznyDrzitel = stav.aktualniStych.firstOrNull()?.indexHrace ?: 0
-            for ((poradi, tah) in stav.aktualniStych.withIndex()) {
-                val prebil = poradi == 0 || tah.karta.hodnota == aktVedouci || tah.karta.hodnota == HodnotaKarty.R7
-                if (prebil) {
-                    prubeznyDrzitel = tah.indexHrace
-                } else if (prubezneBody >= 10 && (tah.indexHrace % 2) != (prubeznyDrzitel % 2)) {
-                    maskaHracuBezVedouci = maskaHracuBezVedouci or (1 shl tah.indexHrace)
-                }
-                prubezneBody += tah.karta.hodnota.bodyMariasSedma
-            }
-        }
-
-        val souctySkore = DoubleArray(korenoveAkce.size)
-
-        if (stav.pocetHracu == 2 && velikostTalonu == 0) {
-            val presnySim = sestavSimStavProSvet(stav, idx, mojeRuka, poctyKaretHracu, nevideneKarty)
+        if (stav.pocetHracu == 2) {
+            // V duelu 1 na 1 po dobrání talonu jsou karty soupeře z počítání 100% jisté -> jediný přesný svět
+            val presny = sestavSimKoncovky(stav, idx, mojeRuka, nevidene)
             for ((aIdx, akce) in korenoveAkce.withIndex()) {
                 val poAkci = when (akce) {
-                    is AkceBotaSedma.PustitStych -> simUzavriStych(presnySim)
-                    is AkceBotaSedma.ZahratKartu -> simZahrajKartu(presnySim, akce.karta)
+                    is AkceBotaSedma.PustitStych -> simUzavriKoncovku(presny)
+                    is AkceBotaSedma.ZahratKartu -> simZahrajKoncovku(presny, akce.karta)
                 }
-                val citac = CitacUzluSedma(30_000)
-                val hodnota = alphaBetaSim(
-                    sim = poAkci,
-                    zbyvaStychu = 10,
-                    alfaPuv = Int.MIN_VALUE / 2,
-                    betaPuv = Int.MAX_VALUE / 2,
-                    mujTym = mujTym,
-                    citac = citac
-                )
-                souctySkore[aIdx] = hodnota.toDouble()
+                val citac = CitacUzluSedma(100_000)
+                soucty[aIdx] = alphaBetaKoncovka(poAkci, Int.MIN_VALUE / 2, Int.MAX_VALUE / 2, mujTym, citac).toDouble()
             }
         } else {
-            val pocetSvetu: Int
-            val hloubkaStychu: Int
-            val rozpocetNaAkci: Int
-            when {
-                stav.pocetHracu == 2 && velikostTalonu <= 4 -> {
-                    pocetSvetu = 28
-                    hloubkaStychu = 8
-                    rozpocetNaAkci = 900
-                }
-                stav.pocetHracu == 2 -> {
-                    pocetSvetu = 26
-                    hloubkaStychu = 2
-                    rozpocetNaAkci = 550
-                }
-                velikostTalonu == 0 -> {
-                    pocetSvetu = 22
-                    hloubkaStychu = 6
-                    rozpocetNaAkci = 750
-                }
-                else -> {
-                    pocetSvetu = 20
-                    hloubkaStychu = 2
-                    rozpocetNaAkci = 500
-                }
-            }
-
+            val pocetSvetu = 24
             val nahoda = Random(ziskejAktualniCasMs() xor (stav.cisloTahu.toLong() * 2654435761L))
-            val michaciPole = nevideneKarty.toMutableList()
-
+            val michaci = nevidene.toMutableList()
             repeat(pocetSvetu) {
-                var vybranySvet: SimStavSedma? = null
-                val maxPokusu = if (maskaHracuBezVedouci != 0 && aktVedouci != null) 3 else 1
-                for (pokus in 0 until maxPokusu) {
-                    michaciPole.shuffle(nahoda)
-                    val kandidatSim = sestavSimStavProSvet(stav, idx, mojeRuka, poctyKaretHracu, michaciPole)
-                    if (pokus == maxPokusu - 1 || aktVedouci == null) {
-                        vybranySvet = kandidatSim
-                        break
-                    }
-                    var odporujeDedukci = false
-                    for (p in 0 until stav.pocetHracu) {
-                        if (p != idx && (maskaHracuBezVedouci and (1 shl p)) != 0) {
-                            if (kandidatSim.ruce[p].any { it.hodnota == aktVedouci }) {
-                                odporujeDedukci = true
-                                break
-                            }
-                        }
-                    }
-                    if (!odporujeDedukci) {
-                        vybranySvet = kandidatSim
-                        break
-                    }
-                }
-
-                val zakladSvet = vybranySvet ?: sestavSimStavProSvet(stav, idx, mojeRuka, poctyKaretHracu, michaciPole)
+                michaci.shuffle(nahoda)
+                val svet = sestavSimKoncovky(stav, idx, mojeRuka, michaci)
                 for ((aIdx, akce) in korenoveAkce.withIndex()) {
                     val poAkci = when (akce) {
-                        is AkceBotaSedma.PustitStych -> simUzavriStych(zakladSvet)
-                        is AkceBotaSedma.ZahratKartu -> simZahrajKartu(zakladSvet, akce.karta)
+                        is AkceBotaSedma.PustitStych -> simUzavriKoncovku(svet)
+                        is AkceBotaSedma.ZahratKartu -> simZahrajKoncovku(svet, akce.karta)
                     }
-                    val dokoncilStych = poAkci.stychHodnoty.isEmpty() && !poAkci.jeKonec
-                    val startHloubka = if (dokoncilStych) hloubkaStychu - 1 else hloubkaStychu
-                    val citac = CitacUzluSedma(rozpocetNaAkci)
-                    val hodnota = alphaBetaSim(
-                        sim = poAkci,
-                        zbyvaStychu = startHloubka,
-                        alfaPuv = Int.MIN_VALUE / 2,
-                        betaPuv = Int.MAX_VALUE / 2,
-                        mujTym = mujTym,
-                        citac = citac
-                    )
-                    souctySkore[aIdx] += hodnota.toDouble()
+                    val citac = CitacUzluSedma(8_000)
+                    soucty[aIdx] += alphaBetaKoncovka(poAkci, Int.MIN_VALUE / 2, Int.MAX_VALUE / 2, mujTym, citac).toDouble()
                 }
             }
-
-            for (i in souctySkore.indices) {
-                souctySkore[i] /= pocetSvetu.toDouble()
-            }
+            for (i in soucty.indices) soucty[i] /= pocetSvetu.toDouble()
         }
 
-        // Jemný tie-breaker: šetři sedmičku, při odhozu zahazuj běžné plívy (šetři mrtvé 4. karty na výnos)
-        var nejIndex = 0
+        var nejIdx = 0
         var nejSkore = Double.NEGATIVE_INFINITY
         for ((aIdx, akce) in korenoveAkce.withIndex()) {
-            val jemnaKorekce = when (akce) {
+            val korekce = when (akce) {
                 is AkceBotaSedma.PustitStych -> 0.05
-                is AkceBotaSedma.ZahratKartu -> {
-                    val h = akce.karta.hodnota
-                    val zbyvaVenku = nevidenePodleHodnoty[h.ordinal]
-                    when {
-                        h == HodnotaKarty.R7 -> -0.15
-                        h.bodyMariasSedma >= 10 -> -0.04
-                        stav.aktualniStych.isEmpty() -> (4 - zbyvaVenku) * 0.02
-                        else -> zbyvaVenku * 0.02
-                    }
+                is AkceBotaSedma.ZahratKartu -> when {
+                    akce.karta.hodnota == HodnotaKarty.R7 -> -0.15
+                    akce.karta.hodnota.bodyMariasSedma >= 10 -> -0.05
+                    else -> 0.0
                 }
             }
-            val celkem = souctySkore[aIdx] + jemnaKorekce
+            val celkem = soucty[aIdx] + korekce
             if (celkem > nejSkore) {
                 nejSkore = celkem
-                nejIndex = aIdx
+                nejIdx = aIdx
             }
         }
 
-        return when (val viteznaAkce = korenoveAkce[nejIndex]) {
+        return when (val vitezna = korenoveAkce[nejIdx]) {
             is AkceBotaSedma.PustitStych -> pustStych(stav, idx)
-            is AkceBotaSedma.ZahratKartu -> zahrajKartu(stav, idx, viteznaAkce.karta)
+            is AkceBotaSedma.ZahratKartu -> zahrajKartu(stav, idx, vitezna.karta)
         }
     }
 
